@@ -12,7 +12,8 @@
     "backtest": "tsx --env-file=.env.local scripts/backtest.ts",
     "floor-study": "tsx --env-file=.env.local scripts/floor-study.ts",
     "validate-capitulation": "tsx --env-file=.env.local scripts/validate-capitulation.ts",
-    "spy-study": "tsx --env-file=.env.local scripts/spy-study.ts"
+    "spy-study": "tsx --env-file=.env.local scripts/spy-study.ts",
+    "intraday-study": "tsx --env-file=.env.local scripts/intraday-study.ts"
   },
   "dependencies": {
     "next": "16.4.4",
