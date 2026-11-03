@@ -14,7 +14,8 @@
     "validate-capitulation": "tsx --env-file=.env.local scripts/validate-capitulation.ts",
     "spy-study": "tsx --env-file=.env.local scripts/spy-study.ts",
     "intraday-study": "tsx --env-file=.env.local scripts/intraday-study.ts",
-    "top10-study": "tsx --env-file=.env.local scripts/top10-study.ts"
+    "top10-study": "tsx --env-file=.env.local scripts/top10-study.ts",
+    "signal-log": "tsx --env-file=.env.local scripts/signal-log.ts"
   },
   "dependencies": {
     "next": "16.4.4",

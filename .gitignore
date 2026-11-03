@@ -50,3 +50,6 @@ next-env.d.ts
 
 # backtest data cache (reports/ is committed)
 data/
+
+# forward-test scheduler log (the CSVs are the committed record)
+forward-test/run.log
