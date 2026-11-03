@@ -1,0 +1,64 @@
+name: Nightly signal log
+
+# Forward test of the capitulation fade (see forward-test/PROTOCOL.md).
+# Runs Mon-Fri evenings (01:30 UTC next day = 8:30 PM EST / 9:30 PM EDT): after the
+# 4:20 PM ET "session finished" cutoff and well before the next 9:30 AM ET open.
+# Holidays and re-runs are harmless: an already-logged session is skipped.
+on:
+  schedule:
+    - cron: "30 1 * * 2-6"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (print only, write and commit nothing)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: signal-log
+  cancel-in-progress: false
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+      ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check Alpaca secrets are present
+        run: |
+          if [ -z "$ALPACA_API_KEY_ID" ] || [ -z "$ALPACA_API_SECRET_KEY" ]; then
+            echo "::error::Missing repo secrets ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+
+      - name: Run signal log
+        run: npm run signal-log:ci -- ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+
+      - name: Commit the log
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add forward-test
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          # [skip ci] [vercel skip]: a log update must not redeploy the website.
+          git commit -m "forward-test: nightly log $(date -u +%F) [skip ci] [vercel skip]"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
