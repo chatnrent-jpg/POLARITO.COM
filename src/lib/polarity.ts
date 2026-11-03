@@ -173,8 +173,17 @@ export function gate(net: number, noiseFloor: number): Polarity {
  * Run the engine over a chronological bar array. Returns one DayResult per bar.
  * Throws InvalidBarsError on malformed input.
  */
-export function computePolaritySeries(bars: readonly Bar[]): DayResult[] {
+export function computePolaritySeries(
+  bars: readonly Bar[],
+  options: { noiseFloorRatio?: number } = {},
+): DayResult[] {
   validateBars(bars);
+  // The live app always uses the default (0.10). The override exists only so
+  // the backtester can test other floors; it is never wired to the UI.
+  const ratio = options.noiseFloorRatio ?? NOISE_FLOOR_RATIO;
+  if (!Number.isFinite(ratio) || ratio < 0) {
+    throw new InvalidBarsError("noiseFloorRatio must be a finite number >= 0.");
+  }
 
   const results: DayResult[] = [];
   let windowSum = 0;
@@ -187,7 +196,7 @@ export function computePolaritySeries(bars: readonly Bar[]): DayResult[] {
     const net = netVolume(bar);
     const ready = i >= VOLUME_MA_WINDOW - 1;
     const avgVolume = ready ? windowSum / VOLUME_MA_WINDOW : null;
-    const noiseFloor = avgVolume === null ? null : avgVolume * NOISE_FLOOR_RATIO;
+    const noiseFloor = avgVolume === null ? null : avgVolume * ratio;
 
     results.push({
       date: bar.date,

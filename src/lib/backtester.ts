@@ -125,8 +125,12 @@ export function forwardReturn(
  * are excluded: the engine forces them Neutral, and counting them as "Neutral
  * signals" would pollute the Neutral bucket and the baseline.
  */
-export function collectObservations(ticker: string, bars: readonly Bar[]): Observation[] {
-  const series = computePolaritySeries(bars); // validates bars (throws on bad data)
+export function collectObservations(
+  ticker: string,
+  bars: readonly Bar[],
+  opts: { noiseFloorRatio?: number } = {},
+): Observation[] {
+  const series = computePolaritySeries(bars, opts); // validates bars (throws on bad data)
   const out: Observation[] = [];
   for (let i = 0; i < bars.length; i++) {
     if (!series[i].ready) continue;
@@ -315,6 +319,12 @@ export type StrategyConfig = {
   allowShort: boolean;
   /** One-way cost per unit of position change, in basis points. */
   costBps: number;
+  /** Noise Floor as a multiple of the 20-day average volume (default 0.10). */
+  noiseFloorRatio?: number;
+  /** Fade the signal: Drive opens a short, Reverse opens a long. */
+  invert?: boolean;
+  /** Which raw signals to act on (default "both"). */
+  sides?: "both" | "drive" | "reverse";
 };
 
 export type Trade = {
@@ -357,6 +367,8 @@ export type StrategyResult = {
   perf: PerfMetrics;
   tradeMetrics: TradeMetrics;
   trades: Trade[];
+  /** Per-session flag (aligned with dates/returns): was any position held. */
+  exposedByDay: boolean[];
   /** Share of sessions with any position. */
   exposure: number;
   /** One-way position change per year (1 = fully turning over once a year). */
@@ -439,8 +451,9 @@ export function runStrategy(
   if (!Number.isFinite(cfg.costBps) || cfg.costBps < 0) {
     throw new BacktestInputError("costBps must be a finite number >= 0.");
   }
-  const series = computePolaritySeries(bars);
+  const series = computePolaritySeries(bars, { noiseFloorRatio: cfg.noiseFloorRatio });
   const cost = cfg.costBps / 10_000;
+  const sides = cfg.sides ?? "both";
   const n = bars.length;
   const start = VOLUME_MA_WINDOW; // first session a signal could be filled on
 
@@ -452,7 +465,7 @@ export function runStrategy(
   const trades: Trade[] = [];
   const dates: string[] = [];
   const returns: number[] = [];
-  let exposedDays = 0;
+  const exposedByDay: boolean[] = [];
   let absTraded = 0;
 
   const closeTrade = (price: number, date: string, day: number) => {
@@ -478,7 +491,10 @@ export function runStrategy(
 
     // act on the signal known at the close of the previous bar
     if (i >= 1) {
-      const sig = series[i - 1].polarity;
+      const raw = series[i - 1].polarity;
+      const acted: Polarity =
+        (sides === "drive" && raw === -1) || (sides === "reverse" && raw === 1) ? 0 : raw;
+      const sig: Polarity = cfg.invert ? ((acted === 0 ? 0 : -acted) as Polarity) : acted;
       if (sig !== 0) {
         const desired: -1 | 0 | 1 = sig < 0 && !cfg.allowShort ? 0 : sig;
         if (desired !== pos) {
@@ -512,7 +528,7 @@ export function runStrategy(
     if (i >= start) {
       dates.push(bars[i].date);
       returns.push(f - 1);
-      if (exposed) exposedDays++;
+      exposedByDay.push(exposed);
     }
   }
 
@@ -541,7 +557,8 @@ export function runStrategy(
     perf: perfMetrics(returns),
     tradeMetrics: tradeMetrics(trades),
     trades,
-    exposure: days ? exposedDays / days : 0,
+    exposedByDay,
+    exposure: days ? exposedByDay.filter(Boolean).length / days : 0,
     turnoverPerYear: days ? absTraded / (days / TRADING_DAYS_PER_YEAR) : 0,
     buyHold: perfMetrics(bh),
   };
@@ -579,5 +596,46 @@ export function buyHoldSeries(bars: readonly Bar[]): { dates: string[]; returns:
     dates.push(bars[i].date);
     returns.push(bars[i].close / bars[i - 1].close - 1);
   }
+  return { dates, returns };
+}
+
+/**
+ * Re-score a finished strategy on a sub-window of dates (inclusive bounds,
+ * ISO strings). Positions carry in from before `from` exactly as they would
+ * have live, so this is the honest "what happened in the hold-out" number.
+ */
+export function windowResult(
+  r: StrategyResult,
+  from: string,
+  to = "9999-12-31",
+): { perf: PerfMetrics; trade: TradeMetrics; exposure: number; days: number } {
+  const idx: number[] = [];
+  r.dates.forEach((d, i) => {
+    if (d >= from && d <= to) idx.push(i);
+  });
+  const rets = idx.map((i) => r.returns[i]);
+  const trades = r.trades.filter((t) => t.entryDate >= from && t.entryDate <= to);
+  return {
+    perf: perfMetrics(rets),
+    trade: tradeMetrics(trades),
+    exposure: idx.length ? idx.filter((i) => r.exposedByDay[i]).length / idx.length : 0,
+    days: idx.length,
+  };
+}
+
+/** A dated return series restricted to a date window. */
+export function windowSeries(
+  s: { dates: readonly string[]; returns: readonly number[] },
+  from: string,
+  to = "9999-12-31",
+): { dates: string[]; returns: number[] } {
+  const dates: string[] = [];
+  const returns: number[] = [];
+  s.dates.forEach((d, i) => {
+    if (d >= from && d <= to) {
+      dates.push(d);
+      returns.push(s.returns[i]);
+    }
+  });
   return { dates, returns };
 }

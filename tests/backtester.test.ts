@@ -8,6 +8,7 @@ import {
   makeRng,
   perfMetrics,
   runStrategy,
+  windowResult,
   fwdKey,
   type Observation,
 } from "../src/lib/backtester";
@@ -163,4 +164,43 @@ test("equal-weight portfolio averages by date", () => {
   assert.deepEqual(p.dates, ["2024-01-01", "2024-01-02"]);
   close(p.returns[0], 0.02);
   close(p.returns[1], 0.02);
+});
+
+test("noiseFloorRatio: a higher floor turns the scenario's Drive day Neutral", () => {
+  const at = (ratio: number) => computePolaritySeries(scenario(), { noiseFloorRatio: ratio })[20].polarity;
+  assert.equal(at(0.1), 1); // default behaviour
+  assert.equal(at(0.9), 1); // net 1000 > floor 900
+  assert.equal(at(1.0), 0); // strict inequality: net 1000 is not > 1000
+  assert.equal(at(1.5), 0);
+  assert.equal(computePolaritySeries(scenario())[20].polarity, 1); // omitted option = 0.10
+  assert.throws(() => computePolaritySeries(scenario(), { noiseFloorRatio: -1 }));
+});
+
+test("invert fades the signal: Drive becomes a short with the mirrored return", () => {
+  const r = runStrategy(scenario(), { name: "t", holdDays: 1, allowShort: true, costBps: 0, invert: true });
+  assert.equal(r.trades.length, 1);
+  assert.equal(r.trades[0].direction, -1);
+  close(r.trades[0].returnPct, -(103 / 101 - 1));
+  // long-only cannot express a fade of Drive (it would need a short)
+  const lo = runStrategy(scenario(), { name: "t", holdDays: 1, allowShort: false, costBps: 0, invert: true });
+  assert.equal(lo.trades.length, 0);
+});
+
+test("sides filters which raw signals are acted on", () => {
+  const bars = randomBars(400, 9);
+  const base = { name: "t", holdDays: 5, allowShort: true, costBps: 0 } as const;
+  const d = runStrategy(bars, { ...base, sides: "drive" });
+  const rv = runStrategy(bars, { ...base, sides: "reverse" });
+  assert.ok(d.trades.length > 0 && d.trades.every((t) => t.direction === 1));
+  assert.ok(rv.trades.length > 0 && rv.trades.every((t) => t.direction === -1));
+});
+
+test("windowResult re-scores a date window without changing the underlying path", () => {
+  const bars = randomBars(300, 4);
+  const r = runStrategy(bars, { name: "t", holdDays: 5, allowShort: true, costBps: 5 });
+  const mid = r.dates[Math.floor(r.dates.length / 2)];
+  const whole = windowResult(r, r.dates[0]);
+  close(whole.perf.totalReturn, r.perf.totalReturn, 1e-12);
+  const second = windowResult(r, mid);
+  assert.ok(second.days < whole.days && second.days > 0);
 });
