@@ -28,11 +28,17 @@ export type GuardResult = {
   message: string | null;
 };
 
+/*
+ * These rules are a self-discipline feature of the simulator, NOT a forecast.
+ * Back-tests (SPY 2016-2026, daily and 5-minute bars, costs included) found no
+ * edge in following Polarity, so the wording must not imply that the aligned
+ * side is the "right" side.
+ */
 export const MSG_NEUTRAL =
-  "ORDER BLOCKED: Market is in NEUTRAL gear. No speculation permitted during liquidity consolidation.";
+  "ORDER BLOCKED: Polarity is NEUTRAL (volume is inside the Noise Floor). This simulator takes no entries on a Neutral reading.";
 
 export const MSG_OPPOSED =
-  "WARNING: You are trying to engage a gear that opposes macro market polarity. Proceeding breaks disciplined swing trading rules.";
+  "ORDER BLOCKED: This simulator only takes entries that match the polarity (Drive = long, Reverse = short). It is a discipline rule, not a forecast: back-tests found no tradeable edge in following it.";
 
 export const MAX_QUANTITY = 100_000;
 

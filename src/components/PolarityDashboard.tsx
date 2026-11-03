@@ -162,6 +162,24 @@ export default function PolarityDashboard() {
             {loading ? "Loading…" : "Analyze"}
           </button>
         </form>
+        <aside
+          aria-label="What Polarito shows"
+          className="w-full rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-sm leading-relaxed text-slate-300"
+        >
+          <p>
+            <strong className="font-bold text-white">What this shows.</strong> Each day is
+            classified by candle colour and weighted by volume (green = +volume, red = −volume).
+            The Noise Floor ({NOISE_FLOOR_RATIO * 100}% of the {VOLUME_MA_WINDOW}-day average
+            volume) hides small bars; the rest read Drive (+1) or Reverse (−1).
+          </p>
+          <p className="mt-2">
+            <strong className="font-bold text-white">What it is not.</strong> It describes what
+            the market did; it is not a forecast. On SPY itself (2016–2026, daily and 5-minute
+            bars) it showed no edge that survives trading costs; results on individual stocks are
+            still being researched. Orders here are simulated. Nothing on this page is investment
+            advice.
+          </p>
+        </aside>
       </header>
 
       {/* Transmission + execution gate, side by side on wide screens */}
@@ -227,7 +245,7 @@ export default function PolarityDashboard() {
             />
           </div>
 
-          {/* Crowd Sentiment (live news keywords): the crowd read beside institutional Net Volume */}
+          {/* Crowd Sentiment (live news keywords): a news-text reading shown beside Net Volume. Informational; not validated as a predictor. */}
           <PremiumGate>
             <section
               aria-label="Crowd sentiment"

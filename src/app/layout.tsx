@@ -14,7 +14,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Polarito — Polarity Transmission",
-  description: "Drive (+1), Neutral (0), Reverse (-1) polarity dashboard.",
+  description:
+    "Volume-weighted candle direction as Drive (+1), Neutral (0) or Reverse (-1). A descriptive dashboard with a simulated ledger; not investment advice.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

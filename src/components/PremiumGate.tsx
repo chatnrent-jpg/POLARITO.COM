@@ -87,8 +87,8 @@ export default function PremiumGate({
           🔒 POLARITO PREMIUM REQUIRED
         </h3>
         <p className="max-w-md text-lg font-medium leading-snug text-slate-200">
-          Unlock institutional alternative sentiment metrics and advanced trend velocity scoring
-          for $15/month.
+          Unlock Crowd Sentiment: a headline-keyword reading from live news (bullish vs bearish
+          words per day), shown beside Net Volume. Informational only, not a forecast. $15/month.
         </p>
         <button
           type="button"

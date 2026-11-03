@@ -145,6 +145,7 @@ export default function Transmission({ polarity }: { polarity: Polarity }) {
         >
           {meta.label}
         </span>
+        <span className="text-sm text-slate-400">Latest session&apos;s volume-weighted candle direction</span>
       </div>
     </section>
   );
