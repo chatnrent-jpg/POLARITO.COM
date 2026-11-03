@@ -25,9 +25,6 @@ jobs:
   log:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
-      ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,15 +35,27 @@ jobs:
 
       - run: npm ci
 
-      - name: Check Alpaca secrets are present
+      # Accepts EITHER two secrets (ALPACA_API_KEY_ID + ALPACA_API_SECRET_KEY) OR one secret
+      # (ALPACAKEYS) holding the two `NAME=value` lines from .env.local. Values are never printed.
+      - name: Prepare Alpaca keys
+        env:
+          COMBINED: ${{ secrets.ALPACAKEYS }}
+          KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          KEY_SECRET: ${{ secrets.ALPACA_API_SECRET_KEY }}
         run: |
-          if [ -z "$ALPACA_API_KEY_ID" ] || [ -z "$ALPACA_API_SECRET_KEY" ]; then
-            echo "::error::Missing repo secrets ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY (Settings > Secrets and variables > Actions)."
-            exit 1
-          fi
+          f="$RUNNER_TEMP/alpaca.env"
+          : > "$f"
+          if [ -n "$COMBINED" ]; then printf '%s\n' "$COMBINED" | tr -d '\r' > "$f"; fi
+          if [ -n "$KEY_ID" ]; then printf 'ALPACA_API_KEY_ID=%s\n' "$KEY_ID" >> "$f"; fi
+          if [ -n "$KEY_SECRET" ]; then printf 'ALPACA_API_SECRET_KEY=%s\n' "$KEY_SECRET" >> "$f"; fi
+          ok=1
+          for v in ALPACA_API_KEY_ID ALPACA_API_SECRET_KEY; do
+            if grep -q "^${v}=." "$f"; then echo "found $v"; else echo "::error::$v not found. Put NAME=value lines in secret ALPACAKEYS, or add a secret named $v."; ok=0; fi
+          done
+          [ "$ok" = 1 ]
 
       - name: Run signal log
-        run: npm run signal-log:ci -- ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+        run: npx tsx --env-file="$RUNNER_TEMP/alpaca.env" scripts/signal-log.ts ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
 
       - name: Commit the log
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
