@@ -36,7 +36,6 @@ import {
   perfMetrics,
   runStrategy,
   tradeMetrics,
-  windowSeries,
   type EventStats,
   type StrategyConfig,
   type Trade,
