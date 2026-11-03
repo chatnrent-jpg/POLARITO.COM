@@ -47,3 +47,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# backtest data cache (reports/ is committed)
+data/

@@ -7,7 +7,9 @@
     "build": "next build",
     "package:namecom": "node scripts/package-namecom.mjs",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "backtest": "tsx --env-file=.env.local scripts/backtest.ts"
   },
   "dependencies": {
     "next": "16.4.4",
@@ -22,6 +24,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.4",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

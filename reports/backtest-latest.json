@@ -1,0 +1,5076 @@
+{
+  "generatedAt": "2026-11-03T13:21:19.876Z",
+  "args": {
+    "tickers": [
+      "SPY",
+      "QQQ",
+      "IWM",
+      "AAPL",
+      "MSFT",
+      "NVDA",
+      "AMZN",
+      "GOOGL",
+      "META",
+      "TSLA",
+      "AMD",
+      "JPM",
+      "XOM"
+    ],
+    "start": "2016-01-04",
+    "feed": "sip",
+    "costBps": 5,
+    "permutations": 2000,
+    "refresh": false
+  },
+  "dateRange": "2016-01-04 -> 2026-11-02",
+  "skipped": [],
+  "signalCounts": {
+    "drive": 18232,
+    "neutral": 30,
+    "reverse": 16903
+  },
+  "verdict": "INVERSE (edge < 0, p < 0.05; the market tends to do the OPPOSITE of the signal, i.e. mean reversion): Drive (+1) 1D (edge -0.064%, p <0.001); Reverse (-1) 1D (edge -0.070%, p <0.001); Drive (+1) 5D (edge -0.115%, p 0.001); Reverse (-1) 5D (edge -0.124%, p 0.002); Drive (+1) 20D (edge -0.193%, p 0.011); Reverse (-1) 20D (edge -0.209%, p 0.010). The Noise Floor almost never binds: Neutral is only 0.09% of days, so Drive/Reverse is effectively just the candle colour (green = +1, red = -1).",
+  "eventStudy": [
+    {
+      "polarity": 1,
+      "horizon": 1,
+      "entry": "nextOpen",
+      "n": 18231,
+      "meanRaw": -0.00020798373363775048,
+      "meanDirectional": -0.00020798373363775048,
+      "medianDirectional": 0.0001531205977827188,
+      "hitRate": 0.5034830782732708,
+      "stdevDirectional": 0.0171061961537093,
+      "tStat": -1.6416522568295808,
+      "edge": -0.0006390170981282845,
+      "pValue": 0.0004997501249375312
+    },
+    {
+      "polarity": 0,
+      "horizon": 1,
+      "entry": "nextOpen",
+      "n": 30,
+      "meanRaw": -0.0028033613386263053,
+      "meanDirectional": -0.0028033613386263053,
+      "medianDirectional": 0,
+      "hitRate": 0.4666666666666667,
+      "stdevDirectional": 0.012773521316910726,
+      "tStat": -1.2020680937610535,
+      "edge": -0.0032171030058372177,
+      "pValue": null
+    },
+    {
+      "polarity": -1,
+      "horizon": 1,
+      "entry": "nextOpen",
+      "n": 16891,
+      "meanRaw": 0.0011203593763915733,
+      "meanDirectional": -0.0011203593763915733,
+      "medianDirectional": -0.0008721944412142246,
+      "hitRate": 0.4650997572671837,
+      "stdevDirectional": 0.018453168678929804,
+      "tStat": -7.890673663099706,
+      "edge": -0.0006954255997958441,
+      "pValue": 0.0004997501249375312
+    },
+    {
+      "polarity": 1,
+      "horizon": 5,
+      "entry": "nextOpen",
+      "n": 18206,
+      "meanRaw": 0.004137925901933501,
+      "meanDirectional": 0.004137925901933501,
+      "medianDirectional": 0.004438008111060654,
+      "hitRate": 0.5610787652422279,
+      "stdevDirectional": 0.04636927386871431,
+      "tStat": 12.040920352375915,
+      "edge": -0.0011475484986440073,
+      "pValue": 0.0014992503748125937
+    },
+    {
+      "polarity": 0,
+      "horizon": 5,
+      "entry": "nextOpen",
+      "n": 30,
+      "meanRaw": 0.004767768342829178,
+      "meanDirectional": 0.004767768342829178,
+      "medianDirectional": -0.00020639834881325259,
+      "hitRate": 0.4666666666666667,
+      "stdevDirectional": 0.039805984295963756,
+      "tStat": 0.6560355977910981,
+      "edge": -0.0007148715715745172,
+      "pValue": null
+    },
+    {
+      "polarity": -1,
+      "horizon": 5,
+      "entry": "nextOpen",
+      "n": 16864,
+      "meanRaw": 0.006573813287634239,
+      "meanDirectional": -0.006573813287634239,
+      "medianDirectional": -0.005527329997812358,
+      "hitRate": 0.42445445920303604,
+      "stdevDirectional": 0.048896597787918446,
+      "tStat": -17.458986114824157,
+      "edge": -0.0012401395940145137,
+      "pValue": 0.001999000499750125
+    },
+    {
+      "polarity": 1,
+      "horizon": 20,
+      "entry": "nextOpen",
+      "n": 18114,
+      "meanRaw": 0.022098917706618315,
+      "meanDirectional": 0.022098917706618315,
+      "medianDirectional": 0.019522310427916745,
+      "hitRate": 0.6154355746936071,
+      "stdevDirectional": 0.10024399260497718,
+      "tStat": 29.670156055316113,
+      "edge": -0.0019317800199302982,
+      "pValue": 0.011494252873563218
+    },
+    {
+      "polarity": 0,
+      "horizon": 20,
+      "entry": "nextOpen",
+      "n": 30,
+      "meanRaw": 0.024792527984982434,
+      "meanDirectional": 0.024792527984982434,
+      "medianDirectional": -0.0008338310258818593,
+      "hitRate": 0.5,
+      "stdevDirectional": 0.09989758156399119,
+      "tStat": 1.3593348930328644,
+      "edge": -0.00009700493936166538,
+      "pValue": null
+    },
+    {
+      "polarity": -1,
+      "horizon": 20,
+      "entry": "nextOpen",
+      "n": 16761,
+      "meanRaw": 0.02638383934869384,
+      "meanDirectional": -0.02638383934869384,
+      "medianDirectional": -0.022222222222222143,
+      "hitRate": 0.3605990096056321,
+      "stdevDirectional": 0.1023238871584949,
+      "tStat": -33.38189039298907,
+      "edge": -0.0020878929317581472,
+      "pValue": 0.010494752623688156
+    },
+    {
+      "polarity": 1,
+      "horizon": 1,
+      "entry": "close",
+      "n": 18231,
+      "meanRaw": 0.0007960558421403902,
+      "meanDirectional": 0.0007960558421403902,
+      "medianDirectional": 0.0008043973723019793,
+      "hitRate": 0.5245461027919478,
+      "stdevDirectional": 0.022160052181472826,
+      "tStat": 4.850404975711393,
+      "edge": -0.00040723650775237547,
+      "pValue": null
+    },
+    {
+      "polarity": 0,
+      "horizon": 1,
+      "entry": "close",
+      "n": 30,
+      "meanRaw": -0.0051643369467107274,
+      "meanDirectional": -0.0051643369467107274,
+      "medianDirectional": -0.00162981695047959,
+      "hitRate": 0.4,
+      "stdevDirectional": 0.014570716817765882,
+      "tStat": -1.941307264184777,
+      "edge": -0.006427067940565662,
+      "pValue": null
+    },
+    {
+      "polarity": -1,
+      "horizon": 1,
+      "entry": "close",
+      "n": 16891,
+      "meanRaw": 0.001667642947133578,
+      "meanDirectional": -0.001667642947133578,
+      "medianDirectional": -0.0013687550550611771,
+      "hitRate": 0.4549168196080753,
+      "stdevDirectional": 0.02370217006417055,
+      "tStat": -9.14413527331421,
+      "edge": -0.0004509585466254641,
+      "pValue": null
+    },
+    {
+      "polarity": 1,
+      "horizon": 5,
+      "entry": "close",
+      "n": 18206,
+      "meanRaw": 0.005166957969985564,
+      "meanDirectional": 0.005166957969985564,
+      "medianDirectional": 0.005223506250367382,
+      "hitRate": 0.569043172580468,
+      "stdevDirectional": 0.04868137832710764,
+      "tStat": 14.32119743410685,
+      "edge": -0.0009053718341593495,
+      "pValue": null
+    },
+    {
+      "polarity": 0,
+      "horizon": 5,
+      "entry": "close",
+      "n": 30,
+      "meanRaw": 0.0024472822155163815,
+      "meanDirectional": 0.0024472822155163815,
+      "medianDirectional": -0.0014501549063785646,
+      "hitRate": 0.4666666666666667,
+      "stdevDirectional": 0.04172140218220886,
+      "tStat": 0.321281549494791,
+      "edge": -0.0038935100078503777,
+      "pValue": null
+    },
+    {
+      "polarity": -1,
+      "horizon": 5,
+      "entry": "close",
+      "n": 16864,
+      "meanRaw": 0.00712477921485286,
+      "meanDirectional": -0.00712477921485286,
+      "medianDirectional": -0.005990379247122535,
+      "hitRate": 0.4207186907020873,
+      "stdevDirectional": 0.051152173970036297,
+      "tStat": -18.08787764645217,
+      "edge": -0.0009843456423707438,
+      "pValue": null
+    },
+    {
+      "polarity": 1,
+      "horizon": 20,
+      "entry": "close",
+      "n": 18114,
+      "meanRaw": 0.023174718049734946,
+      "meanDirectional": 0.023174718049734946,
+      "medianDirectional": 0.02017608278635674,
+      "hitRate": 0.6217842552721652,
+      "stdevDirectional": 0.10178650165325917,
+      "tStat": 30.64301209791119,
+      "edge": -0.0016864121440278424,
+      "pValue": null
+    },
+    {
+      "polarity": 0,
+      "horizon": 20,
+      "entry": "close",
+      "n": 30,
+      "meanRaw": 0.02214182980423853,
+      "meanDirectional": 0.02214182980423853,
+      "medianDirectional": 0.00011906179307064058,
+      "hitRate": 0.5,
+      "stdevDirectional": 0.09686815604174281,
+      "tStat": 1.2519676376409576,
+      "edge": -0.003651255098694735,
+      "pValue": null
+    },
+    {
+      "polarity": -1,
+      "horizon": 20,
+      "entry": "close",
+      "n": 16761,
+      "meanRaw": 0.02697696200320236,
+      "meanDirectional": -0.02697696200320236,
+      "medianDirectional": -0.02283256121773669,
+      "hitRate": 0.3636417874828471,
+      "stdevDirectional": 0.10368339885116387,
+      "tStat": -33.68478485748805,
+      "edge": -0.001829079841887761,
+      "pValue": null
+    }
+  ],
+  "byYear": {
+    "2016": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1610,
+        "meanRaw": 0.00011577762820745687,
+        "meanDirectional": 0.00011577762820745687,
+        "medianDirectional": 0,
+        "hitRate": 0.493167701863354,
+        "stdevDirectional": 0.015220958031977538,
+        "tStat": 0.30520777861923193,
+        "edge": -0.0009406628986930204,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 6,
+        "meanRaw": 0.0023038092858383985,
+        "meanDirectional": 0.0023038092858383985,
+        "medianDirectional": 0.001049419831420484,
+        "hitRate": 0.6666666666666666,
+        "stdevDirectional": 0.007298264780646933,
+        "tStat": 0.7732190300842408,
+        "edge": 0.0008417858414622292,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1413,
+        "meanRaw": 0.002057100569227749,
+        "meanDirectional": -0.002057100569227749,
+        "medianDirectional": -0.0014469316537577548,
+        "hitRate": 0.4267515923566879,
+        "stdevDirectional": 0.016371370523711962,
+        "tStat": -4.723256898377454,
+        "edge": -0.001068235351625624,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1610,
+        "meanRaw": 0.008683868640781054,
+        "meanDirectional": 0.008683868640781054,
+        "medianDirectional": 0.00479872756223898,
+        "hitRate": 0.5819875776397515,
+        "stdevDirectional": 0.04200888215127895,
+        "tStat": 8.29440157841088,
+        "edge": -0.0006965809237033239,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 6,
+        "meanRaw": 0.0010478124461819986,
+        "meanDirectional": 0.0010478124461819986,
+        "medianDirectional": -0.0018778937800590367,
+        "hitRate": 0.16666666666666666,
+        "stdevDirectional": 0.017995509543412305,
+        "tStat": 0.14262479387380977,
+        "edge": -0.012030537956413075,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1413,
+        "meanRaw": 0.010083751705361283,
+        "meanDirectional": -0.010083751705361283,
+        "medianDirectional": -0.0060954371299200005,
+        "hitRate": 0.38499646142958244,
+        "stdevDirectional": 0.04561814451409913,
+        "tStat": -8.30913103114241,
+        "edge": -0.0008447830961789283,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1610,
+        "meanRaw": 0.04063173250261013,
+        "meanDirectional": 0.04063173250261013,
+        "medianDirectional": 0.027652217740694818,
+        "hitRate": 0.7198757763975155,
+        "stdevDirectional": 0.08871700735287573,
+        "tStat": 18.376863739332613,
+        "edge": -0.0014347281495948078,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 6,
+        "meanRaw": 0.061476606486330576,
+        "meanDirectional": 0.061476606486330576,
+        "medianDirectional": 0.02115401947922735,
+        "hitRate": 0.6666666666666666,
+        "stdevDirectional": 0.14964999285184127,
+        "tStat": 1.0062567604561816,
+        "edge": 0.003978241042390769,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1413,
+        "meanRaw": 0.043440055765853344,
+        "meanDirectional": -0.043440055765853344,
+        "medianDirectional": -0.02910678551937429,
+        "hitRate": 0.267515923566879,
+        "stdevDirectional": 0.09002611666391128,
+        "tStat": -18.138147866962075,
+        "edge": -0.0016178647378579873,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1610,
+        "meanRaw": 0.0007106747373371128,
+        "meanDirectional": 0.0007106747373371128,
+        "medianDirectional": 0.00025877445969413326,
+        "hitRate": 0.5062111801242236,
+        "stdevDirectional": 0.01799757222013343,
+        "tStat": 1.5844184490709625,
+        "edge": -0.0011517578955177075,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 6,
+        "meanRaw": -0.0020135179596183126,
+        "meanDirectional": -0.0020135179596183126,
+        "medianDirectional": -0.0038719532548949775,
+        "hitRate": 0.3333333333333333,
+        "stdevDirectional": 0.015554669475505323,
+        "tStat": -0.3170810923858954,
+        "edge": -0.004700002598160304,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1413,
+        "meanRaw": 0.003161747863100445,
+        "meanDirectional": -0.003161747863100445,
+        "medianDirectional": -0.001952398661212218,
+        "hitRate": 0.41118188251946214,
+        "stdevDirectional": 0.024104364121514305,
+        "tStat": -4.930632516299075,
+        "edge": -0.0013322931545452744,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1610,
+        "meanRaw": 0.009302955908056148,
+        "meanDirectional": 0.009302955908056148,
+        "medianDirectional": 0.005223506250367382,
+        "hitRate": 0.5838509316770186,
+        "stdevDirectional": 0.04366885908682386,
+        "tStat": 8.547951613322464,
+        "edge": -0.000910026903465726,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 6,
+        "meanRaw": -0.0032096535354992906,
+        "meanDirectional": -0.0032096535354992906,
+        "medianDirectional": -0.011413981766520642,
+        "hitRate": 0.3333333333333333,
+        "stdevDirectional": 0.025446049066917942,
+        "tStat": -0.30896794203366407,
+        "edge": -0.017525002240199945,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1413,
+        "meanRaw": 0.011217371646150736,
+        "meanDirectional": -0.011217371646150736,
+        "medianDirectional": -0.006957018965024098,
+        "hitRate": 0.38145789101203115,
+        "stdevDirectional": 0.04934652109072531,
+        "tStat": -8.5448737272944,
+        "edge": -0.0011113187034826584,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1610,
+        "meanRaw": 0.041229302173459416,
+        "meanDirectional": 0.041229302173459416,
+        "medianDirectional": 0.027465344363700184,
+        "hitRate": 0.7229813664596273,
+        "stdevDirectional": 0.08917251513912312,
+        "tStat": 18.55187912550724,
+        "edge": -0.001680346779581522,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 6,
+        "meanRaw": 0.05582579821900328,
+        "meanDirectional": 0.05582579821900328,
+        "medianDirectional": 0.01981662201872353,
+        "hitRate": 0.5,
+        "stdevDirectional": 0.13794447082570174,
+        "tStat": 0.9913026546233539,
+        "edge": -0.0029392459875223556,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1413,
+        "meanRaw": 0.044626825269416394,
+        "meanDirectional": -0.044626825269416394,
+        "medianDirectional": -0.030069930069930084,
+        "hitRate": 0.2625619249823071,
+        "stdevDirectional": 0.09262529675947562,
+        "tStat": -18.11079275750131,
+        "edge": -0.0019271010552380614,
+        "pValue": null
+      }
+    ],
+    "2017": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1681,
+        "meanRaw": -0.00004611198984288904,
+        "meanDirectional": -0.00004611198984288904,
+        "medianDirectional": 0,
+        "hitRate": 0.49375371802498513,
+        "stdevDirectional": 0.012363943110903813,
+        "tStat": -0.15291170192227188,
+        "edge": -0.0002695938582410857,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 8,
+        "meanRaw": 0.0027024103868007326,
+        "meanDirectional": 0.0027024103868007326,
+        "medianDirectional": 0.0013445440150545718,
+        "hitRate": 0.625,
+        "stdevDirectional": 0.009560029078271777,
+        "tStat": 0.7995342668565197,
+        "edge": 0.0029420865176064785,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1574,
+        "meanRaw": 0.00044642277293337326,
+        "meanDirectional": -0.00044642277293337326,
+        "medianDirectional": -0.0007075105738668652,
+        "hitRate": 0.4548919949174079,
+        "stdevDirectional": 0.013140041148572978,
+        "tStat": -1.3478823285322334,
+        "edge": -0.0002729673339024199,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1681,
+        "meanRaw": 0.004745258725693285,
+        "meanDirectional": 0.004745258725693285,
+        "medianDirectional": 0.005457598656591012,
+        "hitRate": 0.6186793575252826,
+        "stdevDirectional": 0.03500012099737456,
+        "tStat": 5.558712433251837,
+        "edge": -0.0009262986364060693,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 8,
+        "meanRaw": 0.00037258197157680195,
+        "meanDirectional": 0.00037258197157680195,
+        "medianDirectional": 0.00694735602740737,
+        "hitRate": 0.5,
+        "stdevDirectional": 0.032284504539009544,
+        "tStat": 0.03264169513042714,
+        "edge": -0.004111427073191247,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1574,
+        "meanRaw": 0.006604248958906609,
+        "meanDirectional": -0.006604248958906609,
+        "medianDirectional": -0.0052198693943339425,
+        "hitRate": 0.39135959339263027,
+        "stdevDirectional": 0.03712307490235376,
+        "tStat": -7.058003327746579,
+        "edge": -0.0010101648185413803,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1681,
+        "meanRaw": 0.025178430975633305,
+        "meanDirectional": 0.025178430975633305,
+        "medianDirectional": 0.020585048754062862,
+        "hitRate": 0.710291493158834,
+        "stdevDirectional": 0.06775630910901427,
+        "tStat": 15.235712859448341,
+        "edge": -0.002230615483027465,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 8,
+        "meanRaw": -0.006113456410923743,
+        "meanDirectional": -0.006113456410923743,
+        "medianDirectional": 0.009460450883866378,
+        "hitRate": 0.625,
+        "stdevDirectional": 0.09751194478908073,
+        "tStat": -0.17732664419740382,
+        "edge": -0.03012629697769117,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1574,
+        "meanRaw": 0.029828189254842437,
+        "meanDirectional": -0.029828189254842437,
+        "medianDirectional": -0.022615085847845662,
+        "hitRate": 0.26429479034307496,
+        "stdevDirectional": 0.06996366589880876,
+        "tStat": -16.91440389352984,
+        "edge": -0.002535371666321914,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1681,
+        "meanRaw": 0.0012401317775931411,
+        "meanDirectional": 0.0012401317775931411,
+        "medianDirectional": 0.0004626773596545508,
+        "hitRate": 0.5217132659131469,
+        "stdevDirectional": 0.01569954882565135,
+        "tStat": 3.2386537629822167,
+        "edge": -0.000059244174825479584,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 8,
+        "meanRaw": 0.0026658326135760163,
+        "meanDirectional": 0.0026658326135760163,
+        "medianDirectional": 0.0012777562785538654,
+        "hitRate": 0.625,
+        "stdevDirectional": 0.005546371430666272,
+        "tStat": 1.3594677833117386,
+        "edge": 0.0016610025278291857,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1574,
+        "meanRaw": 0.0013391819973736824,
+        "meanDirectional": -0.0013391819973736824,
+        "medianDirectional": -0.0013497860169394693,
+        "hitRate": 0.4199491740787802,
+        "stdevDirectional": 0.01654169057074477,
+        "tStat": -3.211900432191707,
+        "edge": -0.000054829375895168256,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1681,
+        "meanRaw": 0.0060404750537737,
+        "meanDirectional": 0.0060404750537737,
+        "medianDirectional": 0.0059050274747805,
+        "hitRate": 0.6198691255205235,
+        "stdevDirectional": 0.036417973281342046,
+        "tStat": 6.800473911369599,
+        "edge": -0.000711904836613295,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 8,
+        "meanRaw": 0.00035617608003173096,
+        "meanDirectional": 0.00035617608003173096,
+        "medianDirectional": 0.005577545839261067,
+        "hitRate": 0.5,
+        "stdevDirectional": 0.03209168725961396,
+        "tStat": 0.03139187035563914,
+        "edge": -0.005369712616321358,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1574,
+        "meanRaw": 0.007496663754572871,
+        "meanDirectional": -0.007496663754572871,
+        "medianDirectional": -0.006127172410501758,
+        "hitRate": 0.37738246505717915,
+        "stdevDirectional": 0.03848468844725007,
+        "tStat": -7.728272392916705,
+        "edge": -0.0007875919512563761,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1681,
+        "meanRaw": 0.026490455016586697,
+        "meanDirectional": 0.026490455016586697,
+        "medianDirectional": 0.021573604060913576,
+        "hitRate": 0.7233789411064843,
+        "stdevDirectional": 0.06851140465019764,
+        "tStat": 15.852961433581136,
+        "edge": -0.0020221118774706526,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 8,
+        "meanRaw": -0.005992914850466949,
+        "meanDirectional": -0.005992914850466949,
+        "medianDirectional": 0.0037776780371034935,
+        "hitRate": 0.5,
+        "stdevDirectional": 0.09963873888363427,
+        "tStat": -0.17011980590351602,
+        "edge": -0.03126664005884022,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1574,
+        "meanRaw": 0.030749633669853945,
+        "meanDirectional": -0.030749633669853945,
+        "medianDirectional": -0.022923496894541207,
+        "hitRate": 0.2725540025412961,
+        "stdevDirectional": 0.07092700196675152,
+        "tStat": -17.200089523605286,
+        "edge": -0.002318489953302983,
+        "pValue": null
+      }
+    ],
+    "2018": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1667,
+        "meanRaw": -0.0009608187557492986,
+        "meanDirectional": -0.0009608187557492986,
+        "medianDirectional": 0.00017537706068049275,
+        "hitRate": 0.5086982603479304,
+        "stdevDirectional": 0.018823413200048298,
+        "tStat": -2.0840632546898648,
+        "edge": -0.0005952122314619836,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 4,
+        "meanRaw": -0.010373953188370283,
+        "meanDirectional": -0.010373953188370283,
+        "medianDirectional": -0.010631310125342963,
+        "hitRate": 0,
+        "stdevDirectional": 0.0020880081055356346,
+        "tStat": -9.936698196589676,
+        "edge": -0.0101787874667803,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1592,
+        "meanRaw": 0.0002656566092788428,
+        "meanDirectional": -0.0002656566092788428,
+        "medianDirectional": -0.0003922539536311831,
+        "hitRate": 0.4861809045226131,
+        "stdevDirectional": 0.02027021584325331,
+        "tStat": -0.522918231450387,
+        "edge": -0.0006488278515792903,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1667,
+        "meanRaw": 0.00016705439479245034,
+        "meanDirectional": 0.00016705439479245034,
+        "medianDirectional": 0.0021975607076143433,
+        "hitRate": 0.5290941811637673,
+        "stdevDirectional": 0.04700618214198983,
+        "tStat": 0.1451011071450323,
+        "edge": 0.000032311998940583216,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 4,
+        "meanRaw": -0.006588370726581638,
+        "meanDirectional": -0.006588370726581638,
+        "medianDirectional": -0.031229362478486733,
+        "hitRate": 0.5,
+        "stdevDirectional": 0.07865804687569186,
+        "tStat": -0.16751930637163276,
+        "edge": -0.01075844584666628,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1592,
+        "meanRaw": 0.000005321899608422437,
+        "meanDirectional": -0.000005321899608422437,
+        "medianDirectional": -0.002781407841143113,
+        "hitRate": 0.46733668341708545,
+        "stdevDirectional": 0.04996644853589135,
+        "tStat": -0.004249714232096506,
+        "edge": 0.0000068029641000468,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1667,
+        "meanRaw": -0.0007814977204945242,
+        "meanDirectional": -0.0007814977204945242,
+        "medianDirectional": 0.00129411764705889,
+        "hitRate": 0.5056988602279544,
+        "stdevDirectional": 0.09516129742146016,
+        "tStat": -0.33530124110845977,
+        "edge": -0.002401816113812793,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 4,
+        "meanRaw": 0.04508854615393923,
+        "meanDirectional": 0.04508854615393923,
+        "medianDirectional": 0.036479300135486115,
+        "hitRate": 0.5,
+        "stdevDirectional": 0.0944191173608661,
+        "tStat": 0.9550723924184253,
+        "edge": 0.02353656536887015,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1592,
+        "meanRaw": 0.003532885548392303,
+        "meanDirectional": -0.003532885548392303,
+        "medianDirectional": -0.00471141727145763,
+        "hitRate": 0.4635678391959799,
+        "stdevDirectional": 0.09417221012685488,
+        "tStat": -1.4968501904414016,
+        "edge": -0.0024558298996547856,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1667,
+        "meanRaw": -0.00004165298416752116,
+        "meanDirectional": -0.00004165298416752116,
+        "medianDirectional": 0.0007491571981521616,
+        "hitRate": 0.5182963407318536,
+        "stdevDirectional": 0.02260191649892121,
+        "tStat": -0.07524344216944258,
+        "edge": -0.0002470880804669103,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 4,
+        "meanRaw": -0.01649290597260672,
+        "meanDirectional": -0.01649290597260672,
+        "medianDirectional": -0.018420414614310487,
+        "hitRate": 0,
+        "stdevDirectional": 0.01238967565863262,
+        "tStat": -2.662362829670224,
+        "edge": -0.01773548552342876,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1592,
+        "meanRaw": 0.00047994428528587354,
+        "meanDirectional": -0.00047994428528587354,
+        "medianDirectional": -0.0007006404825630197,
+        "hitRate": 0.47675879396984927,
+        "stdevDirectional": 0.023072713098479438,
+        "tStat": -0.8299724769116895,
+        "edge": -0.0003032900579347065,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1667,
+        "meanRaw": 0.001123551076390634,
+        "meanDirectional": 0.001123551076390634,
+        "medianDirectional": 0.004320987654320874,
+        "hitRate": 0.5536892621475705,
+        "stdevDirectional": 0.04931479345397282,
+        "tStat": 0.9302151353444684,
+        "edge": 0.00042349720102665507,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 4,
+        "meanRaw": -0.012392170673487635,
+        "meanDirectional": -0.012392170673487635,
+        "medianDirectional": -0.03404859959926032,
+        "hitRate": 0.5,
+        "stdevDirectional": 0.08448041299216368,
+        "tStat": -0.2933738184882482,
+        "edge": -0.017995291501499883,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1592,
+        "meanRaw": 0.00016834586870463262,
+        "meanDirectional": -0.00016834586870463262,
+        "medianDirectional": -0.004204993720137495,
+        "hitRate": 0.44974874371859297,
+        "stdevDirectional": 0.05013894547687505,
+        "tStat": -0.13396729830319584,
+        "edge": 0.0003982340880059122,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1667,
+        "meanRaw": 0.0001698920741327659,
+        "meanDirectional": 0.0001698920741327659,
+        "medianDirectional": 0.0016420361247946325,
+        "hitRate": 0.5128974205158968,
+        "stdevDirectional": 0.09640372100225633,
+        "tStat": 0.07195270428883632,
+        "edge": -0.0020587868972717187,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 4,
+        "meanRaw": 0.03860582961229264,
+        "meanDirectional": 0.03860582961229264,
+        "medianDirectional": 0.03129412174510893,
+        "hitRate": 0.75,
+        "stdevDirectional": 0.09439145081664367,
+        "tStat": 0.8179941992264712,
+        "edge": 0.015504790954316224,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1592,
+        "meanRaw": 0.003787801137463193,
+        "meanDirectional": -0.003787801137463193,
+        "medianDirectional": -0.004478444095710965,
+        "hitRate": 0.4692211055276382,
+        "stdevDirectional": 0.09537936701070487,
+        "tStat": -1.584543863719257,
+        "edge": -0.002116820724833329,
+        "pValue": null
+      }
+    ],
+    "2019": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1709,
+        "meanRaw": 0.0005493414703335665,
+        "meanDirectional": 0.0005493414703335665,
+        "medianDirectional": 0.00026836992109924296,
+        "hitRate": 0.5090696313633704,
+        "stdevDirectional": 0.013428997880345189,
+        "tStat": 1.6911020331038,
+        "edge": -0.0002359034714348548,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1567,
+        "meanRaw": 0.001002280737691862,
+        "meanDirectional": -0.001002280737691862,
+        "medianDirectional": -0.0007319878699154625,
+        "hitRate": 0.4652201659221442,
+        "stdevDirectional": 0.013652237912089743,
+        "tStat": -2.906163435103789,
+        "edge": -0.0002572808121775035,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1709,
+        "meanRaw": 0.005633027465738313,
+        "meanDirectional": 0.005633027465738313,
+        "medianDirectional": 0.0058951287620230275,
+        "hitRate": 0.609713282621416,
+        "stdevDirectional": 0.035076837683043205,
+        "tStat": 6.638844051785243,
+        "edge": -0.0019725434259421424,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1567,
+        "meanRaw": 0.009701677769302744,
+        "meanDirectional": -0.009701677769302744,
+        "medianDirectional": -0.008201202843083566,
+        "hitRate": 0.36821952776005107,
+        "stdevDirectional": 0.03827461696293832,
+        "tStat": -10.033916693885761,
+        "edge": -0.00215129337264527,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1709,
+        "meanRaw": 0.030689033948547367,
+        "meanDirectional": 0.030689033948547367,
+        "medianDirectional": 0.02812675792237007,
+        "hitRate": 0.7015798712697484,
+        "stdevDirectional": 0.07874172244676617,
+        "tStat": 16.11199573993018,
+        "edge": -0.0024275624713425287,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1567,
+        "meanRaw": 0.03539530587346933,
+        "meanDirectional": -0.03539530587346933,
+        "medianDirectional": -0.03456705895730283,
+        "hitRate": 0.2673899170389279,
+        "stdevDirectional": 0.07778678671177214,
+        "tStat": -18.012514204742082,
+        "edge": -0.0026475457967609496,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1709,
+        "meanRaw": 0.0014064806160326618,
+        "meanDirectional": 0.0014064806160326618,
+        "medianDirectional": 0.0012682960271483967,
+        "hitRate": 0.5523698069046226,
+        "stdevDirectional": 0.01878244554698995,
+        "tStat": 3.095655641341804,
+        "edge": -0.00034421372348189126,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1567,
+        "meanRaw": 0.0021346829198678613,
+        "meanDirectional": -0.0021346829198678613,
+        "medianDirectional": -0.0015343306482547003,
+        "hitRate": 0.44224633056796425,
+        "stdevDirectional": 0.018289303194007046,
+        "tStat": -4.6203057267078815,
+        "edge": -0.0003754060328210342,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1709,
+        "meanRaw": 0.006481018447561301,
+        "meanDirectional": 0.006481018447561301,
+        "medianDirectional": 0.007303917896471557,
+        "hitRate": 0.6167349327091867,
+        "stdevDirectional": 0.037110435437501574,
+        "tStat": 7.219684823558196,
+        "edge": -0.002092742954768413,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1567,
+        "meanRaw": 0.010847840339475579,
+        "meanDirectional": -0.010847840339475579,
+        "medianDirectional": -0.009080902586681372,
+        "hitRate": 0.3631142310146777,
+        "stdevDirectional": 0.040397187462397746,
+        "tStat": -10.629838177221718,
+        "edge": -0.002282385264645294,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1709,
+        "meanRaw": 0.03160009572079889,
+        "meanDirectional": 0.03160009572079889,
+        "medianDirectional": 0.02932769976388716,
+        "hitRate": 0.708601521357519,
+        "stdevDirectional": 0.08029518138982329,
+        "tStat": 16.269340403179584,
+        "edge": -0.002544813212250556,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1567,
+        "meanRaw": 0.03659794598709201,
+        "meanDirectional": -0.03659794598709201,
+        "medianDirectional": -0.03607843137254907,
+        "hitRate": 0.27058072750478623,
+        "stdevDirectional": 0.07924819254903798,
+        "tStat": -18.281079792519936,
+        "edge": -0.002775421684579598,
+        "pValue": null
+      }
+    ],
+    "2020": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1712,
+        "meanRaw": -0.0026678718439145043,
+        "meanDirectional": -0.0026678718439145043,
+        "medianDirectional": -0.0020975414300154482,
+        "hitRate": 0.4526869158878505,
+        "stdevDirectional": 0.0209349002981525,
+        "tStat": -5.27285643490914,
+        "edge": -0.0032607915659463274,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1577,
+        "meanRaw": 0.003996298114626888,
+        "meanDirectional": -0.003996298114626888,
+        "medianDirectional": -0.00331731869137486,
+        "hitRate": 0.41217501585288524,
+        "stdevDirectional": 0.02316846481020333,
+        "tStat": -6.849777542148058,
+        "edge": -0.00353993351991132,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1712,
+        "meanRaw": 0.00636414231727731,
+        "meanDirectional": 0.00636414231727731,
+        "medianDirectional": 0.0057759837737872965,
+        "hitRate": 0.5595794392523364,
+        "stdevDirectional": 0.060130712900380495,
+        "tStat": 4.379206354974951,
+        "edge": -0.0031933701676004037,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1577,
+        "meanRaw": 0.01274293317534658,
+        "meanDirectional": -0.01274293317534658,
+        "medianDirectional": -0.010015051522519247,
+        "hitRate": 0.3969562460367787,
+        "stdevDirectional": 0.06647837136771109,
+        "tStat": -7.612106942252958,
+        "edge": -0.0034667404736410446,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1712,
+        "meanRaw": 0.03816700533817577,
+        "meanDirectional": 0.03816700533817577,
+        "medianDirectional": 0.036202409489748955,
+        "hitRate": 0.6606308411214953,
+        "stdevDirectional": 0.13577787995960047,
+        "tStat": 11.630836280968067,
+        "edge": -0.005959689690467958,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1577,
+        "meanRaw": 0.05014626908760787,
+        "meanDirectional": -0.05014626908760787,
+        "medianDirectional": -0.044298529547766696,
+        "hitRate": 0.2993024730500951,
+        "stdevDirectional": 0.14818155571939226,
+        "tStat": -13.43879482448803,
+        "edge": -0.006469872384325419,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1712,
+        "meanRaw": 0.00014015056715483462,
+        "meanDirectional": 0.00014015056715483462,
+        "medianDirectional": 0.0004119176811573366,
+        "hitRate": 0.5110981308411215,
+        "stdevDirectional": 0.030967187899427765,
+        "tStat": 0.18725997905380862,
+        "edge": -0.002093378415479457,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1577,
+        "meanRaw": 0.004452623486442682,
+        "meanDirectional": -0.004452623486442682,
+        "medianDirectional": -0.004171930546170488,
+        "hitRate": 0.4197844007609385,
+        "stdevDirectional": 0.033136956799709835,
+        "tStat": -5.336041491186853,
+        "edge": -0.0022725832893474075,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1712,
+        "meanRaw": 0.009107844675509597,
+        "meanDirectional": 0.009107844675509597,
+        "medianDirectional": 0.008784218328614868,
+        "hitRate": 0.5841121495327103,
+        "stdevDirectional": 0.06339578382621355,
+        "tStat": 5.9443876047707,
+        "edge": -0.0020832788871866332,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1577,
+        "meanRaw": 0.013254939119941528,
+        "meanDirectional": -0.013254939119941528,
+        "medianDirectional": -0.0106125356125355,
+        "hitRate": 0.4013950538998098,
+        "stdevDirectional": 0.07143553058321787,
+        "tStat": -7.368503756215231,
+        "edge": -0.0022616191850751417,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1712,
+        "meanRaw": 0.041005479458791766,
+        "meanDirectional": 0.041005479458791766,
+        "medianDirectional": 0.03881814577382481,
+        "hitRate": 0.6705607476635514,
+        "stdevDirectional": 0.13792238062419462,
+        "tStat": 12.301527157149291,
+        "edge": -0.00489478674889417,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1577,
+        "meanRaw": 0.05085454500680076,
+        "meanDirectional": -0.05085454500680076,
+        "medianDirectional": -0.044303797468354444,
+        "hitRate": 0.3056436271401395,
+        "stdevDirectional": 0.15158787683447222,
+        "tStat": -13.32235952240515,
+        "edge": -0.005313807808564906,
+        "pValue": null
+      }
+    ],
+    "2021": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1679,
+        "meanRaw": -0.00004158425252910921,
+        "meanDirectional": -0.00004158425252910921,
+        "medianDirectional": 0,
+        "hitRate": 0.49612864800476475,
+        "stdevDirectional": 0.015929684833795733,
+        "tStat": -0.10696632228131861,
+        "edge": -0.0005716839236381797,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 7,
+        "meanRaw": -0.006165046560466696,
+        "meanDirectional": -0.006165046560466696,
+        "medianDirectional": 0.0016514683707904432,
+        "hitRate": 0.5714285714285714,
+        "stdevDirectional": 0.01891797895189655,
+        "tStat": -0.8622052102713536,
+        "edge": -0.006792374340866735,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1590,
+        "meanRaw": 0.0011432552835298016,
+        "meanDirectional": -0.0011432552835298016,
+        "medianDirectional": -0.0008047181433623596,
+        "hitRate": 0.4666666666666667,
+        "stdevDirectional": 0.016349608332645125,
+        "tStat": -2.7882674318964917,
+        "edge": -0.0006335873762104249,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1679,
+        "meanRaw": 0.005417842638640303,
+        "meanDirectional": 0.005417842638640303,
+        "medianDirectional": 0.004705882352941115,
+        "hitRate": 0.5562835020845741,
+        "stdevDirectional": 0.040957971666023905,
+        "tStat": 5.42017481146162,
+        "edge": -0.0008357937797283063,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 7,
+        "meanRaw": -0.007392708325147284,
+        "meanDirectional": -0.007392708325147284,
+        "medianDirectional": -0.007775345361213826,
+        "hitRate": 0.2857142857142857,
+        "stdevDirectional": 0.01736468518362121,
+        "tStat": -1.126381937636584,
+        "edge": -0.016043721754871614,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1590,
+        "meanRaw": 0.007172414287099831,
+        "meanDirectional": -0.007172414287099831,
+        "medianDirectional": -0.005064610099751454,
+        "hitRate": 0.4270440251572327,
+        "stdevDirectional": 0.04098811095024177,
+        "tStat": -6.977599304058279,
+        "edge": -0.0009532099424200755,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1679,
+        "meanRaw": 0.023020293368104853,
+        "meanDirectional": 0.023020293368104853,
+        "medianDirectional": 0.02120974076983506,
+        "hitRate": 0.6075044669446099,
+        "stdevDirectional": 0.08830858618602365,
+        "tStat": 10.68152521920097,
+        "edge": -0.00034504597653287587,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 7,
+        "meanRaw": 0.03976468999101625,
+        "meanDirectional": 0.03976468999101625,
+        "medianDirectional": -0.0198654890979153,
+        "hitRate": 0.42857142857142855,
+        "stdevDirectional": 0.0912524558297809,
+        "tStat": 1.152927663383203,
+        "edge": 0.0038758904088978174,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1590,
+        "meanRaw": 0.023551323515251254,
+        "meanDirectional": -0.023551323515251254,
+        "medianDirectional": -0.02104949813492596,
+        "hitRate": 0.3779874213836478,
+        "stdevDirectional": 0.0893161223972185,
+        "tStat": -10.514388507544867,
+        "edge": -0.00034729620234997144,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1679,
+        "meanRaw": 0.0011613092849806278,
+        "meanDirectional": 0.0011613092849806278,
+        "medianDirectional": 0.0010211896859841918,
+        "hitRate": 0.5270994639666469,
+        "stdevDirectional": 0.01897184545663219,
+        "tStat": 2.508208689888826,
+        "edge": -0.0005156266164218127,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 7,
+        "meanRaw": -0.0059174532084076414,
+        "meanDirectional": -0.0059174532084076414,
+        "medianDirectional": 0.002083183679333356,
+        "hitRate": 0.5714285714285714,
+        "stdevDirectional": 0.02117301922796849,
+        "tStat": -0.7394368000019079,
+        "edge": -0.008073655964689069,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1590,
+        "meanRaw": 0.0022581003608798905,
+        "meanDirectional": -0.0022581003608798905,
+        "medianDirectional": -0.0015348549450313609,
+        "hitRate": 0.4528301886792453,
+        "stdevDirectional": 0.019976441584267857,
+        "tStat": -4.507374804035523,
+        "edge": -0.0005800331325314917,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1679,
+        "meanRaw": 0.006625381169754734,
+        "meanDirectional": 0.006625381169754734,
+        "medianDirectional": 0.005220998426548551,
+        "hitRate": 0.5646217986896962,
+        "stdevDirectional": 0.042263529822068685,
+        "tStat": 6.423481104076061,
+        "edge": -0.0007774611294133895,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 7,
+        "meanRaw": -0.007166560575392523,
+        "meanDirectional": -0.007166560575392523,
+        "medianDirectional": -0.006688741721854297,
+        "hitRate": 0.2857142857142857,
+        "stdevDirectional": 0.01851046127124308,
+        "tStat": -1.0243362799189306,
+        "edge": -0.017361292732472184,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1590,
+        "meanRaw": 0.008286789865275423,
+        "meanDirectional": -0.008286789865275423,
+        "medianDirectional": -0.005646383498403407,
+        "hitRate": 0.4220125786163522,
+        "stdevDirectional": 0.04252379362618386,
+        "tStat": -7.770570170462148,
+        "edge": -0.0008974127581209986,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1679,
+        "meanRaw": 0.024219355300789263,
+        "meanDirectional": 0.024219355300789263,
+        "medianDirectional": 0.021297770700636987,
+        "hitRate": 0.6217986896962477,
+        "stdevDirectional": 0.0888247734687409,
+        "tStat": 11.172588871170213,
+        "edge": -0.00029231040730207266,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 7,
+        "meanRaw": 0.03983399408440829,
+        "meanDirectional": 0.03983399408440829,
+        "medianDirectional": -0.01707684580612756,
+        "hitRate": 0.42857142857142855,
+        "stdevDirectional": 0.08923833026599044,
+        "tStat": 1.1810041913561868,
+        "edge": 0.0023737861076739497,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1590,
+        "meanRaw": 0.02466880156290379,
+        "meanDirectional": -0.02466880156290379,
+        "medianDirectional": -0.02316291898753775,
+        "hitRate": 0.3817610062893082,
+        "stdevDirectional": 0.08992021367572968,
+        "tStat": -10.939293723512007,
+        "edge": -0.00029822180572733825,
+        "pValue": null
+      }
+    ],
+    "2022": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1613,
+        "meanRaw": -0.00012508315459075446,
+        "meanDirectional": -0.00012508315459075446,
+        "medianDirectional": 0.0006257822277848657,
+        "hitRate": 0.513949163050217,
+        "stdevDirectional": 0.02256791037568674,
+        "tStat": -0.2225997441629569,
+        "edge": 0.0004229319567221,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 3,
+        "meanRaw": -0.015507372644772718,
+        "meanDirectional": -0.015507372644772718,
+        "medianDirectional": -0.012782469755763581,
+        "hitRate": 0,
+        "stdevDirectional": 0.010577609350371253,
+        "tStat": -2.5392842960028,
+        "edge": -0.015184274212807899,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1647,
+        "meanRaw": -0.001035403835010993,
+        "meanDirectional": 0.001035403835010993,
+        "medianDirectional": 0.0013130851792646503,
+        "hitRate": 0.5288403157255617,
+        "stdevDirectional": 0.024167339873908053,
+        "tStat": 1.7387122704896107,
+        "edge": 0.00038654306226734557,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1613,
+        "meanRaw": -0.008212441283223057,
+        "meanDirectional": -0.008212441283223057,
+        "medianDirectional": -0.007919585744745716,
+        "hitRate": 0.4482331060136392,
+        "stdevDirectional": 0.06005008288171149,
+        "tStat": -5.492573155922835,
+        "edge": -0.0024681549308387197,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 3,
+        "meanRaw": 0.06288180292159384,
+        "meanDirectional": 0.06288180292159384,
+        "medianDirectional": 0.0578442198250233,
+        "hitRate": 1,
+        "stdevDirectional": 0.04767321703953148,
+        "tStat": 2.28460515768046,
+        "edge": 0.0672958017809849,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1647,
+        "meanRaw": -0.0038771733376803,
+        "meanDirectional": 0.0038771733376803,
+        "medianDirectional": 0.003831417624521105,
+        "hitRate": 0.5294474802671524,
+        "stdevDirectional": 0.058890771073896314,
+        "tStat": 2.671866633123832,
+        "edge": -0.002294624467577357,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1613,
+        "meanRaw": -0.01809705818565739,
+        "meanDirectional": -0.01809705818565739,
+        "medianDirectional": -0.02437623406928746,
+        "hitRate": 0.41227526348419097,
+        "stdevDirectional": 0.11779719731337242,
+        "tStat": -6.1700716711406836,
+        "edge": -0.00125369911356103,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 3,
+        "meanRaw": 0.021588182521244465,
+        "meanDirectional": 0.021588182521244465,
+        "medianDirectional": -0.003227724454259784,
+        "hitRate": 0.3333333333333333,
+        "stdevDirectional": 0.04487048250239696,
+        "tStat": 0.8333279894609633,
+        "edge": 0.03555255875822503,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1647,
+        "meanRaw": -0.016961471767264598,
+        "meanDirectional": 0.016961471767264598,
+        "medianDirectional": 0.019380629490942325,
+        "hitRate": 0.5658773527625987,
+        "stdevDirectional": 0.11654029478192562,
+        "tStat": 5.906554575432658,
+        "edge": -0.001163059498420915,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1613,
+        "meanRaw": -0.0009995723416789501,
+        "meanDirectional": -0.0009995723416789501,
+        "medianDirectional": -0.0005766643172935293,
+        "hitRate": 0.4879107253564786,
+        "stdevDirectional": 0.02824934591367975,
+        "tStat": -1.4210946933775592,
+        "edge": 0.0004404995562782988,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 3,
+        "meanRaw": -0.016827993303580906,
+        "meanDirectional": -0.016827993303580906,
+        "medianDirectional": -0.01771519418578249,
+        "hitRate": 0,
+        "stdevDirectional": 0.0061948048093581325,
+        "tStat": -4.705061787774229,
+        "edge": -0.015735902267135442,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1647,
+        "meanRaw": -0.0019351288633503959,
+        "meanDirectional": 0.0019351288633503959,
+        "medianDirectional": 0.002762305846126023,
+        "hitRate": 0.5415907710989678,
+        "stdevDirectional": 0.02945219946146252,
+        "tStat": 2.6664838475458703,
+        "edge": 0.00040274321643927915,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1613,
+        "meanRaw": -0.009088916466191598,
+        "meanDirectional": -0.009088916466191598,
+        "medianDirectional": -0.007874810701665846,
+        "hitRate": 0.4426534407935524,
+        "stdevDirectional": 0.06226543738565399,
+        "tStat": -5.862491857018425,
+        "edge": -0.0024733206793969387,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 3,
+        "meanRaw": 0.06145713025773677,
+        "meanDirectional": 0.06145713025773677,
+        "medianDirectional": 0.06290005974225488,
+        "hitRate": 1,
+        "stdevDirectional": 0.04659428975850039,
+        "tStat": 2.2845475839527976,
+        "edge": 0.06663392012445553,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1647,
+        "meanRaw": -0.0047348956800362775,
+        "meanDirectional": 0.0047348956800362775,
+        "medianDirectional": 0.0044710646195377235,
+        "hitRate": 0.5349119611414693,
+        "stdevDirectional": 0.06166934442017075,
+        "tStat": 3.1159313655807455,
+        "edge": -0.0023008891897352,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1613,
+        "meanRaw": -0.018861170353755456,
+        "meanDirectional": -0.018861170353755456,
+        "medianDirectional": -0.02537494319042588,
+        "hitRate": 0.40731556106633604,
+        "stdevDirectional": 0.11973487655127153,
+        "tStat": -6.326523863851994,
+        "edge": -0.0011887601804054842,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 3,
+        "meanRaw": 0.02016076828426805,
+        "meanDirectional": 0.02016076828426805,
+        "medianDirectional": 0.0015362294102585494,
+        "hitRate": 0.6666666666666666,
+        "stdevDirectional": 0.0417871082401409,
+        "tStat": 0.8356518662957315,
+        "edge": 0.03491585580098256,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1647,
+        "meanRaw": -0.01784559830444923,
+        "meanDirectional": 0.01784559830444923,
+        "medianDirectional": 0.02162718846549949,
+        "hitRate": 0.5707346690953249,
+        "stdevDirectional": 0.11756218046501092,
+        "tStat": 6.160419403801179,
+        "edge": -0.0011006208886406147,
+        "pValue": null
+      }
+    ],
+    "2023": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1789,
+        "meanRaw": 0.0012297235862756997,
+        "meanDirectional": 0.0012297235862756997,
+        "medianDirectional": 0.000833894608550656,
+        "hitRate": 0.5321408608160983,
+        "stdevDirectional": 0.01647357659645202,
+        "tStat": 3.1573648782080204,
+        "edge": -0.0005186086229991014,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1,
+        "meanRaw": 0.012933689180866459,
+        "meanDirectional": 0.012933689180866459,
+        "medianDirectional": 0.012933689180866459,
+        "hitRate": 1,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": 0.012404376205851261,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1460,
+        "meanRaw": 0.0023454780390104483,
+        "meanDirectional": -0.0023454780390104483,
+        "medianDirectional": -0.0021109835200576743,
+        "hitRate": 0.426027397260274,
+        "stdevDirectional": 0.01660493438782648,
+        "tStat": -5.397226387070277,
+        "edge": -0.0006269770207805048,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1789,
+        "meanRaw": 0.009033643034236299,
+        "meanDirectional": 0.009033643034236299,
+        "medianDirectional": 0.006381381381381335,
+        "hitRate": 0.5796534376746786,
+        "stdevDirectional": 0.04320453576671099,
+        "tStat": 8.843796743191035,
+        "edge": -0.0016520909607210133,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1,
+        "meanRaw": 0.018887292137138134,
+        "meanDirectional": 0.018887292137138134,
+        "medianDirectional": 0.018887292137138134,
+        "hitRate": 1,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": 0.018369159008451014,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1460,
+        "meanRaw": 0.012572935863696356,
+        "meanDirectional": -0.012572935863696356,
+        "medianDirectional": -0.00951740427786818,
+        "hitRate": 0.38904109589041097,
+        "stdevDirectional": 0.045111689129454,
+        "tStat": -10.649373013360862,
+        "edge": -0.0020117955956996092,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1789,
+        "meanRaw": 0.039938364438667884,
+        "meanDirectional": 0.039938364438667884,
+        "medianDirectional": 0.03137069441160234,
+        "hitRate": 0.6674119619899385,
+        "stdevDirectional": 0.10020783382880291,
+        "tStat": 16.85752342012495,
+        "edge": -0.0023975841495572046,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1,
+        "meanRaw": -0.05419831656744001,
+        "meanDirectional": -0.05419831656744001,
+        "medianDirectional": -0.05419831656744001,
+        "hitRate": 0,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": -0.0500840000217656,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1460,
+        "meanRaw": 0.04481426379185018,
+        "meanDirectional": -0.04481426379185018,
+        "medianDirectional": -0.034704766756611716,
+        "hitRate": 0.31917808219178084,
+        "stdevDirectional": 0.10136355796913525,
+        "tStat": -16.893158147445536,
+        "edge": -0.0029721657832736895,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1789,
+        "meanRaw": 0.0021421814104953035,
+        "meanDirectional": 0.0021421814104953035,
+        "medianDirectional": 0.0010465591178272504,
+        "hitRate": 0.5326998323085522,
+        "stdevDirectional": 0.021796094623044285,
+        "tStat": 4.157025914887827,
+        "edge": -0.00016114805058818114,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1,
+        "meanRaw": 0.00010134792743499155,
+        "meanDirectional": 0.00010134792743499155,
+        "medianDirectional": 0.00010134792743499155,
+        "hitRate": 1,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": 0.000003190267540010167,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1460,
+        "meanRaw": 0.002475300770674043,
+        "meanDirectional": -0.002475300770674043,
+        "medianDirectional": -0.0020788119898483837,
+        "hitRate": 0.4328767123287671,
+        "stdevDirectional": 0.019146222349359348,
+        "tStat": -4.939935822299181,
+        "edge": -0.000197459364544331,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1789,
+        "meanRaw": 0.009965231241558679,
+        "meanDirectional": 0.009965231241558679,
+        "medianDirectional": 0.006546383522273658,
+        "hitRate": 0.5885969815539408,
+        "stdevDirectional": 0.04582950207113336,
+        "tStat": 9.197025961647276,
+        "edge": -0.0012841424509837808,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1,
+        "meanRaw": 0.005979527718658284,
+        "meanDirectional": 0.005979527718658284,
+        "medianDirectional": 0.005979527718658284,
+        "hitRate": 1,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": 0.005900389792162806,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1460,
+        "meanRaw": 0.012697207190223322,
+        "meanDirectional": -0.012697207190223322,
+        "medianDirectional": -0.010120093641723282,
+        "hitRate": 0.37945205479452054,
+        "stdevDirectional": 0.045908385288482526,
+        "tStat": -10.567995421162715,
+        "edge": -0.0015694729143957695,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1789,
+        "meanRaw": 0.04087879738383338,
+        "meanDirectional": 0.04087879738383338,
+        "medianDirectional": 0.030799052336851096,
+        "hitRate": 0.674678591391839,
+        "stdevDirectional": 0.10143947351058022,
+        "tStat": 17.044972095722187,
+        "edge": -0.0020006339590040202,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1,
+        "meanRaw": -0.0661801966149792,
+        "meanDirectional": -0.0661801966149792,
+        "medianDirectional": -0.0661801966149792,
+        "hitRate": 0,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": -0.061612500048266745,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1460,
+        "meanRaw": 0.04488264406632939,
+        "meanDirectional": -0.04488264406632939,
+        "medianDirectional": -0.03507006452463801,
+        "hitRate": 0.3232876712328767,
+        "stdevDirectional": 0.10097843778354235,
+        "tStat": -16.983461612426122,
+        "edge": -0.002493662090894816,
+        "pValue": null
+      }
+    ],
+    "2024": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1695,
+        "meanRaw": 0.00009399649743895504,
+        "meanDirectional": 0.00009399649743895504,
+        "medianDirectional": 0.000538744724791318,
+        "hitRate": 0.5185840707964602,
+        "stdevDirectional": 0.01611899248097669,
+        "tStat": 0.24008146332042263,
+        "edge": 0.00000542776209864909,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1581,
+        "meanRaw": 0.000023010388221809458,
+        "meanDirectional": -0.000023010388221809458,
+        "medianDirectional": -0.0003434234411028303,
+        "hitRate": 0.48513598987982287,
+        "stdevDirectional": 0.015794518631628417,
+        "tStat": -0.05792732667803463,
+        "edge": 0.0000058191377338453,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1695,
+        "meanRaw": 0.0062082977118157615,
+        "meanDirectional": 0.0062082977118157615,
+        "medianDirectional": 0.005975180021449367,
+        "hitRate": 0.5846607669616519,
+        "stdevDirectional": 0.04376167749851001,
+        "tStat": 5.840680163167181,
+        "edge": -0.00015302483256677976,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1581,
+        "meanRaw": 0.006415937673751991,
+        "meanDirectional": -0.006415937673751991,
+        "medianDirectional": -0.005437409376510383,
+        "hitRate": 0.428842504743833,
+        "stdevDirectional": 0.04722362617449919,
+        "tStat": -5.40215124547776,
+        "edge": -0.000164058881214861,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1695,
+        "meanRaw": 0.024328942203857454,
+        "meanDirectional": 0.024328942203857454,
+        "medianDirectional": 0.021843725943033077,
+        "hitRate": 0.6271386430678466,
+        "stdevDirectional": 0.08785080273174868,
+        "tStat": 11.401509245673896,
+        "edge": -0.002960334720617081,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1581,
+        "meanRaw": 0.030194257386573227,
+        "meanDirectional": -0.030194257386573227,
+        "medianDirectional": -0.022707113712967963,
+        "hitRate": 0.34345351043643263,
+        "stdevDirectional": 0.09654162654288748,
+        "tStat": -12.435855761541147,
+        "edge": -0.0031737933911739373,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1695,
+        "meanRaw": 0.0019698094393501265,
+        "meanDirectional": 0.0019698094393501265,
+        "medianDirectional": 0.001494396014943833,
+        "hitRate": 0.5528023598820059,
+        "stdevDirectional": 0.02044393324704796,
+        "tStat": 3.9668393374215993,
+        "edge": 0.0005096148936299484,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1581,
+        "meanRaw": 0.0008933872707016484,
+        "meanDirectional": -0.0008933872707016484,
+        "medianDirectional": -0.0010593220338983578,
+        "hitRate": 0.4648956356736243,
+        "stdevDirectional": 0.02195024338373628,
+        "tStat": -1.6183272802206692,
+        "edge": 0.000546361318597557,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1695,
+        "meanRaw": 0.0081036125607172,
+        "meanDirectional": 0.0081036125607172,
+        "medianDirectional": 0.006807902880266559,
+        "hitRate": 0.5970501474926254,
+        "stdevDirectional": 0.04595085801271622,
+        "tStat": 7.260556261446443,
+        "edge": 0.0003821937730100639,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1581,
+        "meanRaw": 0.0072411748353614375,
+        "meanDirectional": -0.0072411748353614375,
+        "medianDirectional": -0.005617648779916884,
+        "hitRate": 0.43263757115749524,
+        "stdevDirectional": 0.04871613404021858,
+        "tStat": -5.910199647986069,
+        "edge": 0.0004097523372878269,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1695,
+        "meanRaw": 0.026284155877957235,
+        "meanDirectional": 0.026284155877957235,
+        "medianDirectional": 0.02288083232017213,
+        "hitRate": 0.6412979351032448,
+        "stdevDirectional": 0.08951580272445307,
+        "tStat": 12.088688165649744,
+        "edge": -0.0024047490157084487,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1581,
+        "meanRaw": 0.0310406648881337,
+        "meanDirectional": -0.0310406648881337,
+        "medianDirectional": -0.02466147707202193,
+        "hitRate": 0.3396584440227704,
+        "stdevDirectional": 0.09756201498366171,
+        "tStat": -12.650747535360722,
+        "edge": -0.0025781464779416918,
+        "pValue": null
+      }
+    ],
+    "2025": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1694,
+        "meanRaw": -0.0009945921020596397,
+        "meanDirectional": -0.0009945921020596397,
+        "medianDirectional": 0.000059303277288980105,
+        "hitRate": 0.5017709563164109,
+        "stdevDirectional": 0.017230179554243687,
+        "tStat": -2.375811094226293,
+        "edge": -0.001425750833663291,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1556,
+        "meanRaw": 0.001967721655077602,
+        "meanDirectional": -0.001967721655077602,
+        "medianDirectional": -0.0011832888384890605,
+        "hitRate": 0.4556555269922879,
+        "stdevDirectional": 0.021210478864050978,
+        "tStat": -3.6594682865814354,
+        "edge": -0.0015521991723815107,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1694,
+        "meanRaw": 0.00184318558192498,
+        "meanDirectional": 0.00184318558192498,
+        "medianDirectional": 0.004811614645136353,
+        "hitRate": 0.5625737898465171,
+        "stdevDirectional": 0.04667203099719702,
+        "tStat": 1.6254329799877179,
+        "edge": -0.0028745816742130935,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1556,
+        "meanRaw": 0.007792735978394894,
+        "meanDirectional": -0.007792735978394894,
+        "medianDirectional": -0.0067170833643188654,
+        "hitRate": 0.41131105398457585,
+        "stdevDirectional": 0.048394617564228325,
+        "tStat": -6.351812893134554,
+        "edge": -0.0031295252931343295,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1694,
+        "meanRaw": 0.01563692932876317,
+        "meanDirectional": 0.01563692932876317,
+        "medianDirectional": 0.01682195608679149,
+        "hitRate": 0.6038961038961039,
+        "stdevDirectional": 0.09430837853414734,
+        "tStat": 6.824296668303817,
+        "edge": -0.005601077393706917,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1556,
+        "meanRaw": 0.02712068469442802,
+        "meanDirectional": -0.02712068469442802,
+        "medianDirectional": -0.02272939575206001,
+        "hitRate": 0.3643958868894602,
+        "stdevDirectional": 0.0997409332510164,
+        "tStat": -10.725857393355811,
+        "edge": -0.006097831044305561,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1694,
+        "meanRaw": -0.00027214270828045817,
+        "meanDirectional": -0.00027214270828045817,
+        "medianDirectional": 0.0005589054867398691,
+        "hitRate": 0.5200708382526564,
+        "stdevDirectional": 0.020995697593018853,
+        "tStat": -0.5334860855188258,
+        "edge": -0.0014462363943569393,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1556,
+        "meanRaw": 0.0027409329668382333,
+        "meanDirectional": -0.0027409329668382333,
+        "medianDirectional": -0.0018975212828774568,
+        "hitRate": 0.4383033419023136,
+        "stdevDirectional": 0.025813293256379363,
+        "tStat": -4.188512302965532,
+        "edge": -0.0015745015758616262,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1694,
+        "meanRaw": 0.0026053410142787745,
+        "meanDirectional": 0.0026053410142787745,
+        "medianDirectional": 0.005005483205043015,
+        "hitRate": 0.5684769775678866,
+        "stdevDirectional": 0.04910929479979626,
+        "tStat": 2.183522048111329,
+        "edge": -0.00287694975379982,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1556,
+        "meanRaw": 0.008568722686643679,
+        "meanDirectional": -0.008568722686643679,
+        "medianDirectional": -0.007402485141949744,
+        "hitRate": 0.40616966580976865,
+        "stdevDirectional": 0.05050285953314967,
+        "tStat": -6.692754812611797,
+        "edge": -0.003132103395203646,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1694,
+        "meanRaw": 0.01642332218104161,
+        "meanDirectional": 0.01642332218104161,
+        "medianDirectional": 0.0164283664892364,
+        "hitRate": 0.6050767414403778,
+        "stdevDirectional": 0.09591391721614287,
+        "tStat": 7.047516272027748,
+        "edge": -0.005570844599880092,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 0,
+        "meanRaw": null,
+        "meanDirectional": null,
+        "medianDirectional": null,
+        "hitRate": null,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": null,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1556,
+        "meanRaw": 0.027852946899359618,
+        "meanDirectional": -0.027852946899359618,
+        "medianDirectional": -0.02268685908543988,
+        "hitRate": 0.35989717223650386,
+        "stdevDirectional": 0.10028560295152376,
+        "tStat": -10.955630024388075,
+        "edge": -0.006064916935859216,
+        "pValue": null
+      }
+    ],
+    "2026": [
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1382,
+        "meanRaw": 0.0006705761690388852,
+        "meanDirectional": 0.0006705761690388852,
+        "medianDirectional": 0.0007839492673339388,
+        "hitRate": 0.5202604920405209,
+        "stdevDirectional": 0.016221785693487395,
+        "tStat": 1.536750904067503,
+        "edge": 0.0001434846152948399,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1,
+        "meanRaw": -0.0013034115380257116,
+        "meanDirectional": -0.0013034115380257116,
+        "medianDirectional": -0.0013034115380257116,
+        "hitRate": 0,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": -0.0008934922993456663,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1334,
+        "meanRaw": 0.0002878247919254593,
+        "meanDirectional": -0.0002878247919254593,
+        "medianDirectional": 0.00013381482166785474,
+        "hitRate": 0.5044977511244377,
+        "stdevDirectional": 0.017272316777823562,
+        "tStat": -0.608633033165836,
+        "edge": 0.00014797769568075363,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1357,
+        "meanRaw": 0.0050995113432669185,
+        "meanDirectional": 0.0050995113432669185,
+        "medianDirectional": 0.0018912607308489982,
+        "hitRate": 0.529108327192336,
+        "stdevDirectional": 0.0470140580740751,
+        "tStat": 3.9956804298016393,
+        "edge": 0.00030817414001609424,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1,
+        "meanRaw": 0.004335260115606809,
+        "meanDirectional": 0.004335260115606809,
+        "medianDirectional": 0.004335260115606809,
+        "hitRate": 1,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": 0.0035713914432511248,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "nextOpen",
+        "n": 1307,
+        "meanRaw": 0.0040296372460318225,
+        "meanDirectional": -0.0040296372460318225,
+        "medianDirectional": -0.002801166603503269,
+        "hitRate": 0.46977811782708495,
+        "stdevDirectional": 0.048421385993479504,
+        "tStat": -3.0086143978256428,
+        "edge": 0.0003226960209985328,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1265,
+        "meanRaw": 0.02168717871198479,
+        "meanDirectional": 0.02168717871198479,
+        "medianDirectional": 0.002797771347951894,
+        "hitRate": 0.5193675889328063,
+        "stdevDirectional": 0.11804038324345839,
+        "tStat": 6.5345804656450435,
+        "edge": -0.001892562503750355,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1,
+        "meanRaw": -0.04544939363028455,
+        "meanDirectional": -0.04544939363028455,
+        "medianDirectional": -0.04544939363028455,
+        "hitRate": 0,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": -0.05512018161173099,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "nextOpen",
+        "n": 1204,
+        "meanRaw": 0.023955902287284055,
+        "meanDirectional": -0.023955902287284055,
+        "medianDirectional": -0.012886477911363214,
+        "hitRate": 0.42524916943521596,
+        "stdevDirectional": 0.09994052724298914,
+        "tStat": -8.317333968382192,
+        "edge": -0.002034229027288954,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1382,
+        "meanRaw": 0.0012027211983004242,
+        "meanDirectional": 0.0012027211983004242,
+        "medianDirectional": 0.001413400268246101,
+        "hitRate": 0.5390738060781476,
+        "stdevDirectional": 0.022711307231773337,
+        "tStat": 1.9686878218284418,
+        "edge": 0.00027151764731188084,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1,
+        "meanRaw": -0.0063992332196319834,
+        "meanDirectional": -0.0063992332196319834,
+        "medianDirectional": -0.0063992332196319834,
+        "hitRate": 0,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": -0.006802662197698531,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "close",
+        "n": 1334,
+        "meanRaw": 0.0005752096832484455,
+        "meanDirectional": -0.0005752096832484455,
+        "medianDirectional": 0.00004968274021610597,
+        "hitRate": 0.5,
+        "stdevDirectional": 0.022867174791888312,
+        "tStat": -0.9187378142548893,
+        "edge": 0.00027618795081508444,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1357,
+        "meanRaw": 0.005862731455189817,
+        "meanDirectional": 0.005862731455189817,
+        "medianDirectional": 0.0018467500227059563,
+        "hitRate": 0.5239498894620487,
+        "stdevDirectional": 0.0502200716222168,
+        "tStat": 4.300437078265996,
+        "edge": 0.0005462827249426797,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1,
+        "meanRaw": -0.0007893327319370425,
+        "meanDirectional": -0.0007893327319370425,
+        "medianDirectional": -0.0007893327319370425,
+        "hitRate": 0,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": -0.002210500055590887,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 5,
+        "entry": "close",
+        "n": 1307,
+        "meanRaw": 0.004312161631881132,
+        "meanDirectional": -0.004312161631881132,
+        "medianDirectional": -0.002313948344506045,
+        "hitRate": 0.47589900535577656,
+        "stdevDirectional": 0.05071013820889857,
+        "tStat": -3.074241851923107,
+        "edge": 0.0005654897916538801,
+        "pValue": null
+      },
+      {
+        "polarity": 1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1265,
+        "meanRaw": 0.02264182338810615,
+        "meanDirectional": 0.02264182338810615,
+        "medianDirectional": 0.002824478816408904,
+        "hitRate": 0.5130434782608696,
+        "stdevDirectional": 0.12078997676732087,
+        "tStat": 6.666927977474719,
+        "edge": -0.0016334573740404016,
+        "pValue": null
+      },
+      {
+        "polarity": 0,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1,
+        "meanRaw": -0.05031996166098163,
+        "meanDirectional": -0.05031996166098163,
+        "medianDirectional": -0.05031996166098163,
+        "hitRate": 0,
+        "stdevDirectional": null,
+        "tStat": null,
+        "edge": -0.060692489687473615,
+        "pValue": null
+      },
+      {
+        "polarity": -1,
+        "horizon": 20,
+        "entry": "close",
+        "n": 1204,
+        "meanRaw": 0.024378424756914777,
+        "meanDirectional": -0.024378424756914777,
+        "medianDirectional": -0.01197910822687509,
+        "hitRate": 0.4368770764119601,
+        "stdevDirectional": 0.10106515377539327,
+        "tStat": -8.369845512551317,
+        "edge": -0.0017666246410702154,
+        "pValue": null
+      }
+    ]
+  },
+  "buyHold": {
+    "days": 2704,
+    "totalReturn": 18.23266369292334,
+    "cagr": 0.317244510245561,
+    "annVol": 0.24128985742875128,
+    "sharpe": 1.2634766046138537,
+    "maxDrawdown": -0.36422963261889063
+  },
+  "portfolio": [
+    {
+      "config": {
+        "name": "Hold 1d, long/short",
+        "holdDays": 1,
+        "allowShort": true,
+        "costBps": 5
+      },
+      "perf": {
+        "days": 2704,
+        "totalReturn": -0.9895472300623928,
+        "cagr": -0.3462649923733282,
+        "annVol": 0.14253685394497745,
+        "sharpe": -2.907355490857705,
+        "maxDrawdown": -0.9898750803298174
+      },
+      "trade": {
+        "trades": 35122,
+        "winRate": 0.449689653208815,
+        "expectancy": -0.0016467667466140523,
+        "avgWin": 0.011574389944814571,
+        "avgLoss": -0.01245052030541094,
+        "profitFactor": 0.7596539941061016,
+        "avgSessionsHeld": 1
+      },
+      "exposure": 0.9991465634956759,
+      "turnoverPerYear": 503.5698680018207
+    },
+    {
+      "config": {
+        "name": "Hold 5d, long-only",
+        "holdDays": 5,
+        "allowShort": false,
+        "costBps": 5
+      },
+      "perf": {
+        "days": 2704,
+        "totalReturn": -0.1258561560097663,
+        "cagr": -0.012457481620281596,
+        "annVol": 0.14243058894421762,
+        "sharpe": -0.016477799723989297,
+        "maxDrawdown": -0.4049244400746089
+      },
+      "trade": {
+        "trades": 9009,
+        "winRate": 0.41536241536241536,
+        "expectancy": -0.000048754700023162905,
+        "avgWin": 0.023782978862294912,
+        "avgLoss": -0.01698028061424272,
+        "profitFactor": 0.9950888308291944,
+        "avgSessionsHeld": 2.0255300255300255
+      },
+      "exposure": 0.7752901684114701,
+      "turnoverPerYear": 129.13996358670914
+    },
+    {
+      "config": {
+        "name": "Hold 5d, long/short",
+        "holdDays": 5,
+        "allowShort": true,
+        "costBps": 5
+      },
+      "perf": {
+        "days": 2704,
+        "totalReturn": -0.970215439844703,
+        "cagr": -0.27925240365520687,
+        "annVol": 0.1818448538393842,
+        "sharpe": -1.7080192770438154,
+        "maxDrawdown": -0.9714613547418688
+      },
+      "trade": {
+        "trades": 18021,
+        "winRate": 0.3715110149270296,
+        "expectancy": -0.002371516269498484,
+        "avgWin": 0.023205512543281123,
+        "avgLoss": -0.017490552813870665,
+        "profitFactor": 0.7842628676703383,
+        "avgSessionsHeld": 1.9506131735197825
+      },
+      "exposure": 1,
+      "turnoverPerYear": 258.2870960400547
+    },
+    {
+      "config": {
+        "name": "Hold 20d, long/short",
+        "holdDays": 20,
+        "allowShort": true,
+        "costBps": 5
+      },
+      "perf": {
+        "days": 2704,
+        "totalReturn": -0.970215439844703,
+        "cagr": -0.27925240365520687,
+        "annVol": 0.1818448538393842,
+        "sharpe": -1.7080192770438154,
+        "maxDrawdown": -0.9714613547418688
+      },
+      "trade": {
+        "trades": 18021,
+        "winRate": 0.3715110149270296,
+        "expectancy": -0.002371516269498484,
+        "avgWin": 0.023205512543281123,
+        "avgLoss": -0.017490552813870665,
+        "profitFactor": 0.7842628676703383,
+        "avgSessionsHeld": 1.9506131735197825
+      },
+      "exposure": 1,
+      "turnoverPerYear": 258.2870960400547
+    },
+    {
+      "config": {
+        "name": "Hold until reversal, long/short",
+        "holdDays": null,
+        "allowShort": true,
+        "costBps": 5
+      },
+      "perf": {
+        "days": 2704,
+        "totalReturn": -0.970215439844703,
+        "cagr": -0.27925240365520687,
+        "annVol": 0.1818448538393842,
+        "sharpe": -1.7080192770438154,
+        "maxDrawdown": -0.9714613547418688
+      },
+      "trade": {
+        "trades": 18021,
+        "winRate": 0.3715110149270296,
+        "expectancy": -0.002371516269498484,
+        "avgWin": 0.023205512543281123,
+        "avgLoss": -0.017490552813870665,
+        "profitFactor": 0.7842628676703383,
+        "avgSessionsHeld": 1.9506131735197825
+      },
+      "exposure": 1,
+      "turnoverPerYear": 258.2870960400547
+    }
+  ],
+  "perTicker": {
+    "SPY": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9623511202395661,
+          "cagr": -0.263340432269337,
+          "annVol": 0.13195950053908262,
+          "sharpe": -2.2481427061463806,
+          "maxDrawdown": -0.9626746796629734
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 3.5742610388030593,
+          "cagr": 0.1522289593038315,
+          "annVol": 0.1736850237561343,
+          "sharpe": 0.9031199939237606,
+          "maxDrawdown": -0.3379388816644995
+        },
+        "trade": {
+          "trades": 2703,
+          "winRate": 0.415464298927118,
+          "expectancy": -0.0011781008427166775,
+          "avgWin": 0.005398230759863925,
+          "avgLoss": -0.005852290962778703,
+          "profitFactor": 0.6556139785260658,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.16170221147605124,
+          "cagr": -0.016303590804489843,
+          "annVol": 0.11590085990933902,
+          "sharpe": -0.0836074381407303,
+          "maxDrawdown": -0.33469912054888806
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 3.5742610388030593,
+          "cagr": 0.1522289593038315,
+          "annVol": 0.1736850237561343,
+          "sharpe": 0.9031199939237606,
+          "maxDrawdown": -0.3379388816644995
+        },
+        "trade": {
+          "trades": 681,
+          "winRate": 0.44052863436123346,
+          "expectancy": -0.00016200705745204638,
+          "avgWin": 0.010792314834792992,
+          "avgLoss": -0.00878745736630639,
+          "profitFactor": 0.9670471607942823,
+          "avgSessionsHeld": 2.1527165932452275
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.8732771560770458,
+          "cagr": -0.17512085341753736,
+          "annVol": 0.1739059307824929,
+          "sharpe": -1.0191917308681695,
+          "maxDrawdown": -0.8749832414450771
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 3.5742610388030593,
+          "cagr": 0.1522289593038315,
+          "annVol": 0.1736850237561343,
+          "sharpe": 0.9031199939237606,
+          "maxDrawdown": -0.3379388816644995
+        },
+        "trade": {
+          "trades": 1362,
+          "winRate": 0.3671071953010279,
+          "expectancy": -0.0013830340062215196,
+          "avgWin": 0.010889106460002582,
+          "avgLoss": -0.008501444949506973,
+          "profitFactor": 0.742954530586137,
+          "avgSessionsHeld": 1.985315712187959
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.8732771560770458,
+          "cagr": -0.17512085341753736,
+          "annVol": 0.1739059307824929,
+          "sharpe": -1.0191917308681695,
+          "maxDrawdown": -0.8749832414450771
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 3.5742610388030593,
+          "cagr": 0.1522289593038315,
+          "annVol": 0.1736850237561343,
+          "sharpe": 0.9031199939237606,
+          "maxDrawdown": -0.3379388816644995
+        },
+        "trade": {
+          "trades": 1362,
+          "winRate": 0.3671071953010279,
+          "expectancy": -0.0013830340062215196,
+          "avgWin": 0.010889106460002582,
+          "avgLoss": -0.008501444949506973,
+          "profitFactor": 0.742954530586137,
+          "avgSessionsHeld": 1.985315712187959
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.8732771560770458,
+          "cagr": -0.17512085341753736,
+          "annVol": 0.1739059307824929,
+          "sharpe": -1.0191917308681695,
+          "maxDrawdown": -0.8749832414450771
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 3.5742610388030593,
+          "cagr": 0.1522289593038315,
+          "annVol": 0.1736850237561343,
+          "sharpe": 0.9031199939237606,
+          "maxDrawdown": -0.3379388816644995
+        },
+        "trade": {
+          "trades": 1362,
+          "winRate": 0.3671071953010279,
+          "expectancy": -0.0013830340062215196,
+          "avgWin": 0.010889106460002582,
+          "avgLoss": -0.008501444949506973,
+          "profitFactor": 0.742954530586137,
+          "avgSessionsHeld": 1.985315712187959
+        }
+      }
+    ],
+    "QQQ": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9840242273496557,
+          "cagr": -0.3199025433157211,
+          "annVol": 0.17328581422193426,
+          "sharpe": -2.135717298600022,
+          "maxDrawdown": -0.9846506585129903
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.060122317819016,
+          "cagr": 0.19979012015601216,
+          "annVol": 0.22174609714967564,
+          "sharpe": 0.9327614722645894,
+          "maxDrawdown": -0.35002554931016816
+        },
+        "trade": {
+          "trades": 2703,
+          "winRate": 0.4435812060673326,
+          "expectancy": -0.00146987225118747,
+          "avgWin": 0.007097903155003966,
+          "avgLoss": -0.008300166607586076,
+          "profitFactor": 0.6817334542083893,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.3679238470448778,
+          "cagr": -0.04185188022259101,
+          "annVol": 0.14755311575609392,
+          "sharpe": -0.21559447746312171,
+          "maxDrawdown": -0.40408372349325905
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.060122317819016,
+          "cagr": 0.19979012015601216,
+          "annVol": 0.22174609714967564,
+          "sharpe": 0.9327614722645894,
+          "maxDrawdown": -0.35002554931016816
+        },
+        "trade": {
+          "trades": 684,
+          "winRate": 0.4415204678362573,
+          "expectancy": -0.0005128256593529516,
+          "avgWin": 0.013886357969594592,
+          "avgLoss": -0.011896473449777414,
+          "profitFactor": 0.9228129849792167,
+          "avgSessionsHeld": 2.1476608187134505
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9576733300911828,
+          "cagr": -0.2552561329862779,
+          "annVol": 0.21591078175936604,
+          "sharpe": -1.2556464484373593,
+          "maxDrawdown": -0.9582300237694961
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.060122317819016,
+          "cagr": 0.19979012015601216,
+          "annVol": 0.22174609714967564,
+          "sharpe": 0.9327614722645894,
+          "maxDrawdown": -0.35002554931016816
+        },
+        "trade": {
+          "trades": 1368,
+          "winRate": 0.35891812865497075,
+          "expectancy": -0.002097178397009102,
+          "avgWin": 0.014398596949398958,
+          "avgLoss": -0.011332555472364121,
+          "profitFactor": 0.7113350691133681,
+          "avgSessionsHeld": 1.976608187134503
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9576733300911828,
+          "cagr": -0.2552561329862779,
+          "annVol": 0.21591078175936604,
+          "sharpe": -1.2556464484373593,
+          "maxDrawdown": -0.9582300237694961
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.060122317819016,
+          "cagr": 0.19979012015601216,
+          "annVol": 0.22174609714967564,
+          "sharpe": 0.9327614722645894,
+          "maxDrawdown": -0.35002554931016816
+        },
+        "trade": {
+          "trades": 1368,
+          "winRate": 0.35891812865497075,
+          "expectancy": -0.002097178397009102,
+          "avgWin": 0.014398596949398958,
+          "avgLoss": -0.011332555472364121,
+          "profitFactor": 0.7113350691133681,
+          "avgSessionsHeld": 1.976608187134503
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9576733300911828,
+          "cagr": -0.2552561329862779,
+          "annVol": 0.21591078175936604,
+          "sharpe": -1.2556464484373593,
+          "maxDrawdown": -0.9582300237694961
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.060122317819016,
+          "cagr": 0.19979012015601216,
+          "annVol": 0.22174609714967564,
+          "sharpe": 0.9327614722645894,
+          "maxDrawdown": -0.35002554931016816
+        },
+        "trade": {
+          "trades": 1368,
+          "winRate": 0.35891812865497075,
+          "expectancy": -0.002097178397009102,
+          "avgWin": 0.014398596949398958,
+          "avgLoss": -0.011332555472364121,
+          "profitFactor": 0.7113350691133681,
+          "avgSessionsHeld": 1.976608187134503
+        }
+      }
+    ],
+    "IWM": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9833116992140759,
+          "cagr": -0.3171312728715535,
+          "annVol": 0.17650852109075776,
+          "sharpe": -2.07085271950222,
+          "maxDrawdown": -0.983570258473518
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 2.1216730038022886,
+          "cagr": 0.11192262244225426,
+          "annVol": 0.22512732006527775,
+          "sharpe": 0.5843567067289105,
+          "maxDrawdown": -0.41272785417332825
+        },
+        "trade": {
+          "trades": 2701,
+          "winRate": 0.4498333950388745,
+          "expectancy": -0.0014528024407684404,
+          "avgWin": 0.00760549317130696,
+          "avgLoss": -0.00885914777634825,
+          "profitFactor": 0.7019285436456257,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.4104284443300652,
+          "cagr": -0.048047913457817226,
+          "annVol": 0.15520806562189796,
+          "sharpe": -0.23964527014353112,
+          "maxDrawdown": -0.4772236318866545
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 2.1216730038022886,
+          "cagr": 0.11192262244225426,
+          "annVol": 0.22512732006527775,
+          "sharpe": 0.5843567067289105,
+          "maxDrawdown": -0.41272785417332825
+        },
+        "trade": {
+          "trades": 693,
+          "winRate": 0.3953823953823954,
+          "expectancy": -0.000566255857721408,
+          "avgWin": 0.016501838571196463,
+          "avgLoss": -0.011727730496202293,
+          "profitFactor": 0.9201420896072362,
+          "avgSessionsHeld": 1.974025974025974
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9183200365542922,
+          "cagr": -0.20820215105029005,
+          "annVol": 0.22969814188705276,
+          "sharpe": -0.9010004995091968,
+          "maxDrawdown": -0.9214979653721208
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 2.1216730038022886,
+          "cagr": 0.11192262244225426,
+          "annVol": 0.22512732006527775,
+          "sharpe": 0.5843567067289105,
+          "maxDrawdown": -0.41272785417332825
+        },
+        "trade": {
+          "trades": 1386,
+          "winRate": 0.37012987012987014,
+          "expectancy": -0.0015867689086220308,
+          "avgWin": 0.015710393700027175,
+          "avgLoss": -0.011751080957003507,
+          "profitFactor": 0.7856197117367739,
+          "avgSessionsHeld": 1.950937950937951
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9183200365542922,
+          "cagr": -0.20820215105029005,
+          "annVol": 0.22969814188705276,
+          "sharpe": -0.9010004995091968,
+          "maxDrawdown": -0.9214979653721208
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 2.1216730038022886,
+          "cagr": 0.11192262244225426,
+          "annVol": 0.22512732006527775,
+          "sharpe": 0.5843567067289105,
+          "maxDrawdown": -0.41272785417332825
+        },
+        "trade": {
+          "trades": 1386,
+          "winRate": 0.37012987012987014,
+          "expectancy": -0.0015867689086220308,
+          "avgWin": 0.015710393700027175,
+          "avgLoss": -0.011751080957003507,
+          "profitFactor": 0.7856197117367739,
+          "avgSessionsHeld": 1.950937950937951
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9183200365542922,
+          "cagr": -0.20820215105029005,
+          "annVol": 0.22969814188705276,
+          "sharpe": -0.9010004995091968,
+          "maxDrawdown": -0.9214979653721208
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 2.1216730038022886,
+          "cagr": 0.11192262244225426,
+          "annVol": 0.22512732006527775,
+          "sharpe": 0.5843567067289105,
+          "maxDrawdown": -0.41272785417332825
+        },
+        "trade": {
+          "trades": 1386,
+          "winRate": 0.37012987012987014,
+          "expectancy": -0.0015867689086220308,
+          "avgWin": 0.015710393700027175,
+          "avgLoss": -0.011751080957003507,
+          "profitFactor": 0.7856197117367739,
+          "avgSessionsHeld": 1.950937950937951
+        }
+      }
+    ],
+    "AAPL": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9789521432598027,
+          "cagr": -0.30220008564154477,
+          "annVol": 0.2233448700623795,
+          "sharpe": -1.497273689350799,
+          "maxDrawdown": -0.9793856946773397
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 14.605166051660587,
+          "cagr": 0.29183475883997234,
+          "annVol": 0.2866897130681223,
+          "sharpe": 1.0367594489150551,
+          "maxDrawdown": -0.3850784385260847
+        },
+        "trade": {
+          "trades": 2701,
+          "winRate": 0.45353572750833027,
+          "expectancy": -0.0013290703568052563,
+          "avgWin": 0.009684354890420077,
+          "avgLoss": -0.01046961637838454,
+          "profitFactor": 0.7676966730470418,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.02839771264318658,
+          "cagr": -0.0026812360918053724,
+          "annVol": 0.19667663165036822,
+          "sharpe": 0.0849106256937658,
+          "maxDrawdown": -0.4999443320655098
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 14.605166051660587,
+          "cagr": 0.29183475883997234,
+          "annVol": 0.2866897130681223,
+          "sharpe": 1.0367594489150551,
+          "maxDrawdown": -0.3850784385260847
+        },
+        "trade": {
+          "trades": 683,
+          "winRate": 0.41874084919472915,
+          "expectancy": 0.00031975538529819126,
+          "avgWin": 0.021727030791928302,
+          "avgLoss": -0.015102110524767811,
+          "profitFactor": 1.0364259108341087,
+          "avgSessionsHeld": 2.1493411420204978
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9628631141560526,
+          "cagr": -0.264279866234565,
+          "annVol": 0.29402831511751876,
+          "sharpe": -0.8954149570104014,
+          "maxDrawdown": -0.9661827210147143
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 14.605166051660587,
+          "cagr": 0.29183475883997234,
+          "annVol": 0.2866897130681223,
+          "sharpe": 1.0367594489150551,
+          "maxDrawdown": -0.3850784385260847
+        },
+        "trade": {
+          "trades": 1367,
+          "winRate": 0.36430138990490124,
+          "expectancy": -0.0020245280149162608,
+          "avgWin": 0.021194241532323434,
+          "avgLoss": -0.015330566259479398,
+          "profitFactor": 0.7922627719017992,
+          "avgSessionsHeld": 1.978054133138259
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9628631141560526,
+          "cagr": -0.264279866234565,
+          "annVol": 0.29402831511751876,
+          "sharpe": -0.8954149570104014,
+          "maxDrawdown": -0.9661827210147143
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 14.605166051660587,
+          "cagr": 0.29183475883997234,
+          "annVol": 0.2866897130681223,
+          "sharpe": 1.0367594489150551,
+          "maxDrawdown": -0.3850784385260847
+        },
+        "trade": {
+          "trades": 1367,
+          "winRate": 0.36430138990490124,
+          "expectancy": -0.0020245280149162608,
+          "avgWin": 0.021194241532323434,
+          "avgLoss": -0.015330566259479398,
+          "profitFactor": 0.7922627719017992,
+          "avgSessionsHeld": 1.978054133138259
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9628631141560526,
+          "cagr": -0.264279866234565,
+          "annVol": 0.29402831511751876,
+          "sharpe": -0.8954149570104014,
+          "maxDrawdown": -0.9661827210147143
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 14.605166051660587,
+          "cagr": 0.29183475883997234,
+          "annVol": 0.2866897130681223,
+          "sharpe": 1.0367594489150551,
+          "maxDrawdown": -0.3850784385260847
+        },
+        "trade": {
+          "trades": 1367,
+          "winRate": 0.36430138990490124,
+          "expectancy": -0.0020245280149162608,
+          "avgWin": 0.021194241532323434,
+          "avgLoss": -0.015330566259479398,
+          "profitFactor": 0.7922627719017992,
+          "avgSessionsHeld": 1.978054133138259
+        }
+      }
+    ],
+    "MSFT": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9921846869226494,
+          "cagr": -0.3637429949420331,
+          "annVol": 0.21044805402804082,
+          "sharpe": -2.0407459573933497,
+          "maxDrawdown": -0.9934508776753503
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 9.653781512605155,
+          "cagr": 0.24669003738941964,
+          "annVol": 0.2737065579076997,
+          "sharpe": 0.942403839564269,
+          "maxDrawdown": -0.37148746551880873
+        },
+        "trade": {
+          "trades": 2703,
+          "winRate": 0.44691083980762114,
+          "expectancy": -0.0017058362244369478,
+          "avgWin": 0.008976533471299113,
+          "avgLoss": -0.010337476754503269,
+          "profitFactor": 0.7016489025195212,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.4677425810896809,
+          "cagr": -0.05707784279011974,
+          "annVol": 0.19099891651615664,
+          "sharpe": -0.21223914080688475,
+          "maxDrawdown": -0.6590602988435588
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 9.653781512605155,
+          "cagr": 0.24669003738941964,
+          "annVol": 0.2737065579076997,
+          "sharpe": 0.942403839564269,
+          "maxDrawdown": -0.37148746551880873
+        },
+        "trade": {
+          "trades": 695,
+          "winRate": 0.4158273381294964,
+          "expectancy": -0.0006600685324983652,
+          "avgWin": 0.018137468272748397,
+          "avgLoss": -0.01404058118450899,
+          "profitFactor": 0.9195246794772769,
+          "avgSessionsHeld": 2.064748201438849
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9824080174691967,
+          "cagr": -0.31376692837892717,
+          "annVol": 0.2734886361655706,
+          "sharpe": -1.2383307524220613,
+          "maxDrawdown": -0.9862982593669786
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 9.653781512605155,
+          "cagr": 0.24669003738941964,
+          "annVol": 0.2737065579076997,
+          "sharpe": 0.942403839564269,
+          "maxDrawdown": -0.37148746551880873
+        },
+        "trade": {
+          "trades": 1391,
+          "winRate": 0.3687994248741912,
+          "expectancy": -0.0026017761037953635,
+          "avgWin": 0.017244526488975023,
+          "avgLoss": -0.014197622607316092,
+          "profitFactor": 0.7096733474010175,
+          "avgSessionsHeld": 1.9439252336448598
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9824080174691967,
+          "cagr": -0.31376692837892717,
+          "annVol": 0.2734886361655706,
+          "sharpe": -1.2383307524220613,
+          "maxDrawdown": -0.9862982593669786
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 9.653781512605155,
+          "cagr": 0.24669003738941964,
+          "annVol": 0.2737065579076997,
+          "sharpe": 0.942403839564269,
+          "maxDrawdown": -0.37148746551880873
+        },
+        "trade": {
+          "trades": 1391,
+          "winRate": 0.3687994248741912,
+          "expectancy": -0.0026017761037953635,
+          "avgWin": 0.017244526488975023,
+          "avgLoss": -0.014197622607316092,
+          "profitFactor": 0.7096733474010175,
+          "avgSessionsHeld": 1.9439252336448598
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9824080174691967,
+          "cagr": -0.31376692837892717,
+          "annVol": 0.2734886361655706,
+          "sharpe": -1.2383307524220613,
+          "maxDrawdown": -0.9862982593669786
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 9.653781512605155,
+          "cagr": 0.24669003738941964,
+          "annVol": 0.2737065579076997,
+          "sharpe": 0.942403839564269,
+          "maxDrawdown": -0.37148746551880873
+        },
+        "trade": {
+          "trades": 1391,
+          "winRate": 0.3687994248741912,
+          "expectancy": -0.0026017761037953635,
+          "avgWin": 0.017244526488975023,
+          "avgLoss": -0.014197622607316092,
+          "profitFactor": 0.7096733474010175,
+          "avgSessionsHeld": 1.9439252336448598
+        }
+      }
+    ],
+    "NVDA": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9975248839152029,
+          "cagr": -0.4283957550525265,
+          "annVol": 0.3871689598164173,
+          "sharpe": -1.2473978202629339,
+          "maxDrawdown": -0.9981250060727672
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 282.3941093969136,
+          "cagr": 0.6925878357059239,
+          "annVol": 0.49113053630777276,
+          "sharpe": 1.31602991504478,
+          "maxDrawdown": -0.6632560938910614
+        },
+        "trade": {
+          "trades": 2701,
+          "winRate": 0.4679748241392077,
+          "expectancy": -0.001919781190595686,
+          "avgWin": 0.01701262764494777,
+          "avgLoss": -0.018572922991658237,
+          "profitFactor": 0.8057149916714239,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": 0.6846096003925182,
+          "cagr": 0.04980505563171511,
+          "annVol": 0.33243738944148726,
+          "sharpe": 0.31312241367160826,
+          "maxDrawdown": -0.6734241411553887
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 282.3941093969136,
+          "cagr": 0.6925878357059239,
+          "annVol": 0.49113053630777276,
+          "sharpe": 1.31602991504478,
+          "maxDrawdown": -0.6632560938910614
+        },
+        "trade": {
+          "trades": 691,
+          "winRate": 0.447178002894356,
+          "expectancy": 0.0016855384522833144,
+          "avgWin": 0.035598954130590756,
+          "avgLoss": -0.025747041245614596,
+          "profitFactor": 1.118420262729624,
+          "avgSessionsHeld": 2.0347322720694647
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9975196323928504,
+          "cagr": -0.42828283748420637,
+          "annVol": 0.4934792151973491,
+          "sharpe": -0.8810174220483284,
+          "maxDrawdown": -0.9986108677471588
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 282.3941093969136,
+          "cagr": 0.6925878357059239,
+          "annVol": 0.49113053630777276,
+          "sharpe": 1.31602991504478,
+          "maxDrawdown": -0.6632560938910614
+        },
+        "trade": {
+          "trades": 1382,
+          "winRate": 0.3885672937771346,
+          "expectancy": -0.0032765921109575344,
+          "avgWin": 0.03369369408899185,
+          "avgLoss": -0.026771318370570323,
+          "profitFactor": 0.7998277104865505,
+          "avgSessionsHeld": 1.9565846599131693
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9975196323928504,
+          "cagr": -0.42828283748420637,
+          "annVol": 0.4934792151973491,
+          "sharpe": -0.8810174220483284,
+          "maxDrawdown": -0.9986108677471588
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 282.3941093969136,
+          "cagr": 0.6925878357059239,
+          "annVol": 0.49113053630777276,
+          "sharpe": 1.31602991504478,
+          "maxDrawdown": -0.6632560938910614
+        },
+        "trade": {
+          "trades": 1382,
+          "winRate": 0.3885672937771346,
+          "expectancy": -0.0032765921109575344,
+          "avgWin": 0.03369369408899185,
+          "avgLoss": -0.026771318370570323,
+          "profitFactor": 0.7998277104865505,
+          "avgSessionsHeld": 1.9565846599131693
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9975196323928504,
+          "cagr": -0.42828283748420637,
+          "annVol": 0.4934792151973491,
+          "sharpe": -0.8810174220483284,
+          "maxDrawdown": -0.9986108677471588
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 282.3941093969136,
+          "cagr": 0.6925878357059239,
+          "annVol": 0.49113053630777276,
+          "sharpe": 1.31602991504478,
+          "maxDrawdown": -0.6632560938910614
+        },
+        "trade": {
+          "trades": 1382,
+          "winRate": 0.3885672937771346,
+          "expectancy": -0.0032765921109575344,
+          "avgWin": 0.03369369408899185,
+          "avgLoss": -0.026771318370570323,
+          "profitFactor": 0.7998277104865505,
+          "avgSessionsHeld": 1.9565846599131693
+        }
+      }
+    ],
+    "AMZN": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9763210531524543,
+          "cagr": -0.2944979672938597,
+          "annVol": 0.25380742832567516,
+          "sharpe": -1.2460651829625444,
+          "maxDrawdown": -0.9781084541173496
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 7.546624913013257,
+          "cagr": 0.2213463813420522,
+          "annVol": 0.3274418532065747,
+          "sharpe": 0.7739333773639768,
+          "maxDrawdown": -0.5614514659377179
+        },
+        "trade": {
+          "trades": 2701,
+          "winRate": 0.46723435764531657,
+          "expectancy": -0.001256903149161224,
+          "avgWin": 0.011318679755691811,
+          "avgLoss": -0.012285663139379807,
+          "profitFactor": 0.8079709199379211,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.19749009606534973,
+          "cagr": -0.020295213961547987,
+          "annVol": 0.21745894212797096,
+          "sharpe": 0.01472869411856127,
+          "maxDrawdown": -0.5445189197471012
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 7.546624913013257,
+          "cagr": 0.2213463813420522,
+          "annVol": 0.3274418532065747,
+          "sharpe": 0.7739333773639768,
+          "maxDrawdown": -0.5614514659377179
+        },
+        "trade": {
+          "trades": 676,
+          "winRate": 0.4349112426035503,
+          "expectancy": 0.00004599498926779734,
+          "avgWin": 0.021622501365553142,
+          "avgLoss": -0.016560007300334,
+          "profitFactor": 1.0049151110096446,
+          "avgSessionsHeld": 1.9955621301775148
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9628174727100495,
+          "cagr": -0.2641956455969573,
+          "annVol": 0.33588518922403515,
+          "sharpe": -0.744000306878702,
+          "maxDrawdown": -0.9652522507332686
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 7.546624913013257,
+          "cagr": 0.2213463813420522,
+          "annVol": 0.3274418532065747,
+          "sharpe": 0.7739333773639768,
+          "maxDrawdown": -0.5614514659377179
+        },
+        "trade": {
+          "trades": 1352,
+          "winRate": 0.39349112426035504,
+          "expectancy": -0.0019333914170338365,
+          "avgWin": 0.022071126444158217,
+          "avgLoss": -0.017507054224538916,
+          "profitFactor": 0.8179169377777624,
+          "avgSessionsHeld": 2
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9628174727100495,
+          "cagr": -0.2641956455969573,
+          "annVol": 0.33588518922403515,
+          "sharpe": -0.744000306878702,
+          "maxDrawdown": -0.9652522507332686
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 7.546624913013257,
+          "cagr": 0.2213463813420522,
+          "annVol": 0.3274418532065747,
+          "sharpe": 0.7739333773639768,
+          "maxDrawdown": -0.5614514659377179
+        },
+        "trade": {
+          "trades": 1352,
+          "winRate": 0.39349112426035504,
+          "expectancy": -0.0019333914170338365,
+          "avgWin": 0.022071126444158217,
+          "avgLoss": -0.017507054224538916,
+          "profitFactor": 0.8179169377777624,
+          "avgSessionsHeld": 2
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9628174727100495,
+          "cagr": -0.2641956455969573,
+          "annVol": 0.33588518922403515,
+          "sharpe": -0.744000306878702,
+          "maxDrawdown": -0.9652522507332686
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 7.546624913013257,
+          "cagr": 0.2213463813420522,
+          "annVol": 0.3274418532065747,
+          "sharpe": 0.7739333773639768,
+          "maxDrawdown": -0.5614514659377179
+        },
+        "trade": {
+          "trades": 1352,
+          "winRate": 0.39349112426035504,
+          "expectancy": -0.0019333914170338365,
+          "avgWin": 0.022071126444158217,
+          "avgLoss": -0.017507054224538916,
+          "profitFactor": 0.8179169377777624,
+          "avgSessionsHeld": 2
+        }
+      }
+    ],
+    "GOOGL": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9812828622742308,
+          "cagr": -0.3097905610489813,
+          "annVol": 0.2245171456799476,
+          "sharpe": -1.5374888585000626,
+          "maxDrawdown": -0.9843241506133925
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.307228915662608,
+          "cagr": 0.20364291575329552,
+          "annVol": 0.2927132949461648,
+          "sharpe": 0.7799551926027014,
+          "maxDrawdown": -0.4432392373509412
+        },
+        "trade": {
+          "trades": 2703,
+          "winRate": 0.4491305956344802,
+          "expectancy": -0.0013709395660497887,
+          "avgWin": 0.010168097758889291,
+          "avgLoss": -0.010778858513313776,
+          "profitFactor": 0.7691143788371981,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.4256591974773909,
+          "cagr": -0.05036709779675874,
+          "annVol": 0.21621441946831627,
+          "sharpe": -0.13058179514475254,
+          "maxDrawdown": -0.6054605231665446
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.307228915662608,
+          "cagr": 0.20364291575329552,
+          "annVol": 0.2927132949461648,
+          "sharpe": 0.7799551926027014,
+          "maxDrawdown": -0.4432392373509412
+        },
+        "trade": {
+          "trades": 696,
+          "winRate": 0.3793103448275862,
+          "expectancy": -0.0004702956724494415,
+          "avgWin": 0.022244512798705526,
+          "avgLoss": -0.014351567515933007,
+          "profitFactor": 0.9472044720864429,
+          "avgSessionsHeld": 2.0660919540229883
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9701846249481341,
+          "cagr": -0.2791829423493274,
+          "annVol": 0.2971734059113353,
+          "sharpe": -0.9516630809202746,
+          "maxDrawdown": -0.9745936525214225
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.307228915662608,
+          "cagr": 0.20364291575329552,
+          "annVol": 0.2927132949461648,
+          "sharpe": 0.7799551926027014,
+          "maxDrawdown": -0.4432392373509412
+        },
+        "trade": {
+          "trades": 1393,
+          "winRate": 0.35750179468772436,
+          "expectancy": -0.0021619777800402965,
+          "avgWin": 0.020233711363655357,
+          "avgLoss": -0.014623489728152488,
+          "profitFactor": 0.769893819943367,
+          "avgSessionsHeld": 1.9411342426417804
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9701846249481341,
+          "cagr": -0.2791829423493274,
+          "annVol": 0.2971734059113353,
+          "sharpe": -0.9516630809202746,
+          "maxDrawdown": -0.9745936525214225
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.307228915662608,
+          "cagr": 0.20364291575329552,
+          "annVol": 0.2927132949461648,
+          "sharpe": 0.7799551926027014,
+          "maxDrawdown": -0.4432392373509412
+        },
+        "trade": {
+          "trades": 1393,
+          "winRate": 0.35750179468772436,
+          "expectancy": -0.0021619777800402965,
+          "avgWin": 0.020233711363655357,
+          "avgLoss": -0.014623489728152488,
+          "profitFactor": 0.769893819943367,
+          "avgSessionsHeld": 1.9411342426417804
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9701846249481341,
+          "cagr": -0.2791829423493274,
+          "annVol": 0.2971734059113353,
+          "sharpe": -0.9516630809202746,
+          "maxDrawdown": -0.9745936525214225
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.307228915662608,
+          "cagr": 0.20364291575329552,
+          "annVol": 0.2927132949461648,
+          "sharpe": 0.7799551926027014,
+          "maxDrawdown": -0.4432392373509412
+        },
+        "trade": {
+          "trades": 1393,
+          "winRate": 0.35750179468772436,
+          "expectancy": -0.0021619777800402965,
+          "avgWin": 0.020233711363655357,
+          "avgLoss": -0.014623489728152488,
+          "profitFactor": 0.769893819943367,
+          "avgSessionsHeld": 1.9411342426417804
+        }
+      }
+    ],
+    "META": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9976975360425142,
+          "cagr": -0.4322346828904702,
+          "annVol": 0.2739879509309769,
+          "sharpe": -1.9257047566861587,
+          "maxDrawdown": -0.9979254499656768
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 4.322192982456152,
+          "cagr": 0.16860626018604363,
+          "annVol": 0.38666237726839026,
+          "sharpe": 0.5982681780665872,
+          "maxDrawdown": -0.7673490952318055
+        },
+        "trade": {
+          "trades": 2704,
+          "winRate": 0.4315828402366864,
+          "expectancy": -0.0020950745642181975,
+          "avgWin": 0.012305975129355159,
+          "avgLoss": -0.01302937839792028,
+          "profitFactor": 0.7171158549667873,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.8126378065410806,
+          "cagr": -0.14450514543414106,
+          "annVol": 0.27779293240711517,
+          "sharpe": -0.42013798639256716,
+          "maxDrawdown": -0.8499979661694256
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 4.322192982456152,
+          "cagr": 0.16860626018604363,
+          "annVol": 0.38666237726839026,
+          "sharpe": 0.5982681780665872,
+          "maxDrawdown": -0.7673490952318055
+        },
+        "trade": {
+          "trades": 728,
+          "winRate": 0.3804945054945055,
+          "expectancy": -0.001763185680363999,
+          "avgWin": 0.02482412491605998,
+          "avgLoss": -0.018092864250673208,
+          "profitFactor": 0.8426939004294637,
+          "avgSessionsHeld": 1.8928571428571428
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.997145757310159,
+          "cagr": -0.420752995388768,
+          "annVol": 0.3911250346504371,
+          "sharpe": -1.1959850730888635,
+          "maxDrawdown": -0.9980466238998676
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 4.322192982456152,
+          "cagr": 0.16860626018604363,
+          "annVol": 0.38666237726839026,
+          "sharpe": 0.5982681780665872,
+          "maxDrawdown": -0.7673490952318055
+        },
+        "trade": {
+          "trades": 1455,
+          "winRate": 0.3621993127147766,
+          "expectancy": -0.0034221505730518357,
+          "avgWin": 0.023798777502859223,
+          "avgLoss": -0.018880587098919425,
+          "profitFactor": 0.7158166452367474,
+          "avgSessionsHeld": 1.8584192439862544
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.997145757310159,
+          "cagr": -0.420752995388768,
+          "annVol": 0.3911250346504371,
+          "sharpe": -1.1959850730888635,
+          "maxDrawdown": -0.9980466238998676
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 4.322192982456152,
+          "cagr": 0.16860626018604363,
+          "annVol": 0.38666237726839026,
+          "sharpe": 0.5982681780665872,
+          "maxDrawdown": -0.7673490952318055
+        },
+        "trade": {
+          "trades": 1455,
+          "winRate": 0.3621993127147766,
+          "expectancy": -0.0034221505730518357,
+          "avgWin": 0.023798777502859223,
+          "avgLoss": -0.018880587098919425,
+          "profitFactor": 0.7158166452367474,
+          "avgSessionsHeld": 1.8584192439862544
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.997145757310159,
+          "cagr": -0.420752995388768,
+          "annVol": 0.3911250346504371,
+          "sharpe": -1.1959850730888635,
+          "maxDrawdown": -0.9980466238998676
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 4.322192982456152,
+          "cagr": 0.16860626018604363,
+          "annVol": 0.38666237726839026,
+          "sharpe": 0.5982681780665872,
+          "maxDrawdown": -0.7673490952318055
+        },
+        "trade": {
+          "trades": 1455,
+          "winRate": 0.3621993127147766,
+          "expectancy": -0.0034221505730518357,
+          "avgWin": 0.023798777502859223,
+          "avgLoss": -0.018880587098919425,
+          "profitFactor": 0.7158166452367474,
+          "avgSessionsHeld": 1.8584192439862544
+        }
+      }
+    ],
+    "TSLA": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9984996617065648,
+          "cagr": -0.4544504523214188,
+          "annVol": 0.4624256515459527,
+          "sharpe": -1.0754772132149695,
+          "maxDrawdown": -0.9986464495721009
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 29.75552170601674,
+          "cagr": 0.3761551170730788,
+          "annVol": 0.5837095312722593,
+          "sharpe": 0.8379755778300252,
+          "maxDrawdown": -0.7363221699148721
+        },
+        "trade": {
+          "trades": 2704,
+          "winRate": 0.45821005917159763,
+          "expectancy": -0.001974749311353332,
+          "avgWin": 0.021218117305173687,
+          "avgLoss": -0.02158974025870962,
+          "profitFactor": 0.8311762214876119,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": 0.6764405548438222,
+          "cagr": 0.04932957665495952,
+          "annVol": 0.4050391332465421,
+          "sharpe": 0.32086099677185687,
+          "maxDrawdown": -0.7787010027629545
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 29.75552170601674,
+          "cagr": 0.3761551170730788,
+          "annVol": 0.5837095312722593,
+          "sharpe": 0.8379755778300252,
+          "maxDrawdown": -0.7363221699148721
+        },
+        "trade": {
+          "trades": 702,
+          "winRate": 0.405982905982906,
+          "expectancy": 0.0019300999114207913,
+          "avgWin": 0.04317018664203054,
+          "avgLoss": -0.026255570875686605,
+          "profitFactor": 1.12375403908719,
+          "avgSessionsHeld": 1.9444444444444444
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9867343488203592,
+          "cagr": -0.33158345763835695,
+          "annVol": 0.5727470180017588,
+          "sharpe": -0.4148883608192457,
+          "maxDrawdown": -0.9889833512700694
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 29.75552170601674,
+          "cagr": 0.3761551170730788,
+          "annVol": 0.5837095312722593,
+          "sharpe": 0.8379755778300252,
+          "maxDrawdown": -0.7363221699148721
+        },
+        "trade": {
+          "trades": 1403,
+          "winRate": 0.37633642195295797,
+          "expectancy": -0.0017691979353928378,
+          "avgWin": 0.04267735127104929,
+          "avgLoss": -0.02858951562796593,
+          "profitFactor": 0.9007754256827484,
+          "avgSessionsHeld": 1.9272986457590877
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9867343488203592,
+          "cagr": -0.33158345763835695,
+          "annVol": 0.5727470180017588,
+          "sharpe": -0.4148883608192457,
+          "maxDrawdown": -0.9889833512700694
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 29.75552170601674,
+          "cagr": 0.3761551170730788,
+          "annVol": 0.5837095312722593,
+          "sharpe": 0.8379755778300252,
+          "maxDrawdown": -0.7363221699148721
+        },
+        "trade": {
+          "trades": 1403,
+          "winRate": 0.37633642195295797,
+          "expectancy": -0.0017691979353928378,
+          "avgWin": 0.04267735127104929,
+          "avgLoss": -0.02858951562796593,
+          "profitFactor": 0.9007754256827484,
+          "avgSessionsHeld": 1.9272986457590877
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9867343488203592,
+          "cagr": -0.33158345763835695,
+          "annVol": 0.5727470180017588,
+          "sharpe": -0.4148883608192457,
+          "maxDrawdown": -0.9889833512700694
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 29.75552170601674,
+          "cagr": 0.3761551170730788,
+          "annVol": 0.5837095312722593,
+          "sharpe": 0.8379755778300252,
+          "maxDrawdown": -0.7363221699148721
+        },
+        "trade": {
+          "trades": 1403,
+          "winRate": 0.37633642195295797,
+          "expectancy": -0.0017691979353928378,
+          "avgWin": 0.04267735127104929,
+          "avgLoss": -0.02858951562796593,
+          "profitFactor": 0.9007754256827484,
+          "avgSessionsHeld": 1.9272986457590877
+        }
+      }
+    ],
+    "AMD": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9998037189821952,
+          "cagr": -0.5486496264929743,
+          "annVol": 0.4657485209281335,
+          "sharpe": -1.4692906761243272,
+          "maxDrawdown": -0.9998686231203581
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 217.14953271028008,
+          "cagr": 0.6518128051758336,
+          "annVol": 0.5978120384603354,
+          "sharpe": 1.132057097400408,
+          "maxDrawdown": -0.654499413254277
+        },
+        "trade": {
+          "trades": 2700,
+          "winRate": 0.457037037037037,
+          "expectancy": -0.0027215495579221856,
+          "avgWin": 0.020781775222076963,
+          "avgLoss": -0.022505385013937916,
+          "profitFactor": 0.7772798072662588,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.4923331088851298,
+          "cagr": -0.061225376049621194,
+          "annVol": 0.4260358740059656,
+          "sharpe": 0.06220664722659349,
+          "maxDrawdown": -0.8561263990616095
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 217.14953271028008,
+          "cagr": 0.6518128051758336,
+          "annVol": 0.5978120384603354,
+          "sharpe": 1.132057097400408,
+          "maxDrawdown": -0.654499413254277
+        },
+        "trade": {
+          "trades": 705,
+          "winRate": 0.40425531914893614,
+          "expectancy": 0.00033789533720309954,
+          "avgWin": 0.043825284021540775,
+          "avgLoss": -0.029171404127168874,
+          "profitFactor": 1.019443063364523,
+          "avgSessionsHeld": 1.9120567375886526
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9998068676895553,
+          "cagr": -0.5493293642227842,
+          "annVol": 0.5857565889274806,
+          "sharpe": -1.0664833018423316,
+          "maxDrawdown": -0.9998433152609907
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 217.14953271028008,
+          "cagr": 0.6518128051758336,
+          "annVol": 0.5978120384603354,
+          "sharpe": 1.132057097400408,
+          "maxDrawdown": -0.654499413254277
+        },
+        "trade": {
+          "trades": 1411,
+          "winRate": 0.37420269312544296,
+          "expectancy": -0.004675174026529477,
+          "avgWin": 0.040008929653745647,
+          "avgLoss": -0.031394547461620355,
+          "profitFactor": 0.7620367649668754,
+          "avgSessionsHeld": 1.9163713678242382
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9998068676895553,
+          "cagr": -0.5493293642227842,
+          "annVol": 0.5857565889274806,
+          "sharpe": -1.0664833018423316,
+          "maxDrawdown": -0.9998433152609907
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 217.14953271028008,
+          "cagr": 0.6518128051758336,
+          "annVol": 0.5978120384603354,
+          "sharpe": 1.132057097400408,
+          "maxDrawdown": -0.654499413254277
+        },
+        "trade": {
+          "trades": 1411,
+          "winRate": 0.37420269312544296,
+          "expectancy": -0.004675174026529477,
+          "avgWin": 0.040008929653745647,
+          "avgLoss": -0.031394547461620355,
+          "profitFactor": 0.7620367649668754,
+          "avgSessionsHeld": 1.9163713678242382
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9998068676895553,
+          "cagr": -0.5493293642227842,
+          "annVol": 0.5857565889274806,
+          "sharpe": -1.0664833018423316,
+          "maxDrawdown": -0.9998433152609907
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 217.14953271028008,
+          "cagr": 0.6518128051758336,
+          "annVol": 0.5978120384603354,
+          "sharpe": 1.132057097400408,
+          "maxDrawdown": -0.654499413254277
+        },
+        "trade": {
+          "trades": 1411,
+          "winRate": 0.37420269312544296,
+          "expectancy": -0.004675174026529477,
+          "avgWin": 0.040008929653745647,
+          "avgLoss": -0.031394547461620355,
+          "profitFactor": 0.7620367649668754,
+          "avgSessionsHeld": 1.9163713678242382
+        }
+      }
+    ],
+    "JPM": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9807747739986209,
+          "cagr": -0.3080655668760083,
+          "annVol": 0.19999528439831996,
+          "sharpe": -1.739462776725085,
+          "maxDrawdown": -0.9818355045646027
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.677637511271401,
+          "cagr": 0.20920246055862513,
+          "annVol": 0.27137818838312117,
+          "sharpe": 0.835597254115878,
+          "maxDrawdown": -0.43632799181725146
+        },
+        "trade": {
+          "trades": 2698,
+          "winRate": 0.45663454410674575,
+          "expectancy": -0.001384197602126103,
+          "avgWin": 0.00846733764817017,
+          "avgLoss": -0.009663250418200446,
+          "profitFactor": 0.7363772819891355,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": 0.20069464520196112,
+          "cagr": 0.017191540893600532,
+          "annVol": 0.18142052216191365,
+          "sharpe": 0.18482796835086102,
+          "maxDrawdown": -0.4266938191067152
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.677637511271401,
+          "cagr": 0.20920246055862513,
+          "annVol": 0.27137818838312117,
+          "sharpe": 0.835597254115878,
+          "maxDrawdown": -0.43632799181725146
+        },
+        "trade": {
+          "trades": 682,
+          "winRate": 0.436950146627566,
+          "expectancy": 0.0005258996185664838,
+          "avgWin": 0.01876670950507243,
+          "avgLoss": -0.013629728887107383,
+          "profitFactor": 1.0685281154742343,
+          "avgSessionsHeld": 2.063049853372434
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.8788523742149582,
+          "cagr": -0.17857240448033107,
+          "annVol": 0.27308781457956066,
+          "sharpe": -0.5831821610432631,
+          "maxDrawdown": -0.8853667266141307
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.677637511271401,
+          "cagr": 0.20920246055862513,
+          "annVol": 0.27137818838312117,
+          "sharpe": 0.835597254115878,
+          "maxDrawdown": -0.43632799181725146
+        },
+        "trade": {
+          "trades": 1365,
+          "winRate": 0.3860805860805861,
+          "expectancy": -0.0012372618399522292,
+          "avgWin": 0.018717446216838875,
+          "avgLoss": -0.013786344352993913,
+          "profitFactor": 0.8538155664636834,
+          "avgSessionsHeld": 1.980952380952381
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.8788523742149582,
+          "cagr": -0.17857240448033107,
+          "annVol": 0.27308781457956066,
+          "sharpe": -0.5831821610432631,
+          "maxDrawdown": -0.8853667266141307
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.677637511271401,
+          "cagr": 0.20920246055862513,
+          "annVol": 0.27137818838312117,
+          "sharpe": 0.835597254115878,
+          "maxDrawdown": -0.43632799181725146
+        },
+        "trade": {
+          "trades": 1365,
+          "winRate": 0.3860805860805861,
+          "expectancy": -0.0012372618399522292,
+          "avgWin": 0.018717446216838875,
+          "avgLoss": -0.013786344352993913,
+          "profitFactor": 0.8538155664636834,
+          "avgSessionsHeld": 1.980952380952381
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.8788523742149582,
+          "cagr": -0.17857240448033107,
+          "annVol": 0.27308781457956066,
+          "sharpe": -0.5831821610432631,
+          "maxDrawdown": -0.8853667266141307
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 6.677637511271401,
+          "cagr": 0.20920246055862513,
+          "annVol": 0.27137818838312117,
+          "sharpe": 0.835597254115878,
+          "maxDrawdown": -0.43632799181725146
+        },
+        "trade": {
+          "trades": 1365,
+          "winRate": 0.3860805860805861,
+          "expectancy": -0.0012372618399522292,
+          "avgWin": 0.018717446216838875,
+          "avgLoss": -0.013786344352993913,
+          "profitFactor": 0.8538155664636834,
+          "avgSessionsHeld": 1.980952380952381
+        }
+      }
+    ],
+    "XOM": [
+      {
+        "strategy": "Hold 1d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9882614132640609,
+          "cagr": -0.33915846438475383,
+          "annVol": 0.2197081146860076,
+          "sharpe": -1.7730510858345239,
+          "maxDrawdown": -0.9891078281223361
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 2.722958972233711,
+          "cagr": 0.1303269500843549,
+          "annVol": 0.2765821042199305,
+          "sharpe": 0.5812640165803775,
+          "maxDrawdown": -0.6134247917687428
+        },
+        "trade": {
+          "trades": 2700,
+          "winRate": 0.4488888888888889,
+          "expectancy": -0.0015489370058035217,
+          "avgWin": 0.009427935302928025,
+          "avgLoss": -0.010489776547592896,
+          "profitFactor": 0.7320656767917199,
+          "avgSessionsHeld": 1
+        }
+      },
+      {
+        "strategy": "Hold 5d, long-only",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.6542321151353051,
+          "cagr": -0.094232126005799,
+          "annVol": 0.19240382373723444,
+          "sharpe": -0.4174689339983959,
+          "maxDrawdown": -0.7263889620246231
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 2.722958972233711,
+          "cagr": 0.1303269500843549,
+          "annVol": 0.2765821042199305,
+          "sharpe": 0.5812640165803775,
+          "maxDrawdown": -0.6134247917687428
+        },
+        "trade": {
+          "trades": 693,
+          "winRate": 0.4025974025974026,
+          "expectancy": -0.0012727938447456082,
+          "avgWin": 0.01826256150382537,
+          "avgLoss": -0.014437924623130387,
+          "profitFactor": 0.8524340392409827,
+          "avgSessionsHeld": 1.9494949494949494
+        }
+      },
+      {
+        "strategy": "Hold 5d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9804818515106559,
+          "cagr": -0.3070897723271362,
+          "annVol": 0.2897774683397689,
+          "sharpe": -1.1168430985219264,
+          "maxDrawdown": -0.9817409577638408
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 2.722958972233711,
+          "cagr": 0.1303269500843549,
+          "annVol": 0.2765821042199305,
+          "sharpe": 0.5812640165803775,
+          "maxDrawdown": -0.6134247917687428
+        },
+        "trade": {
+          "trades": 1386,
+          "winRate": 0.3629148629148629,
+          "expectancy": -0.0025236817994562437,
+          "avgWin": 0.018707531457856676,
+          "avgLoss": -0.014618019589295862,
+          "profitFactor": 0.7290129215421073,
+          "avgSessionsHeld": 1.950937950937951
+        }
+      },
+      {
+        "strategy": "Hold 20d, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9804818515106559,
+          "cagr": -0.3070897723271362,
+          "annVol": 0.2897774683397689,
+          "sharpe": -1.1168430985219264,
+          "maxDrawdown": -0.9817409577638408
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 2.722958972233711,
+          "cagr": 0.1303269500843549,
+          "annVol": 0.2765821042199305,
+          "sharpe": 0.5812640165803775,
+          "maxDrawdown": -0.6134247917687428
+        },
+        "trade": {
+          "trades": 1386,
+          "winRate": 0.3629148629148629,
+          "expectancy": -0.0025236817994562437,
+          "avgWin": 0.018707531457856676,
+          "avgLoss": -0.014618019589295862,
+          "profitFactor": 0.7290129215421073,
+          "avgSessionsHeld": 1.950937950937951
+        }
+      },
+      {
+        "strategy": "Hold until reversal, long/short",
+        "perf": {
+          "days": 2704,
+          "totalReturn": -0.9804818515106559,
+          "cagr": -0.3070897723271362,
+          "annVol": 0.2897774683397689,
+          "sharpe": -1.1168430985219264,
+          "maxDrawdown": -0.9817409577638408
+        },
+        "buyHold": {
+          "days": 2704,
+          "totalReturn": 2.722958972233711,
+          "cagr": 0.1303269500843549,
+          "annVol": 0.2765821042199305,
+          "sharpe": 0.5812640165803775,
+          "maxDrawdown": -0.6134247917687428
+        },
+        "trade": {
+          "trades": 1386,
+          "winRate": 0.3629148629148629,
+          "expectancy": -0.0025236817994562437,
+          "avgWin": 0.018707531457856676,
+          "avgLoss": -0.014618019589295862,
+          "profitFactor": 0.7290129215421073,
+          "avgSessionsHeld": 1.950937950937951
+        }
+      }
+    ]
+  }
+}
