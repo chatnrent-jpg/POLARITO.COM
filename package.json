@@ -10,7 +10,8 @@
     "lint": "eslint",
     "test": "node --import tsx --test tests/*.test.ts",
     "backtest": "tsx --env-file=.env.local scripts/backtest.ts",
-    "floor-study": "tsx --env-file=.env.local scripts/floor-study.ts"
+    "floor-study": "tsx --env-file=.env.local scripts/floor-study.ts",
+    "validate-capitulation": "tsx --env-file=.env.local scripts/validate-capitulation.ts"
   },
   "dependencies": {
     "next": "16.4.4",

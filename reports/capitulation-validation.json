@@ -1,0 +1,383 @@
+{
+  "generatedAt": "2026-11-03T13:50:16.531Z",
+  "spec": {
+    "RATIO": 1.5,
+    "HOLD_DAYS": 1,
+    "COST_BPS": 5,
+    "SPLIT": "2023-01-01",
+    "PERMUTATIONS": 5000
+  },
+  "tickers": {
+    "stocks": [
+      "KO",
+      "PEP",
+      "WMT",
+      "HD",
+      "UNH",
+      "JNJ",
+      "PG",
+      "V",
+      "MA",
+      "BAC",
+      "WFC",
+      "GS",
+      "CVX",
+      "COP",
+      "CAT",
+      "DE",
+      "BA",
+      "GE",
+      "INTC",
+      "CSCO",
+      "ORCL",
+      "CRM",
+      "ADBE",
+      "NFLX",
+      "DIS",
+      "NKE",
+      "MCD",
+      "SBUX",
+      "COST",
+      "LLY",
+      "PFE",
+      "MRK",
+      "ABBV",
+      "T",
+      "VZ",
+      "QCOM",
+      "TXN",
+      "AVGO",
+      "MU"
+    ],
+    "etfs": [
+      "DIA",
+      "XLF",
+      "XLE",
+      "XLK",
+      "XLV",
+      "GLD"
+    ]
+  },
+  "verdict": "EDGE IS REAL BUT NOT ROBUSTLY TRADEABLE. The fade direction replicated out-of-sample in both periods, but it failed: 4. Net expectancy > 0 at 10 bps/side (costs doubled). The effect is about the size of round-trip costs on typical stocks, so it does not clear the bar.",
+  "checks": [
+    {
+      "name": "1. Fade edge > 0 and p < 0.05 (all years)",
+      "pass": true,
+      "detail": "fade edge 0.096%, p <0.001, n 4765"
+    },
+    {
+      "name": "2. Fade edge > 0 in both periods",
+      "pass": true,
+      "detail": "pre-2023 0.063% (n 3156); 2023+ 0.164% (n 1609)"
+    },
+    {
+      "name": "3. Net expectancy > 0 at 5 bps/side",
+      "pass": true,
+      "detail": "0.023% per trade over 4765 trades"
+    },
+    {
+      "name": "4. Net expectancy > 0 at 10 bps/side (costs doubled)",
+      "pass": false,
+      "detail": "-0.077% per trade"
+    },
+    {
+      "name": "5. Breadth: >half of tickers profitable and positive without best ticker",
+      "pass": true,
+      "detail": "22 of 39 tickers profitable; best TXN (52% of P&L); without best 0.011%"
+    }
+  ],
+  "evAll": {
+    "polarity": -1,
+    "horizon": 1,
+    "entry": "nextOpen",
+    "n": 4765,
+    "meanRaw": 0.001233942945870046,
+    "meanDirectional": -0.001233942945870046,
+    "medianDirectional": -0.0007617113114128937,
+    "hitRate": 0.4730325288562434,
+    "stdevDirectional": 0.020129876154111943,
+    "tStat": -4.231413127725712,
+    "edge": -0.0009639895172871464,
+    "pValue": 0.0001999600079984003
+  },
+  "evPre": {
+    "polarity": -1,
+    "horizon": 1,
+    "entry": "nextOpen",
+    "n": 3156,
+    "meanRaw": 0.000856244878165582,
+    "meanDirectional": -0.000856244878165582,
+    "medianDirectional": -0.0004671653389151098,
+    "hitRate": 0.48225602027883396,
+    "stdevDirectional": 0.019536974550299128,
+    "tStat": -2.4621197573626263,
+    "edge": -0.0006316062662240797,
+    "pValue": 0.01859628074385123
+  },
+  "evPost": {
+    "polarity": -1,
+    "horizon": 1,
+    "entry": "nextOpen",
+    "n": 1609,
+    "meanRaw": 0.0019747851470355445,
+    "meanDirectional": -0.0019747851470355445,
+    "medianDirectional": -0.0015610651974287126,
+    "hitRate": 0.45494095711622123,
+    "stdevDirectional": 0.021231571530883286,
+    "tStat": -3.730918248498711,
+    "edge": -0.0016445859221571233,
+    "pValue": 0.0003999200159968006
+  },
+  "evEtf": {
+    "polarity": -1,
+    "horizon": 1,
+    "entry": "nextOpen",
+    "n": 848,
+    "meanRaw": -0.0002051185561256227,
+    "meanDirectional": 0.0002051185561256227,
+    "medianDirectional": 0.00006090886768295167,
+    "hitRate": 0.5011792452830188,
+    "stdevDirectional": 0.015013903454737233,
+    "tStat": 0.3978407436618811,
+    "edge": 0.00040382454353652384,
+    "pValue": 0.23375324935012998
+  },
+  "strategy": {
+    "s5": {
+      "perf": {
+        "days": 2704,
+        "totalReturn": 0.02609466470676125,
+        "cagr": 0.0024035948452936218,
+        "annVol": 0.022520058532822906,
+        "sharpe": 0.11778845096505079,
+        "maxDrawdown": -0.06030555743809629
+      },
+      "trade": {
+        "trades": 4765,
+        "winRate": 0.4938090241343127,
+        "expectancy": 0.00023394294587004652,
+        "avgWin": 0.014316441492024462,
+        "avgLoss": -0.013504083206327882,
+        "profitFactor": 1.034223975051425,
+        "avgSessionsHeld": 1
+      }
+    },
+    "s10": {
+      "perf": {
+        "days": 2704,
+        "totalReturn": -0.09193432539227231,
+        "cagr": -0.008947350679114341,
+        "annVol": 0.022338116709395818,
+        "sharpe": -0.39123472434461093,
+        "maxDrawdown": -0.10981740836506215
+      },
+      "trade": {
+        "trades": 4765,
+        "winRate": 0.4675760755508919,
+        "expectancy": -0.0007660570541299229,
+        "avgWin": 0.014089519393672733,
+        "avgLoss": -0.01381226293734009,
+        "profitFactor": 0.8958309468557207,
+        "avgSessionsHeld": 1
+      }
+    },
+    "s20": {
+      "perf": {
+        "days": 2704,
+        "totalReturn": -0.2887447821103115,
+        "cagr": -0.03125500030202044,
+        "annVol": 0.022203043655989525,
+        "sharpe": -1.419014708426677,
+        "maxDrawdown": -0.29364617845053287
+      },
+      "trade": {
+        "trades": 4765,
+        "winRate": 0.4136411332633788,
+        "expectancy": -0.0027660570541298848,
+        "avgWin": 0.013802765537794404,
+        "avgLoss": -0.014454371058669197,
+        "profitFactor": 0.6736388628154575,
+        "avgSessionsHeld": 1
+      }
+    }
+  },
+  "concentration": {
+    "eligible": 39,
+    "profitable": 22,
+    "best": "TXN",
+    "bestShare": 0.5240882670776406,
+    "expectancyWithoutBest": 0.00011433555141551494
+  },
+  "sensitivity": [
+    {
+      "ratio": 1.25,
+      "pre": {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 6272,
+        "meanRaw": 0.0007654005280813151,
+        "meanDirectional": -0.0007654005280813151,
+        "medianDirectional": -0.0006459238417323432,
+        "hitRate": 0.4786352040816326,
+        "stdevDirectional": 0.01803906253898798,
+        "tStat": -3.3602981910371312,
+        "edge": -0.0005393484464594255,
+        "pValue": 0.004995004995004995
+      },
+      "post": {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 3247,
+        "meanRaw": 0.0012635313295126314,
+        "meanDirectional": -0.0012635313295126314,
+        "medianDirectional": -0.0007966313872764808,
+        "hitRate": 0.4699722821065599,
+        "stdevDirectional": 0.020509698753331706,
+        "tStat": -3.5104911105423144,
+        "edge": -0.0009366304322906859,
+        "pValue": 0.000999000999000999
+      }
+    },
+    {
+      "ratio": 1.5,
+      "pre": {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 3156,
+        "meanRaw": 0.000856244878165582,
+        "meanDirectional": -0.000856244878165582,
+        "medianDirectional": -0.0004671653389151098,
+        "hitRate": 0.48225602027883396,
+        "stdevDirectional": 0.019536974550299128,
+        "tStat": -2.4621197573626263,
+        "edge": -0.0006316062662240797,
+        "pValue": 0.007992007992007992
+      },
+      "post": {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1609,
+        "meanRaw": 0.0019747851470355445,
+        "meanDirectional": -0.0019747851470355445,
+        "medianDirectional": -0.0015610651974287126,
+        "hitRate": 0.45494095711622123,
+        "stdevDirectional": 0.021231571530883286,
+        "tStat": -3.730918248498711,
+        "edge": -0.0016445859221571233,
+        "pValue": 0.000999000999000999
+      }
+    },
+    {
+      "ratio": 1.75,
+      "pre": {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1797,
+        "meanRaw": 0.0006854641839304856,
+        "meanDirectional": -0.0006854641839304856,
+        "medianDirectional": -0.00047348484848486194,
+        "hitRate": 0.48414023372287146,
+        "stdevDirectional": 0.01940665866924448,
+        "tStat": -1.4972972902447386,
+        "edge": -0.0004629996923461752,
+        "pValue": 0.17582417582417584
+      },
+      "post": {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 974,
+        "meanRaw": 0.002128749296758018,
+        "meanDirectional": -0.002128749296758018,
+        "medianDirectional": -0.002053612352177936,
+        "hitRate": 0.44455852156057496,
+        "stdevDirectional": 0.021308023866122253,
+        "tStat": -3.1178902318607418,
+        "edge": -0.0018042330588384844,
+        "pValue": 0.000999000999000999
+      }
+    },
+    {
+      "ratio": 2,
+      "pre": {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 1085,
+        "meanRaw": 0.0002312143823964591,
+        "meanDirectional": -0.0002312143823964591,
+        "medianDirectional": -0.00046084582934535767,
+        "hitRate": 0.4857142857142857,
+        "stdevDirectional": 0.019042345726456102,
+        "tStat": -0.3999532853865129,
+        "edge": -0.000004775627288348724,
+        "pValue": 0.991008991008991
+      },
+      "post": {
+        "polarity": -1,
+        "horizon": 1,
+        "entry": "nextOpen",
+        "n": 617,
+        "meanRaw": 0.001568054628023469,
+        "meanDirectional": -0.001568054628023469,
+        "medianDirectional": -0.002064857458226932,
+        "hitRate": 0.4505672609400324,
+        "stdevDirectional": 0.02093514811255017,
+        "tStat": -1.8604916825549014,
+        "edge": -0.0012506401537810653,
+        "pValue": 0.04995004995004995
+      }
+    }
+  ],
+  "byYear": {
+    "2016": {
+      "n": 380,
+      "sum": 0.17958786354430345
+    },
+    "2017": {
+      "n": 439,
+      "sum": -0.4767712808734894
+    },
+    "2018": {
+      "n": 488,
+      "sum": -0.4617608539321728
+    },
+    "2019": {
+      "n": 434,
+      "sum": -0.3640046215874997
+    },
+    "2020": {
+      "n": 554,
+      "sum": 1.8857301700917435
+    },
+    "2021": {
+      "n": 474,
+      "sum": -0.9778288350998698
+    },
+    "2022": {
+      "n": 387,
+      "sum": -0.238643606652433
+    },
+    "2023": {
+      "n": 408,
+      "sum": 0.4608876295334292
+    },
+    "2024": {
+      "n": 413,
+      "sum": 0.2084265288530831
+    },
+    "2025": {
+      "n": 448,
+      "sum": 1.1550685217589667
+    },
+    "2026": {
+      "n": 340,
+      "sum": -0.2559533785652902
+    }
+  }
+}
