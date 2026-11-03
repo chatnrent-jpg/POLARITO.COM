@@ -44,3 +44,6 @@ src/app/.api-hidden-for-export/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
+.env*

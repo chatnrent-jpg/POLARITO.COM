@@ -178,7 +178,9 @@ export async function fetchRealMarketData(
   if (!keyId || !secret) {
     throw new MarketApiError(
       "NO_API_KEY",
-      "ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY are not set. Add them to .env.local and restart the dev server.",
+      process.env.VERCEL
+        ? "ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY are not set. Add them in Vercel → Project → Settings → Environment Variables, then Redeploy."
+        : "ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY are not set. Add them to .env.local and restart the dev server.",
       500,
     );
   }
