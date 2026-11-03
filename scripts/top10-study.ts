@@ -93,7 +93,8 @@ function lgamma(x: number): number {
 }
 function betacf(a: number, b: number, x: number): number {
   const FPMIN = 1e-300;
-  let qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - (qab * x) / qap;
+  const qab = a + b, qap = a + 1, qam = a - 1;
+  let c = 1, d = 1 - (qab * x) / qap;
   if (Math.abs(d) < FPMIN) d = FPMIN;
   d = 1 / d;
   let h = d;
@@ -111,7 +112,6 @@ function betacf(a: number, b: number, x: number): number {
     h *= del;
     if (Math.abs(del - 1) < 3e-12) break;
   }
-  void qab; void qap; void qam;
   return h;
 }
 function betai(a: number, b: number, x: number): number {
