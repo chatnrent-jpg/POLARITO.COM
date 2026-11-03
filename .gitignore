@@ -33,6 +33,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Name.com secrets (never commit the filled-in copy)
+polarito-secrets.php
+hosting/polarito-secrets.php
+src/app/.api-hidden-for-export/
+
 # vercel
 .vercel
 

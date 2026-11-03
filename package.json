@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "package:namecom": "node scripts/package-namecom.mjs",
     "start": "next start",
     "lint": "eslint"
   },

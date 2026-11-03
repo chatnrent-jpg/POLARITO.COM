@@ -1,0 +1,50 @@
+# Polarito on Name.com (Apache). Drop this file at the DOCUMENT ROOT
+# (public_html) alongside index.html and _next/.
+#
+# If the site lives in a subfolder, change RewriteBase to that folder
+# (example: RewriteBase /polarito/) and rebuild with
+# NEXT_PUBLIC_BASE_PATH=/polarito NAMECOM_EXPORT=1.
+
+Options -Indexes
+ServerSignature Off
+
+<IfModule mod_authz_core.c>
+  <FilesMatch "(?i)^(polarito-secrets|\.env.*|\.secrets)">
+    Require all denied
+  </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+  <FilesMatch "(?i)^(polarito-secrets|\.env.*|\.secrets)">
+    Order allow,deny
+    Deny from all
+  </FilesMatch>
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Force HTTPS (Name.com Let's Encrypt).
+  RewriteCond %{HTTPS} !=on
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # Secure proxy bridge: browser talks to /api/bars, PHP talks to Alpaca.
+  RewriteRule ^api/bars/?$ api/bars.php [L,QSA]
+
+  # Real files (_next chunks, images, the PHP bridge) are served as-is.
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Next.js trailingSlash export: / and unknown paths -> index.html
+  RewriteRule ^.*$ index.html [L]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "same-origin"
+</IfModule>
+
+AddType text/javascript js mjs
+AddType text/css css
+AddType font/woff2 woff2
