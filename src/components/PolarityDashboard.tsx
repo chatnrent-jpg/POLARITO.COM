@@ -11,6 +11,14 @@ import Transmission from "@/components/Transmission";
 import { getServerTier, getTier, subscribeTier, togglePremiumStatus } from "@/lib/billingGate";
 import { loadBars } from "@/lib/barsClient";
 import {
+  getServerDraft,
+  readAnalyzed,
+  readDraft,
+  saveAnalyzed,
+  saveDraft,
+  subscribeDraft,
+} from "@/lib/refreshMemory";
+import {
   getActiveAccountId,
   getServerActiveAccountId,
   subscribeAccounts,
@@ -66,7 +74,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 }
 
 export default function PolarityDashboard() {
-  const [input, setInput] = useState("");
+  const input = useSyncExternalStore(subscribeDraft, readDraft, getServerDraft);
   const [view, setView] = useState<View>({ status: "idle" });
   const inFlight = useRef<AbortController | null>(null);
   const tier = useSyncExternalStore(subscribeTier, getTier, getServerTier);
@@ -80,17 +88,15 @@ export default function PolarityDashboard() {
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
+  async function analyze(raw: string) {
     // Newest request wins; cancel any older one.
     inFlight.current?.abort();
     const controller = new AbortController();
     inFlight.current = controller;
 
-    setView({ status: "loading", ticker: input.trim().toUpperCase() });
+    setView({ status: "loading", ticker: raw.trim().toUpperCase() });
     try {
-      const { ticker, bars, sentiment } = await loadBars(input, controller.signal);
+      const { ticker, bars, sentiment } = await loadBars(raw, controller.signal);
       const results = computePolaritySeries(bars);
       if (controller.signal.aborted) return;
       setView({ status: "ready", ticker, results, sentiment });
@@ -101,6 +107,20 @@ export default function PolarityDashboard() {
         message: err instanceof Error ? err.message : "Unknown error.",
       });
     }
+  }
+
+  // The page reloads every 5s after login: re-run the last analysis so results survive it.
+  useEffect(() => {
+    const analyzed = readAnalyzed();
+    if (!analyzed) return;
+    const t = setTimeout(() => void analyze(analyzed), 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    saveAnalyzed(input.trim().toUpperCase());
+    void analyze(input);
   }
 
   const results = view.status === "ready" ? view.results : null;
@@ -153,7 +173,7 @@ export default function PolarityDashboard() {
             id="ticker"
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => saveDraft(e.target.value)}
             placeholder="Ticker, e.g. NVDA"
             autoComplete="off"
             autoCapitalize="characters"
