@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import AccountSelector from "@/components/AccountSelector";
 import LedgerPanel, { type CurrentMark } from "@/components/LedgerPanel";
+import LogoutButton from "@/components/LogoutButton";
 import OrderModule, { type OrderAnalysis } from "@/components/OrderModule";
 import PolarityChart from "@/components/PolarityChart";
 import PremiumGate from "@/components/PremiumGate";
@@ -135,9 +136,15 @@ export default function PolarityDashboard() {
       <AccountSelector marks={current ? { [current.ticker]: current.close } : {}} />
 
       <header className="flex w-full max-w-2xl flex-col items-center gap-4">
-        <h1 className="text-sm font-semibold uppercase tracking-[0.4em] text-zinc-500">
-          Polarito
-        </h1>
+        <div className="flex w-full items-center justify-between gap-3">
+          <span className="w-20" aria-hidden="true" />
+          <h1 className="text-sm font-semibold uppercase tracking-[0.4em] text-zinc-500">
+            Polarito
+          </h1>
+          <div className="flex w-20 justify-end">
+            <LogoutButton />
+          </div>
+        </div>
         <form onSubmit={onSubmit} className="flex w-full max-w-sm gap-2">
           <label htmlFor="ticker" className="sr-only">
             Stock ticker
