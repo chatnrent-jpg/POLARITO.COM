@@ -314,14 +314,22 @@ export default function PolarityDashboard() {
             <section
               aria-label="Crowd sentiment"
               className="flex w-full max-w-2xl flex-col gap-2 rounded-xl border-l-8 bg-zinc-950/60 px-5 py-4 ring-1 ring-zinc-700"
-              style={{ borderLeftColor: "#c026ff" }}
+              style={{ borderLeftColor: sentimentDay?.source === "news" ? sentMeta.hex : "#c026ff" }}
             >
               <div className="flex flex-wrap items-center gap-3">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
                   Crowd Sentiment
                 </h3>
                 {sentimentDay?.source === "news" ? (
-                  <span className="rounded bg-green-400 px-1.5 py-0.5 text-xs font-extrabold uppercase text-zinc-900">
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-xs font-extrabold uppercase text-zinc-900 ${
+                      sentMeta.value > 0
+                        ? "bg-green-400"
+                        : sentMeta.value < 0
+                          ? "bg-red-400"
+                          : "bg-slate-300"
+                    }`}
+                  >
                     Live news
                   </span>
                 ) : (

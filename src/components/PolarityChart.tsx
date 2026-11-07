@@ -21,7 +21,12 @@ const H = 260;
 const PAD_X = 12;
 const PAD_Y = 14;
 const FLOOR_STROKE = "#cbd5e1"; // slate-300: crisp against the dark card
-const SENTIMENT_STROKE = "#c026ff"; // neon purple: the crowd-sentiment overlay
+const SENTIMENT_STROKE = "#c026ff"; // neon purple: neutral / unavailable news days
+const SENTIMENT_GOOD = "#22c55e"; // green: good-news day (+1 Euphoria)
+const SENTIMENT_BAD = "#ef4444"; // red: bad-news day (-1 Fear)
+
+const sentimentColor = (polarity: number) =>
+  polarity > 0 ? SENTIMENT_GOOD : polarity < 0 ? SENTIMENT_BAD : SENTIMENT_STROKE;
 
 function signedCompact(n: number): string {
   if (n === 0) return "0";
@@ -103,11 +108,21 @@ export default function PolarityChart({
     const sentCenter = H / 2;
     const sentAmp = (innerH / 2) * 0.8;
     const sentPts: string[] = [];
+    // One segment per day so each can take its own color (green good / red bad / purple neutral).
+    const sentSegments: { key: string; points: string; color: string }[] = [];
+    let prevY: string | null = null;
     view.forEach((d, i) => {
-      const y = (sentCenter - sentimentPolarityFor(sentiment, d.date) * sentAmp).toFixed(1);
+      const polarity = sentimentPolarityFor(sentiment, d.date);
+      const y = (sentCenter - polarity * sentAmp).toFixed(1);
       const x0 = (PAD_X + slot * i).toFixed(1);
       const x1 = (PAD_X + slot * (i + 1)).toFixed(1);
       sentPts.push(`${x0},${y}`, `${x1},${y}`);
+      sentSegments.push({
+        key: d.date,
+        points: prevY === null ? `${x0},${y} ${x1},${y}` : `${x0},${prevY} ${x0},${y} ${x1},${y}`,
+        color: sentimentColor(polarity),
+      });
+      prevY = y;
     });
 
     return {
@@ -118,6 +133,7 @@ export default function PolarityChart({
       max,
       yOf,
       sentLine: sentPts.join(" "),
+      sentSegments,
       sentYs: { up: sentCenter - sentAmp, mid: sentCenter, down: sentCenter + sentAmp },
     };
   }, [view, sentiment]);
@@ -216,26 +232,40 @@ export default function PolarityChart({
           <rect key={b.key} x={b.x} y={b.y} width={b.w} height={b.h} fill={b.fill} />
         ))}
 
-        {/* Crowd sentiment overlay (live news keywords): neon purple step line, drawn over the bars */}
+        {/* Crowd sentiment overlay (live news keywords): a dark underlay for contrast, then one
+            colored segment per day: green = good-news day, red = bad-news day, purple = neutral. */}
         {view.length > 0 && (
-          <polyline
-            points={geometry.sentLine}
-            fill="none"
-            stroke={SENTIMENT_STROKE}
-            strokeWidth={3.5}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
+          <>
+            <polyline
+              points={geometry.sentLine}
+              fill="none"
+              stroke="#09090b"
+              strokeWidth={7}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+            {geometry.sentSegments.map((seg) => (
+              <polyline
+                key={seg.key}
+                points={seg.points}
+                fill="none"
+                stroke={seg.color}
+                strokeWidth={3.5}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            ))}
+          </>
         )}
-        {([["+1", geometry.sentYs.up], ["0", geometry.sentYs.mid], ["−1", geometry.sentYs.down]] as const).map(
-          ([label, y]) => (
+        {([["+1", geometry.sentYs.up, SENTIMENT_GOOD], ["0", geometry.sentYs.mid, SENTIMENT_STROKE], ["−1", geometry.sentYs.down, SENTIMENT_BAD]] as const).map(
+          ([label, y, color]) => (
             <text
               key={label}
               x={PAD_X + 2}
               y={y - 4}
               fontSize="18"
               fontWeight="800"
-              fill={SENTIMENT_STROKE}
+              fill={color}
               stroke="#09090b"
               strokeWidth={5}
               paintOrder="stroke"
@@ -305,10 +335,14 @@ export default function PolarityChart({
         </li>
         <li className="flex items-center gap-3">
           <svg width="40" height="8" viewBox="0 0 40 8" className="shrink-0" aria-hidden="true">
-            <line x1="0" y1="4" x2="40" y2="4" stroke={SENTIMENT_STROKE} strokeWidth={5} strokeLinecap="round" />
+            <line x1="0" y1="4" x2="14" y2="4" stroke={SENTIMENT_GOOD} strokeWidth={5} strokeLinecap="round" />
+            <line x1="14" y1="4" x2="27" y2="4" stroke={SENTIMENT_STROKE} strokeWidth={5} strokeLinecap="round" />
+            <line x1="27" y1="4" x2="40" y2="4" stroke={SENTIMENT_BAD} strokeWidth={5} strokeLinecap="round" />
           </svg>
           <span>
-            <strong className="font-bold" style={{ color: SENTIMENT_STROKE }}>Purple line</strong> = Crowd
+            <strong className="font-bold" style={{ color: SENTIMENT_GOOD }}>Green</strong> /{" "}
+            <strong className="font-bold" style={{ color: SENTIMENT_BAD }}>red</strong> /{" "}
+            <strong className="font-bold" style={{ color: SENTIMENT_STROKE }}>purple line</strong> = Crowd
             Sentiment{" "}
             {liveSentiment ? (
               <span className="rounded bg-green-400 px-1.5 py-0.5 text-sm font-extrabold uppercase text-zinc-900">
@@ -320,8 +354,8 @@ export default function PolarityChart({
               </span>
             )}
             <span className="block text-base text-slate-300">
-              +1 Euphoria, 0 Apathy, −1 Fear (left scale), scored from bullish vs bearish
-              keywords in news headlines.{" "}
+              Green = good-news day (+1 Euphoria), red = bad-news day (−1 Fear), purple = neutral
+              (0 Apathy), scored from bullish vs bearish keywords in news headlines.{" "}
               {liveSentiment
                 ? "Days the news feed does not cover plot as 0."
                 : "The feed could not be read, so every day plots as 0."}
