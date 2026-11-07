@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } fro
 import AccountSelector from "@/components/AccountSelector";
 import LedgerPanel, { type CurrentMark } from "@/components/LedgerPanel";
 import LogoutButton from "@/components/LogoutButton";
+import PageRefresher from "@/components/PageRefresher";
 import OrderModule, { type OrderAnalysis } from "@/components/OrderModule";
 import PolarityChart from "@/components/PolarityChart";
 import PremiumGate from "@/components/PremiumGate";
@@ -77,6 +78,7 @@ export default function PolarityDashboard() {
   const input = useSyncExternalStore(subscribeDraft, readDraft, getServerDraft);
   const [view, setView] = useState<View>({ status: "idle" });
   const inFlight = useRef<AbortController | null>(null);
+  const busy = useRef(false);
   const tier = useSyncExternalStore(subscribeTier, getTier, getServerTier);
   const [tierError, setTierError] = useState<string | null>(null);
   // Active account: orders, closes and the ledger below all follow this one id.
@@ -88,13 +90,15 @@ export default function PolarityDashboard() {
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
-  async function analyze(raw: string) {
+  async function analyze(raw: string, silent = false) {
     // Newest request wins; cancel any older one.
     inFlight.current?.abort();
     const controller = new AbortController();
     inFlight.current = controller;
+    busy.current = true;
 
-    setView({ status: "loading", ticker: raw.trim().toUpperCase() });
+    // A silent refresh keeps the current results on screen until fresh ones arrive.
+    if (!silent) setView({ status: "loading", ticker: raw.trim().toUpperCase() });
     try {
       const { ticker, bars, sentiment } = await loadBars(raw, controller.signal);
       const results = computePolaritySeries(bars);
@@ -102,14 +106,24 @@ export default function PolarityDashboard() {
       setView({ status: "ready", ticker, results, sentiment });
     } catch (err) {
       if (controller.signal.aborted) return;
+      if (silent) return; // a failed background refresh must not wipe good results
       setView({
         status: "error",
         message: err instanceof Error ? err.message : "Unknown error.",
       });
+    } finally {
+      if (inFlight.current === controller) busy.current = false;
     }
   }
 
-  // The page reloads every 5s after login: re-run the last analysis so results survive it.
+  // Every 5s: re-fetch the last analyzed ticker in place, unless a request is already running.
+  function refreshInPlace() {
+    const analyzed = readAnalyzed();
+    if (!analyzed || busy.current) return;
+    void analyze(analyzed, true);
+  }
+
+  // Restore the last analyzed ticker if the page was reloaded by hand.
   useEffect(() => {
     const analyzed = readAnalyzed();
     if (!analyzed) return;
@@ -153,6 +167,7 @@ export default function PolarityDashboard() {
 
   return (
     <div className="flex w-full flex-1 flex-col items-center justify-center gap-10 px-4 py-10">
+      <PageRefresher onRefresh={refreshInPlace} />
       <AccountSelector marks={current ? { [current.ticker]: current.close } : {}} />
 
       <header className="flex w-full max-w-2xl flex-col items-center gap-4">
