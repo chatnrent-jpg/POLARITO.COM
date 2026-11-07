@@ -3,12 +3,22 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import AccountSelector from "@/components/AccountSelector";
 import LedgerPanel, { type CurrentMark } from "@/components/LedgerPanel";
+import LogoutButton from "@/components/LogoutButton";
+import PageRefresher from "@/components/PageRefresher";
 import OrderModule, { type OrderAnalysis } from "@/components/OrderModule";
 import PolarityChart from "@/components/PolarityChart";
 import PremiumGate from "@/components/PremiumGate";
 import Transmission from "@/components/Transmission";
 import { getServerTier, getTier, subscribeTier, togglePremiumStatus } from "@/lib/billingGate";
 import { loadBars } from "@/lib/barsClient";
+import {
+  getServerDraft,
+  readAnalyzed,
+  readDraft,
+  saveAnalyzed,
+  saveDraft,
+  subscribeDraft,
+} from "@/lib/refreshMemory";
 import {
   getActiveAccountId,
   getServerActiveAccountId,
@@ -65,9 +75,12 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 }
 
 export default function PolarityDashboard() {
-  const [input, setInput] = useState("");
+  const input = useSyncExternalStore(subscribeDraft, readDraft, getServerDraft);
   const [view, setView] = useState<View>({ status: "idle" });
   const inFlight = useRef<AbortController | null>(null);
+  const busy = useRef(false);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const tier = useSyncExternalStore(subscribeTier, getTier, getServerTier);
   const [tierError, setTierError] = useState<string | null>(null);
   // Active account: orders, closes and the ledger below all follow this one id.
@@ -79,27 +92,57 @@ export default function PolarityDashboard() {
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
+  async function analyze(raw: string, silent = false) {
     // Newest request wins; cancel any older one.
     inFlight.current?.abort();
     const controller = new AbortController();
     inFlight.current = controller;
+    busy.current = true;
 
-    setView({ status: "loading", ticker: input.trim().toUpperCase() });
+    // A silent refresh keeps the current results on screen until fresh ones arrive.
+    if (!silent) setView({ status: "loading", ticker: raw.trim().toUpperCase() });
     try {
-      const { ticker, bars, sentiment } = await loadBars(input, controller.signal);
+      const { ticker, bars, sentiment } = await loadBars(raw, controller.signal);
       const results = computePolaritySeries(bars);
       if (controller.signal.aborted) return;
       setView({ status: "ready", ticker, results, sentiment });
+      setUpdatedAt(Date.now());
+      setRefreshFailed(false);
     } catch (err) {
       if (controller.signal.aborted) return;
+      if (silent) {
+        // a failed background refresh must not wipe good results
+        setRefreshFailed(true);
+        return;
+      }
       setView({
         status: "error",
         message: err instanceof Error ? err.message : "Unknown error.",
       });
+    } finally {
+      if (inFlight.current === controller) busy.current = false;
     }
+  }
+
+  // Every 5s: re-fetch the last analyzed ticker in place, unless a request is already running.
+  function refreshInPlace() {
+    const analyzed = readAnalyzed();
+    if (!analyzed || busy.current) return;
+    void analyze(analyzed, true);
+  }
+
+  // Restore the last analyzed ticker if the page was reloaded by hand.
+  useEffect(() => {
+    const analyzed = readAnalyzed();
+    if (!analyzed) return;
+    const t = setTimeout(() => void analyze(analyzed), 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    saveAnalyzed(input.trim().toUpperCase());
+    void analyze(input);
   }
 
   const results = view.status === "ready" ? view.results : null;
@@ -132,12 +175,19 @@ export default function PolarityDashboard() {
 
   return (
     <div className="flex w-full flex-1 flex-col items-center justify-center gap-10 px-4 py-10">
+      <PageRefresher onRefresh={refreshInPlace} />
       <AccountSelector marks={current ? { [current.ticker]: current.close } : {}} />
 
       <header className="flex w-full max-w-2xl flex-col items-center gap-4">
-        <h1 className="text-sm font-semibold uppercase tracking-[0.4em] text-zinc-500">
-          Polarito
-        </h1>
+        <div className="flex w-full items-center justify-between gap-3">
+          <span className="w-20" aria-hidden="true" />
+          <h1 className="text-sm font-semibold uppercase tracking-[0.4em] text-zinc-500">
+            Polarito
+          </h1>
+          <div className="flex w-20 justify-end">
+            <LogoutButton />
+          </div>
+        </div>
         <form onSubmit={onSubmit} className="flex w-full max-w-sm gap-2">
           <label htmlFor="ticker" className="sr-only">
             Stock ticker
@@ -146,7 +196,7 @@ export default function PolarityDashboard() {
             id="ticker"
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => saveDraft(e.target.value)}
             placeholder="Ticker, e.g. NVDA"
             autoComplete="off"
             autoCapitalize="characters"
@@ -217,6 +267,20 @@ export default function PolarityDashboard() {
             <span className="font-mono text-lg font-bold text-white">{view.ticker}</span> · as of {latest.date} ·
             Alpaca daily bars
           </p>
+          {updatedAt !== null && (
+            <p
+              role="status"
+              className={`flex items-center gap-2 text-sm ${refreshFailed ? "text-amber-300" : "text-slate-400"}`}
+            >
+              <span
+                aria-hidden="true"
+                className={`h-2 w-2 rounded-full ${refreshFailed ? "bg-amber-400" : "bg-emerald-400"}`}
+              />
+              {refreshFailed
+                ? `Refresh failed, retrying every 5s. Last updated ${new Date(updatedAt).toLocaleTimeString()}`
+                : `Live: updates every 5s. Last updated ${new Date(updatedAt).toLocaleTimeString()}`}
+            </p>
+          )}
 
           {!latest.ready && (
             <p
@@ -250,14 +314,22 @@ export default function PolarityDashboard() {
             <section
               aria-label="Crowd sentiment"
               className="flex w-full max-w-2xl flex-col gap-2 rounded-xl border-l-8 bg-zinc-950/60 px-5 py-4 ring-1 ring-zinc-700"
-              style={{ borderLeftColor: "#c026ff" }}
+              style={{ borderLeftColor: sentimentDay?.source === "news" ? sentMeta.hex : "#c026ff" }}
             >
               <div className="flex flex-wrap items-center gap-3">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
                   Crowd Sentiment
                 </h3>
                 {sentimentDay?.source === "news" ? (
-                  <span className="rounded bg-green-400 px-1.5 py-0.5 text-xs font-extrabold uppercase text-zinc-900">
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-xs font-extrabold uppercase text-zinc-900 ${
+                      sentMeta.value > 0
+                        ? "bg-green-400"
+                        : sentMeta.value < 0
+                          ? "bg-red-400"
+                          : "bg-slate-300"
+                    }`}
+                  >
                     Live news
                   </span>
                 ) : (
