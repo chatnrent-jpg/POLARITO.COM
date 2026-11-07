@@ -2,11 +2,11 @@ import { metaFor, POLARITY_META, type Polarity } from "@/lib/polarity";
 
 const SLOTS = [POLARITY_META["1"], POLARITY_META["0"], POLARITY_META["-1"]] as const;
 
-/** Knob vertical position (percent of the track) per state: D top, N middle, R bottom. */
-const KNOB_TOP: Record<"1" | "0" | "-1", string> = {
-  "1": "top-[12%]",
-  "0": "top-[50%]",
-  "-1": "top-[88%]",
+/** Knob horizontal position (percent of the track) per state: R (-1) left, N middle, D (+1) right. */
+const KNOB_LEFT: Record<"1" | "0" | "-1", string> = {
+  "1": "left-[88%]",
+  "0": "left-[50%]",
+  "-1": "left-[12%]",
 };
 
 const SPIN: Record<"1" | "0" | "-1", string> = {
@@ -69,8 +69,8 @@ export default function Transmission({ polarity }: { polarity: Polarity }) {
       aria-label="Polarity transmission"
       className="flex flex-col items-center gap-8"
     >
-      {/* Mechanical assembly: gear + gated shifter */}
-      <div className="flex items-center gap-6 sm:gap-10">
+      {/* Mechanical assembly: gear on top of the horizontal gated shifter */}
+      <div className="flex flex-col items-center gap-6 sm:gap-10">
         <svg
           viewBox="-100 -100 200 200"
           className="h-36 w-36 sm:h-52 sm:w-52"
@@ -87,10 +87,10 @@ export default function Transmission({ polarity }: { polarity: Polarity }) {
 
         {/* Shifter gate */}
         <div
-          className={`relative h-64 w-28 rounded-3xl border-2 bg-zinc-900 transition-shadow duration-500 sm:h-80 sm:w-32 ${meta.border} ${meta.glow}`}
+          className={`relative h-28 w-64 rounded-3xl border-2 bg-zinc-900 transition-shadow duration-500 sm:h-32 sm:w-80 ${meta.border} ${meta.glow}`}
         >
           {/* Slot rail */}
-          <div className="absolute inset-y-6 left-1/2 w-5 -translate-x-1/2 rounded-full bg-zinc-950 shadow-inner ring-1 ring-zinc-700" />
+          <div className="absolute inset-x-6 top-1/2 h-5 -translate-y-1/2 rounded-full bg-zinc-950 shadow-inner ring-1 ring-zinc-700" />
 
           {/* Detent labels */}
           {SLOTS.map((slot, idx) => {
@@ -98,8 +98,8 @@ export default function Transmission({ polarity }: { polarity: Polarity }) {
             return (
               <div
                 key={slot.gear}
-                className={`absolute left-2 flex -translate-y-1/2 flex-col items-center text-xs font-bold tracking-widest transition-opacity ${
-                  idx === 0 ? "top-[12%]" : idx === 1 ? "top-[50%]" : "top-[88%]"
+                className={`absolute top-2 flex -translate-x-1/2 flex-col items-center text-xs font-bold tracking-widest transition-opacity ${
+                  idx === 0 ? "left-[88%]" : idx === 1 ? "left-[50%]" : "left-[12%]"
                 } ${active ? slot.text : "text-zinc-600"}`}
               >
                 <span className="text-lg leading-none">{slot.gear}</span>
@@ -111,8 +111,8 @@ export default function Transmission({ polarity }: { polarity: Polarity }) {
             return (
               <div
                 key={slot.display}
-                className={`absolute right-2 -translate-y-1/2 font-mono text-xs font-bold transition-opacity ${
-                  idx === 0 ? "top-[12%]" : idx === 1 ? "top-[50%]" : "top-[88%]"
+                className={`absolute bottom-2 -translate-x-1/2 font-mono text-xs font-bold transition-opacity ${
+                  idx === 0 ? "left-[88%]" : idx === 1 ? "left-[50%]" : "left-[12%]"
                 } ${active ? slot.text : "text-zinc-600"}`}
               >
                 {slot.display}
@@ -122,7 +122,7 @@ export default function Transmission({ polarity }: { polarity: Polarity }) {
 
           {/* Knob */}
           <div
-            className={`absolute left-1/2 h-12 w-12 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-zinc-950 transition-all duration-500 ease-out ${KNOB_TOP[key]} ${meta.bg} ${meta.glow}`}
+            className={`absolute top-1/2 h-12 w-12 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-zinc-950 transition-all duration-500 ease-out ${KNOB_LEFT[key]} ${meta.bg} ${meta.glow}`}
           >
             <div className="absolute inset-2 rounded-full bg-white/25" />
           </div>
