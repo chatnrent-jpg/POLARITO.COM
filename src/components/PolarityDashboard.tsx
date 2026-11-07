@@ -79,6 +79,8 @@ export default function PolarityDashboard() {
   const [view, setView] = useState<View>({ status: "idle" });
   const inFlight = useRef<AbortController | null>(null);
   const busy = useRef(false);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const tier = useSyncExternalStore(subscribeTier, getTier, getServerTier);
   const [tierError, setTierError] = useState<string | null>(null);
   // Active account: orders, closes and the ledger below all follow this one id.
@@ -104,9 +106,15 @@ export default function PolarityDashboard() {
       const results = computePolaritySeries(bars);
       if (controller.signal.aborted) return;
       setView({ status: "ready", ticker, results, sentiment });
+      setUpdatedAt(Date.now());
+      setRefreshFailed(false);
     } catch (err) {
       if (controller.signal.aborted) return;
-      if (silent) return; // a failed background refresh must not wipe good results
+      if (silent) {
+        // a failed background refresh must not wipe good results
+        setRefreshFailed(true);
+        return;
+      }
       setView({
         status: "error",
         message: err instanceof Error ? err.message : "Unknown error.",
@@ -259,6 +267,20 @@ export default function PolarityDashboard() {
             <span className="font-mono text-lg font-bold text-white">{view.ticker}</span> · as of {latest.date} ·
             Alpaca daily bars
           </p>
+          {updatedAt !== null && (
+            <p
+              role="status"
+              className={`flex items-center gap-2 text-sm ${refreshFailed ? "text-amber-300" : "text-slate-400"}`}
+            >
+              <span
+                aria-hidden="true"
+                className={`h-2 w-2 rounded-full ${refreshFailed ? "bg-amber-400" : "bg-emerald-400"}`}
+              />
+              {refreshFailed
+                ? `Refresh failed, retrying every 5s. Last updated ${new Date(updatedAt).toLocaleTimeString()}`
+                : `Live: updates every 5s. Last updated ${new Date(updatedAt).toLocaleTimeString()}`}
+            </p>
+          )}
 
           {!latest.ready && (
             <p
