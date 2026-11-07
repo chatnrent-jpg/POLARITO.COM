@@ -24,7 +24,7 @@ const PAD_Y = 14;
 const FLOOR_STROKE = "#cbd5e1"; // slate-300: crisp against the dark card
 const SENTIMENT_STROKE = "#c026ff"; // neon purple: neutral / unavailable news days
 const SENTIMENT_GOOD = "#22c55e"; // green: good-news day (+1 Driving)
-const SENTIMENT_BAD = "#ef4444"; // red: bad-news day (-1 Reverse)
+const SENTIMENT_BAD = "#ef4444"; // red: bad-news day (-1 Reversing)
 
 const sentimentColor = (polarity: number) =>
   polarity > 0 ? SENTIMENT_GOOD : polarity < 0 ? SENTIMENT_BAD : SENTIMENT_STROKE;
@@ -438,7 +438,7 @@ export default function PolarityChart({
               </span>
             )}
             <span className="block text-base text-slate-300">
-              Green = good-news day (+1 Driving), red = bad-news day (−1 Reverse), purple = neutral
+              Green = good-news day (+1 Driving), red = bad-news day (−1 Reversing), purple = neutral
               (0 Apathy), scored from bullish vs bearish keywords in news headlines.{" "}
               {liveSentiment
                 ? "Days the news feed does not cover plot as 0."

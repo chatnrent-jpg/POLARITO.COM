@@ -3,7 +3,7 @@
  *
  *   +1  DRIVING  : bullish headline keywords clearly outnumber bearish ones
  *    0  APATHY   : balanced, too few keywords, no news, or feed unavailable
- *   -1  REVERSE  : bearish headline keywords clearly outnumber bullish ones
+ *   -1  REVERSING: bearish headline keywords clearly outnumber bullish ones
  *
  * Source: Alpaca News API (https://data.alpaca.markets/v1beta1/news), read with
  * the same ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY the market data uses.
@@ -117,7 +117,7 @@ export type SentimentDay = {
 
 export type SentimentMeta = {
   value: Polarity;
-  label: "DRIVING" | "APATHY" | "REVERSE";
+  label: "DRIVING" | "APATHY" | "REVERSING";
   display: "+1" | "0" | "-1";
   text: string;
   hex: string;
@@ -127,7 +127,7 @@ export const SENTIMENT_META: Readonly<Record<"1" | "0" | "-1", SentimentMeta>> =
   Object.freeze({
     "1": { value: 1, label: "DRIVING", display: "+1", text: "text-green-400", hex: "#22c55e" },
     "0": { value: 0, label: "APATHY", display: "0", text: "text-slate-200", hex: "#94a3b8" },
-    "-1": { value: -1, label: "REVERSE", display: "-1", text: "text-red-400", hex: "#ef4444" },
+    "-1": { value: -1, label: "REVERSING", display: "-1", text: "text-red-400", hex: "#ef4444" },
   });
 
 export function sentimentMeta(p: Polarity): SentimentMeta {
