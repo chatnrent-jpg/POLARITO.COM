@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import AccountSelector from "@/components/AccountSelector";
+import AutoSimControls from "@/components/AutoSimControls";
 import LedgerPanel, { type CurrentMark } from "@/components/LedgerPanel";
 import LogoutButton from "@/components/LogoutButton";
 import PageRefresher from "@/components/PageRefresher";
@@ -9,6 +10,12 @@ import OrderModule, { type OrderAnalysis } from "@/components/OrderModule";
 import PolarityChart from "@/components/PolarityChart";
 import PremiumGate from "@/components/PremiumGate";
 import Transmission from "@/components/Transmission";
+import { applyAutoSim } from "@/lib/autoSim";
+import {
+  getAutoSimPrefs,
+  getServerAutoSimPrefs,
+  subscribeAutoSimPrefs,
+} from "@/lib/autoSimPrefs";
 import { getServerTier, getTier, subscribeTier, togglePremiumStatus } from "@/lib/billingGate";
 import { loadBars } from "@/lib/barsClient";
 import {
@@ -44,6 +51,7 @@ import {
  *     -> computePolaritySeries -> DayResult[]
  *       -> latestResult.polarity -> <Transmission/>
  *       -> DayResult[]           -> <PolarityChart/>
+ *       -> analysis + auto prefs -> applyAutoSim (optional paper enter/close)
  *   same payload also carries LIVE news-keyword sentiment (by date)
  *       -> <PolarityChart/> overlay line and the Crowd Sentiment card.
  *       It never feeds Transmission or the order gate, and a missing day is 0.
@@ -52,6 +60,8 @@ import {
  * results and holds the Transmission in Neutral with the error on screen.
  * While loading, the previous ticker's state is cleared so one ticker's
  * result is never shown under another's name.
+ * Auto sim is off by default; when on it reuses the same ledger APIs and
+ * polarity gate as manual orders (never sentiment).
  */
 type View =
   | { status: "idle" }
@@ -89,6 +99,14 @@ export default function PolarityDashboard() {
     getActiveAccountId,
     getServerActiveAccountId,
   );
+  const autoPrefs = useSyncExternalStore(
+    subscribeAutoSimPrefs,
+    getAutoSimPrefs,
+    getServerAutoSimPrefs,
+  );
+  const [autoNotice, setAutoNotice] = useState<string | null>(null);
+  // Skip duplicate auto ticks for the same account/ticker/bar/gear/size.
+  const lastAutoKey = useRef<string>("");
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
@@ -173,10 +191,56 @@ export default function PolarityDashboard() {
       ? { ticker: view.ticker, close: latest.close, asOf: latest.date }
       : null;
 
+  // Auto enter/close: same analysis the order gate sees; only when Auto is on.
+  const autoTicker = analysis?.ticker ?? "";
+  const autoPolarity = analysis?.polarity ?? 0;
+  const autoClose = analysis?.close ?? 0;
+  const autoAsOf = analysis?.asOf ?? "";
+  const autoReady = analysis?.ready ?? false;
+
+  useEffect(() => {
+    if (!autoPrefs.enabled) {
+      lastAutoKey.current = "";
+      return;
+    }
+    if (!autoTicker || autoClose <= 0 || !autoAsOf) return;
+
+    const key = `${accountId}|${autoTicker}|${autoAsOf}|${autoPolarity}|${autoReady}|${autoPrefs.quantity}`;
+    if (key === lastAutoKey.current) return;
+    lastAutoKey.current = key;
+
+    const tickAnalysis = {
+      ticker: autoTicker,
+      polarity: autoPolarity as 1 | 0 | -1,
+      close: autoClose,
+      asOf: autoAsOf,
+      ready: autoReady,
+    };
+    const prefs = { enabled: true, quantity: autoPrefs.quantity };
+    // Defer ledger write + notice so this effect only schedules external work.
+    const t = window.setTimeout(() => {
+      const result = applyAutoSim(tickAnalysis, prefs, accountId);
+      if (result.messages.length > 0) {
+        setAutoNotice(result.messages.join(" "));
+      }
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [
+    autoPrefs.enabled,
+    autoPrefs.quantity,
+    accountId,
+    autoTicker,
+    autoPolarity,
+    autoClose,
+    autoAsOf,
+    autoReady,
+  ]);
+
   return (
     <div className="flex w-full flex-1 flex-col items-center justify-center gap-10 px-4 py-10">
       <PageRefresher onRefresh={refreshInPlace} />
       <AccountSelector marks={current ? { [current.ticker]: current.close } : {}} />
+      <AutoSimControls lastAction={autoPrefs.enabled ? autoNotice : null} />
 
       <header className="flex w-full max-w-2xl flex-col items-center gap-4">
         <div className="flex w-full items-center justify-between gap-3">
