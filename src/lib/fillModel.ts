@@ -11,7 +11,7 @@ export type FillCosts = {
 };
 
 export const DEFAULT_FILL_COSTS: Readonly<FillCosts> = Object.freeze({
-  slippageBps: 5,
+  slippageBps: 0,
   commissionPerShare: 0,
 });
 

@@ -29,13 +29,11 @@ After a successful login, `src/components/PageRefresher.tsx` full-reloads the ho
 
 This gate runs in `src/proxy.ts` for `next dev` / `next start` / Node hosts. The Name.com static HTML export has no Node runtime; protect that host separately (or run Node) if you need the same gate there.
 
-## Auto simulation and risk guard
+## Auto simulation
 
-The **Auto · Simulated** panel enters and closes the analyzed ticker in the paper ledger using the same polarity gate as manual orders. It is on by default and can be turned off.
+The **Auto · Simulated** panel has two controls: on/off and shares. The paper position follows the polarity of the analyzed ticker: +1 = long, 0 = flat, -1 = short, filled at the latest bar's close with no added cost. Manual Review / Close still work.
 
-- **Fill model.** *Next open* (default) acts on the last completed bar and fills at the following bar's open, with 0.05% slippage per side. *Signal-day close* is the legacy behavior.
-- **Sizing.** Fixed shares, or risk-based (percent of equity risked per trade against an assumed 3% stop).
-- **Risk guard (always on, `src/lib/risk.ts`).** New entries halt after a 2% daily realized loss and lock after a 4% daily gain. Size halves after each straight loss from the second on. One position is capped at 25% of equity, total exposure at 100%, and never above available cash. Closes are never blocked. Stale (older than 5 days) or malformed data is never traded.
+Underneath, two plain protections remain: it never buys more than the account's available cash, and new entries pause after a 2% daily loss (closes are never blocked). Stale or malformed data is never traded. The richer options (risk-based sizing, next-open fills, slippage) still exist in the code for the server runner but are not on the page.
 
 ## Alpaca paper trading (server side)
 
@@ -50,13 +48,9 @@ The **Auto · Simulated** panel enters and closes the analyzed ticker in the pap
 
 Safety properties: hard-coded paper host; orders need `POLARITO_PAPER_TRADING_ENABLED=1` and an off kill switch; deterministic client order ids make retries idempotent; positions are reconciled against the broker before any order; closes flatten the broker's actual quantity; every error path returns a result instead of throwing, and credentials never appear in errors.
 
-## Audit trail
+## Audit log (server only)
 
-Every Auto decision, including "held" and "stand aside", is recorded with its reason.
-
-- **Browser sim.** The **Audit trail** panel lists the newest 25 (up to 500 kept in this browser), repeats of the same decision are not re-logged, and you can download the full log as JSON.
-- **Server runner.** One structured JSON line per decision on stdout (`{"audit":{...}}`), searchable in Vercel logs, and the same records come back in the cron response.
-- Records only contain whitelisted, length-capped fields, so credentials and raw broker payloads can never end up in them. A record is written only after the outcome is known; a failed write is reported rather than hidden.
+The scheduled runner writes one structured JSON line per decision to the server log (`{"audit":{...}}`), searchable in Vercel logs, and returns the same records in its response. Records only contain whitelisted, length-capped fields, so credentials never appear.
 
 ## Scripts
 

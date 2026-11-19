@@ -164,7 +164,7 @@ describe("runPaperCycle", () => {
     assert.equal(o.ticker, "NVDA");
     assert.equal(o.timeInForce, "day");
     assert.equal(o.clientOrderId, "pol-NVDA-enter-long-2026-11-19");
-    // 0.5% of 100k = $500 risk / (100.05 * 3% stop) = 166 shares
+    // 0.5% of 100k = $500 risk / (100 * 3% stop) = 166 shares
     assert.equal(o.quantity, 166);
     assert.equal(audit.length, 1);
     assert.equal(audit[0].outcome, "entered");
@@ -322,7 +322,7 @@ describe("runPaperCycle", () => {
     const list = ["AAA", "BBB", "CCC", "DDD", "EEE"];
     const { d, audit } = deps(broker, async () => bars("2026-11-19", "drive"));
     await runPaperCycle(d, settings({ riskPct: 2 }, list), { dryRun: false });
-    const notional = broker.submitted.reduce((s, o) => s + o.quantity * 100.05, 0);
+    const notional = broker.submitted.reduce((s, o) => s + o.quantity * 100, 0);
     assert.ok(notional <= 100_000, `notional ${notional}`);
     assert.equal(audit.length, 5);
     assert.ok(audit.some((r) => r.notes.join(" ").match(/exposure cap|per-position cap/) || r.outcome === "blocked"));

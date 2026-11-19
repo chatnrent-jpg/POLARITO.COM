@@ -158,14 +158,14 @@ describe("decideAutoSim", () => {
   });
 
   it("risk-based sizing sizes from equity, risk percent and stop distance", () => {
-    // 100k * 0.5% = 500; effective entry 100.05 * 3% = 3.0015 -> 166
+    // 100k * 0.5% = 500; entry 100 * 3% = 3 -> 166
     const d = decideAutoSim(input(1), ledger(), prefs({ sizingMode: "risk", riskPct: 0.5 }), NOW);
     assert.deepEqual(d.enter, { side: "long", quantity: 166 });
   });
 
   it("clips an oversized fixed request to the per-position cap", () => {
     const d = decideAutoSim(input(1), ledger(), prefs({ quantity: 2_000 }), NOW);
-    assert.deepEqual(d.enter, { side: "long", quantity: 249 }); // 25k / 100.05
+    assert.deepEqual(d.enter, { side: "long", quantity: 250 }); // 25k / 100
     assert.match(d.notes.join(" "), /per-position cap/);
   });
 

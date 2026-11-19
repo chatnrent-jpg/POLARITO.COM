@@ -2,12 +2,21 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_FILL_COSTS, effectiveFillPrice } from "../src/lib/fillModel";
 
+const FIVE_BPS = { slippageBps: 5, commissionPerShare: 0 };
+
 describe("effectiveFillPrice", () => {
-  it("buys fill higher and sells fill lower (5 bps default)", () => {
-    assert.equal(effectiveFillPrice("enter", "long", 100), 100.05);
-    assert.equal(effectiveFillPrice("close", "long", 100), 99.95);
-    assert.equal(effectiveFillPrice("enter", "short", 100), 99.95);
-    assert.equal(effectiveFillPrice("close", "short", 100), 100.05);
+  it("fills exactly at the quote by default (no hidden cost)", () => {
+    assert.equal(DEFAULT_FILL_COSTS.slippageBps, 0);
+    assert.equal(effectiveFillPrice("enter", "long", 100), 100);
+    assert.equal(effectiveFillPrice("close", "long", 100), 100);
+    assert.equal(effectiveFillPrice("enter", "short", 100), 100);
+  });
+
+  it("buys fill higher and sells fill lower when slippage is set", () => {
+    assert.equal(effectiveFillPrice("enter", "long", 100, FIVE_BPS), 100.05);
+    assert.equal(effectiveFillPrice("close", "long", 100, FIVE_BPS), 99.95);
+    assert.equal(effectiveFillPrice("enter", "short", 100, FIVE_BPS), 99.95);
+    assert.equal(effectiveFillPrice("close", "short", 100, FIVE_BPS), 100.05);
   });
 
   it("zero costs fill at the quote", () => {
@@ -22,12 +31,12 @@ describe("effectiveFillPrice", () => {
     assert.equal(effectiveFillPrice("close", "long", 50, c), 49.99);
   });
 
-  it("a round trip always costs money", () => {
-    const inn = effectiveFillPrice("enter", "long", 100);
-    const out = effectiveFillPrice("close", "long", 100);
+  it("with costs set, a round trip always costs money", () => {
+    const inn = effectiveFillPrice("enter", "long", 100, FIVE_BPS);
+    const out = effectiveFillPrice("close", "long", 100, FIVE_BPS);
     assert.ok(out < inn);
-    const sIn = effectiveFillPrice("enter", "short", 100);
-    const sOut = effectiveFillPrice("close", "short", 100);
+    const sIn = effectiveFillPrice("enter", "short", 100, FIVE_BPS);
+    const sOut = effectiveFillPrice("close", "short", 100, FIVE_BPS);
     assert.ok(sOut > sIn);
   });
 
