@@ -55,10 +55,10 @@ describe("autoSimPrefs snapshots (useSyncExternalStore contract)", () => {
     assert.equal(getServerAutoSimPrefs(), getServerAutoSimPrefs());
   });
 
-  it("defaults to on, next-open fills, fixed sizing with no stored value", () => {
+  it("defaults to on, signal-day close fills, fixed sizing with no stored value", () => {
     const p = getAutoSimPrefs();
     assert.equal(p.enabled, true);
-    assert.equal(p.fillMode, "next-open");
+    assert.equal(p.fillMode, "signal-close");
     assert.equal(p.sizingMode, "fixed");
     assert.equal(p.riskPct, DEFAULT_AUTO_SIM_PREFS.riskPct);
   });
@@ -67,7 +67,7 @@ describe("autoSimPrefs snapshots (useSyncExternalStore contract)", () => {
     store.set(AUTO_SIM_STORAGE_KEY, JSON.stringify({ enabled: true, quantity: 40 }));
     const p = getAutoSimPrefs();
     assert.equal(p.quantity, 40);
-    assert.equal(p.fillMode, "next-open");
+    assert.equal(p.fillMode, "signal-close");
     assert.equal(p.sizingMode, "fixed");
   });
 
@@ -96,7 +96,7 @@ describe("autoSimPrefs snapshots (useSyncExternalStore contract)", () => {
     assert.equal(p.quantity, DEFAULT_AUTO_SIM_PREFS.quantity);
     assert.equal(p.sizingMode, "fixed");
     assert.equal(p.riskPct, DEFAULT_AUTO_SIM_PREFS.riskPct);
-    assert.equal(p.fillMode, "next-open");
+    assert.equal(p.fillMode, "signal-close");
   });
 
   it("setters validate input and never persist bad values", () => {
@@ -111,12 +111,12 @@ describe("autoSimPrefs snapshots (useSyncExternalStore contract)", () => {
     assert.equal(setAutoSimSizingMode("wild").ok, false);
     assert.equal(setAutoSimSizingMode("risk").ok, true);
     assert.equal(setAutoSimFillMode("instant").ok, false);
-    assert.equal(setAutoSimFillMode("signal-close").ok, true);
+    assert.equal(setAutoSimFillMode("next-open").ok, true);
     const p = getAutoSimPrefs();
     assert.equal(p.quantity, 25);
     assert.equal(p.riskPct, 1.25);
     assert.equal(p.sizingMode, "risk");
-    assert.equal(p.fillMode, "signal-close");
+    assert.equal(p.fillMode, "next-open");
   });
 
   it("a failed write is reported, not swallowed", () => {

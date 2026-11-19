@@ -76,9 +76,8 @@ export default function AutoSimControls({ lastAction }: { lastAction: string | n
             Auto · Simulated
           </h2>
           <p className="text-sm text-slate-400">
-            When on, enters and closes the analyzed ticker using the same polarity gate as manual
-            orders (Drive = long, Reverse = short, Neutral = flat). Every entry is sized by the
-            risk guard below. Manual Review / Close still work.
+            Follows the polarity of the analyzed ticker: Drive (+1) = long, Reverse (−1) = short,
+            Neutral (0) = flat. Manual Review / Close still work.
           </p>
         </div>
         <button
@@ -96,46 +95,7 @@ export default function AutoSimControls({ lastAction }: { lastAction: string | n
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="auto-sim-fill" className={labelCls}>
-            Fill model
-          </label>
-          <select
-            id="auto-sim-fill"
-            value={prefs.fillMode}
-            onChange={(e) => report(setAutoSimFillMode(e.target.value))}
-            disabled={!prefs.enabled}
-            className={fieldCls}
-          >
-            <option value="next-open">Next open (realistic)</option>
-            <option value="signal-close">Signal-day close (legacy)</option>
-          </select>
-          <span className="text-xs text-slate-400">
-            Next open acts on the last completed bar and fills at the following open, plus slippage.
-          </span>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor="auto-sim-sizing" className={labelCls}>
-            Sizing
-          </label>
-          <select
-            id="auto-sim-sizing"
-            value={prefs.sizingMode}
-            onChange={(e) => report(setAutoSimSizingMode(e.target.value))}
-            disabled={!prefs.enabled}
-            className={fieldCls}
-          >
-            <option value="fixed">Fixed shares</option>
-            <option value="risk">Risk-based (% of equity)</option>
-          </select>
-          <span className="text-xs text-slate-400">
-            Risk-based sizes so a {pct(DEFAULT_RISK_CONFIG.stopDistancePct)} adverse move loses
-            about the risk percent.
-          </span>
-        </div>
-
+      <div className="w-full max-w-sm">
         {riskMode ? (
           <form onSubmit={onRiskSubmit} className="flex items-end gap-3">
             <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -198,7 +158,49 @@ export default function AutoSimControls({ lastAction }: { lastAction: string | n
       </div>
 
       <details className="rounded-xl border border-zinc-700 bg-zinc-950/50 p-3 text-sm text-slate-300">
-        <summary className="cursor-pointer font-semibold text-white">Risk guard (always on)</summary>
+        <summary className="cursor-pointer font-semibold text-white">Advanced (optional)</summary>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="auto-sim-fill" className={labelCls}>
+            Fill model
+          </label>
+          <select
+            id="auto-sim-fill"
+            value={prefs.fillMode}
+            onChange={(e) => report(setAutoSimFillMode(e.target.value))}
+            disabled={!prefs.enabled}
+            className={fieldCls}
+          >
+            <option value="next-open">Next open (realistic)</option>
+            <option value="signal-close">Signal-day close (legacy)</option>
+          </select>
+          <span className="text-xs text-slate-400">
+            Next open acts on the last completed bar and fills at the following open, plus slippage.
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label htmlFor="auto-sim-sizing" className={labelCls}>
+            Sizing
+          </label>
+          <select
+            id="auto-sim-sizing"
+            value={prefs.sizingMode}
+            onChange={(e) => report(setAutoSimSizingMode(e.target.value))}
+            disabled={!prefs.enabled}
+            className={fieldCls}
+          >
+            <option value="fixed">Fixed shares</option>
+            <option value="risk">Risk-based (% of equity)</option>
+          </select>
+          <span className="text-xs text-slate-400">
+            Risk-based sizes so a {pct(DEFAULT_RISK_CONFIG.stopDistancePct)} adverse move loses
+            about the risk percent.
+          </span>
+        </div>
+
+        </div>
+        <p className="mt-4 font-semibold text-white">Risk guard (always on)</p>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>
             New entries halt after a {pct(DEFAULT_RISK_CONFIG.dailyLossLimitPct)} daily realized

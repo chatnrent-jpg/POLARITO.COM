@@ -34,7 +34,7 @@ export const DEFAULT_AUTO_SIM_PREFS: AutoSimPrefs = {
   quantity: 10,
   sizingMode: "fixed",
   riskPct: 0.5,
-  fillMode: "next-open",
+  fillMode: "signal-close",
 };
 
 export const MIN_QTY = 1;
