@@ -127,10 +127,16 @@ describe("settings", () => {
     }
   });
 
+  it("accepts a nine-ticker list with spaces", () => {
+    const r = paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "SPY, MU, TSLA, GOOG, AVGO, GOOGL, AMZN, AAPL, NVDA" });
+    assert.equal(r.ok, true);
+    if (r.ok) assert.deepEqual(r.settings.watchlist, ["SPY", "MU", "TSLA", "GOOG", "AVGO", "GOOGL", "AMZN", "AAPL", "NVDA"]);
+  });
+
   it("refuses bad configuration instead of guessing", () => {
     assert.equal(paperRunnerSettings({}).ok, false);
     assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "AAPL,bad!" }).ok, false);
-    assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "A,B,C,D,E,F" }).ok, false);
+    assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "A,B,C,D,E,F,G,H,I,J,K" }).ok, false);
     assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "SPY", POLARITO_PAPER_RISK_PCT: "9" }).ok, false);
     assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "SPY", POLARITO_PAPER_SIZING: "yolo" }).ok, false);
     assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "SPY", POLARITO_PAPER_QTY: "1.5" }).ok, false);

@@ -35,7 +35,7 @@ import type { Position } from "@/lib/ledger";
 import { computePolaritySeries, type Bar } from "@/lib/polarity";
 import { normalizeTicker } from "@/lib/ticker";
 
-export const MAX_WATCHLIST = 5;
+export const MAX_WATCHLIST = 10;
 /** Regular session closes 16:00 New York; allow a few minutes for the daily bar to finalize. */
 export const BAR_FINAL_MINUTES = 16 * 60 + 15;
 
