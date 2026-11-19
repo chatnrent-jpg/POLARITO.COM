@@ -433,6 +433,13 @@ const STORAGE_FAIL =
  */
 export function addLedgerEntry(entry: LedgerEntry, accountId: AccountId): LedgerResult {
   if (!isEntry(entry)) return { ok: false, error: "Order payload failed validation." };
+  // Last line of defense: whatever called us, an entry must match the polarity.
+  if ((entry.polarityAtEntry === 1) !== (entry.side === "long")) {
+    return {
+      ok: false,
+      error: "ORDER BLOCKED: entries must match the polarity (Drive = long, Reverse = short).",
+    };
+  }
   const active = checkActive(accountId);
   if (!active.ok) return active;
   try {

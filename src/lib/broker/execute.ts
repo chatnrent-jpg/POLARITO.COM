@@ -53,6 +53,15 @@ export function validateIntent(intent: OrderIntent): { ok: true; ticker: string 
     return { ok: false, error: "Signal date must be YYYY-MM-DD." };
   }
   if (intent.action === "enter") {
+    const aligned =
+      (intent.signalPolarity === 1 && intent.side === "long") ||
+      (intent.signalPolarity === -1 && intent.side === "short");
+    if (!aligned) {
+      return {
+        ok: false,
+        error: "ORDER BLOCKED: entries must match the polarity (Drive = long, Reverse = short).",
+      };
+    }
     if (!Number.isSafeInteger(intent.quantity) || intent.quantity < 1 || intent.quantity > MAX_SHARES) {
       return { ok: false, error: `Quantity must be a whole number from 1 to ${MAX_SHARES.toLocaleString("en-US")}.` };
     }

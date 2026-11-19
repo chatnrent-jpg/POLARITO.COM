@@ -292,6 +292,7 @@ export async function runPaperCycle(
             ticker,
             side,
             quantity,
+            signalPolarity: input.signal.polarity,
             signalDate: input.signal.date,
             timeInForce: "day",
           });
