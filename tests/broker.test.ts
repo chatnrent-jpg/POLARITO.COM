@@ -66,6 +66,7 @@ const enter = (over: Partial<OrderIntent> = {}): OrderIntent => ({
   ticker: "NVDA",
   side: "long",
   quantity: 10,
+  signalPolarity: 1,
   signalDate: "2026-11-19",
   ...over,
 });
@@ -104,6 +105,35 @@ describe("config + gate", () => {
   });
 });
 
+describe("alignment backstop", () => {
+  it("refuses any entry that does not match the signal polarity, and sends nothing", async () => {
+    const cases: Array<[Partial<OrderIntent>, string]> = [
+      [{ side: "short", signalPolarity: 1 }, "short on Drive"],
+      [{ side: "long", signalPolarity: -1 }, "long on Reverse"],
+      [{ side: "long", signalPolarity: 0 }, "long on Neutral"],
+      [{ side: "short", signalPolarity: 0 }, "short on Neutral"],
+      [{ side: "long", signalPolarity: undefined }, "long with no polarity"],
+      [{ side: "long", signalPolarity: 2 }, "long on nonsense polarity"],
+    ];
+    for (const [over, label] of cases) {
+      const b = new FakeBroker();
+      const r = await placeIntent(b, ON, enter(over));
+      assert.equal(r.ok, false, label);
+      if (!r.ok) {
+        assert.equal(r.code, "INVALID", label);
+        assert.match(r.error, /must match the polarity/, label);
+      }
+      assert.equal(b.submitted.length, 0, label);
+    }
+  });
+
+  it("closes never need an aligned polarity (leaving a position is always allowed)", async () => {
+    const b = new FakeBroker(undefined, [{ ticker: "NVDA", side: "long", quantity: 4, avgEntryPrice: 90 }]);
+    const r = await placeIntent(b, ON, enter({ action: "close", signalPolarity: 0 }));
+    assert.equal(r.ok && r.status, "submitted");
+  });
+});
+
 describe("validateIntent", () => {
   it("accepts a clean entry and rejects malformed ones", () => {
     assert.equal(validateIntent(enter()).ok, true);
@@ -135,7 +165,7 @@ describe("placeIntent", () => {
       timeInForce: "day",
     });
     const s = new FakeBroker();
-    await placeIntent(s, ON, enter({ side: "short", ticker: "TSLA" }));
+    await placeIntent(s, ON, enter({ side: "short", signalPolarity: -1, ticker: "TSLA" }));
     assert.equal(s.submitted[0].side, "sell");
   });
 
@@ -176,7 +206,7 @@ describe("placeIntent", () => {
     assert.equal(same.submitted.length, 0);
 
     const flip = new FakeBroker(undefined, [held]);
-    const r2 = await placeIntent(flip, ON, enter({ side: "short" }));
+    const r2 = await placeIntent(flip, ON, enter({ side: "short", signalPolarity: -1 }));
     assert.equal(r2.ok, false);
     assert.equal(!r2.ok && r2.code, "CONFLICT");
     assert.equal(flip.submitted.length, 0);

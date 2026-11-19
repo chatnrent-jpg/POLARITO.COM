@@ -78,13 +78,13 @@ function weekdaysEnding(last: string, n: number): string[] {
 }
 
 /** 30 quiet bars; the final bar carries the signal ("drive" = big green volume, "neutral" = tiny). */
-function bars(last: string, kind: "drive" | "neutral", count = 30): Bar[] {
+function bars(last: string, kind: "drive" | "neutral" | "reverse", count = 30): Bar[] {
   const dates = weekdaysEnding(last, count);
   return dates.map((date, i) => {
     const isLast = i === dates.length - 1;
-    const volume = isLast ? (kind === "drive" ? 9000 : 10) : 1000;
-    const open = isLast ? 98 : 99;
-    const close = isLast ? 100 : 99.5;
+    const volume = isLast ? (kind === "neutral" ? 10 : 9000) : 1000;
+    const open = isLast ? (kind === "reverse" ? 100 : 98) : 99;
+    const close = isLast ? (kind === "reverse" ? 98 : 100) : 99.5;
     return { date, open, high: 101, low: 97, close, volume };
   });
 }
@@ -150,6 +150,43 @@ describe("completed bars (New York time)", () => {
     const future = [...b, { ...b[b.length - 1], date: "2026-11-20" }];
     assert.equal(completedBars(future, AFTER_CLOSE).length, 30);
   });
+});
+
+describe("runPaperCycle: only polarity-aligned orders, ever", () => {
+  const WANT: Record<"drive" | "neutral" | "reverse", "long" | "short" | null> = {
+    drive: "long",
+    reverse: "short",
+    neutral: null,
+  };
+  for (const kind of ["drive", "neutral", "reverse"] as const) {
+    for (const held of ["none", "long", "short"] as const) {
+      it(`${kind} signal while holding ${held}`, async () => {
+        const broker = new FakeBroker(undefined, held === "none" ? [] : [pos("NVDA", held, 10)]);
+        const { d } = deps(broker, async () => bars("2026-11-19", kind));
+        await runPaperCycle(d, settings({ sizingMode: "fixed", quantity: 5 }), { dryRun: false });
+        const wanted = WANT[kind];
+        for (const o of broker.submitted) {
+          if (held === "none") {
+            // No position: the only order possible is an entry, and it must match.
+            assert.equal(o.side, wanted === "long" ? "buy" : "sell");
+            assert.notEqual(wanted, null, "never enters on Neutral");
+          } else {
+            // Holding something: the only order possible is the close of it.
+            assert.equal(o.side, held === "long" ? "sell" : "buy");
+            assert.equal(o.quantity, 10);
+            assert.notEqual(held, wanted, "never closes a position that matches the polarity");
+          }
+        }
+        // Net result at the broker: flat or aligned.
+        const net = held === "none" ? 0 : held === "long" ? 10 : -10;
+        const delta = broker.submitted.reduce((s, o) => s + (o.side === "buy" ? o.quantity : -o.quantity), 0);
+        const end = net + delta;
+        if (wanted === null) assert.equal(end, 0);
+        else if (wanted === "long") assert.ok(end >= 0);
+        else assert.ok(end <= 0);
+      });
+    }
+  }
 });
 
 describe("runPaperCycle", () => {

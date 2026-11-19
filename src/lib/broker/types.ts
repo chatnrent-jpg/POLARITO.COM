@@ -67,6 +67,8 @@ export type OrderIntent = {
   side: PositionSide;
   /** Shares to enter. Ignored for closes. */
   quantity: number;
+  /** Polarity of the signal bar. An entry must match it: +1 = long, -1 = short. Closes ignore it. */
+  signalPolarity?: number;
   /** Session date (YYYY-MM-DD) of the signal bar. Part of the idempotency key. */
   signalDate: string;
   timeInForce?: "day" | "opg";
