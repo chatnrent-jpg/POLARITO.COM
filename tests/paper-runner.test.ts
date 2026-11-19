@@ -120,7 +120,8 @@ describe("settings", () => {
     assert.equal(r.ok, true);
     if (r.ok) {
       assert.deepEqual(r.settings.watchlist, ["SPY", "NVDA"]);
-      assert.equal(r.settings.prefs.sizingMode, "risk");
+      assert.equal(r.settings.prefs.sizingMode, "fixed");
+      assert.equal(r.settings.prefs.quantity, 1);
       assert.equal(r.settings.prefs.riskPct, 0.5);
       assert.equal(r.settings.prefs.fillMode, "signal-close");
     }
