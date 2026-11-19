@@ -41,6 +41,7 @@ Underneath, two plain protections remain: it never buys more than the account's 
 
 - **Status.** Sign in and open `/api/broker/paper/status` (read-only) to check the connection.
 - **Schedule.** `vercel.json` calls `/api/cron/paper-run` on weekdays at 21:30 UTC (after the close, in both EST and EDT). The route skips the browser login gate and instead requires `Authorization: Bearer $CRON_SECRET`; with no secret set it refuses everyone.
+- **Observe until switched on.** With credentials set but `POLARITO_PAPER_TRADING_ENABLED` not `1`, every scheduled run only observes: it decides and logs what it would do and sends nothing. The kill switch and missing credentials still stop it completely.
 - **Dry run.** `GET /api/cron/paper-run?dry=1` (with the bearer header) computes and audits every decision but sends no order. It works with credentials alone, before you enable trading.
 - **What a cycle does.** Per ticker in `POLARITO_PAPER_WATCHLIST` (max 5): load daily bars, drop any bar still forming (New York time), compute polarity, make the same decision as the browser sim, then send at most one DAY market order that queues for the next open. Equity, cash and positions come from the Alpaca paper account, not the browser.
 - **Risk.** Same risk guard as the sim, with the daily loss/profit boundary taken from the broker's equity vs. last close. Entries across tickers in one cycle are tracked so they cannot oversubscribe the account. Closes are never blocked.

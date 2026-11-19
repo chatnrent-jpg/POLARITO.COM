@@ -157,7 +157,7 @@ export async function runPaperCycle(
   const now = (deps.now ?? (() => new Date()))();
   const ranAt = now.toISOString();
   const results: TickerReport[] = [];
-  const dryRun = options.dryRun;
+  let dryRun = options.dryRun;
 
   const record = (draft: AuditDraft): void => {
     const rec = buildAuditRecord(draft, deps.now ? deps.now() : new Date());
@@ -176,10 +176,24 @@ export async function runPaperCycle(
   try {
     // A real run needs the full gate (enabled, not killed, configured). A dry
     // run only reads, so it needs credentials but not the enable switch.
+    // Until trading is switched on, a scheduled run observes instead of
+    // refusing: it decides and logs exactly what it would do and sends nothing.
+    // The kill switch and missing credentials still stop everything.
     if (!dryRun) {
       const gate = tradingGate(deps.config);
-      if (!gate.ok) return fail(gate.error);
-    } else if (!deps.config.configured) {
+      if (!gate.ok) {
+        if (gate.code !== "DISABLED") return fail(gate.error);
+        if (!deps.config.configured) return fail("Paper credentials are not configured.");
+        dryRun = true;
+        record({
+          source: "paper-runner",
+          ticker: "-",
+          outcome: "dry-run",
+          reason: "Paper trading is not switched on, so this run only observes. No orders will be sent.",
+        });
+      }
+    }
+    if (dryRun && !deps.config.configured) {
       return fail("Paper credentials are not configured.");
     }
 
