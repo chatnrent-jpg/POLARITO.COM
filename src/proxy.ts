@@ -1,13 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { CRON_PATH_PREFIX } from "@/lib/cronAuth";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/sessionAuth";
 
 /**
  * Gate every app + API request behind a valid Polarito session cookie.
  * Public: /login (and its Server Actions), Next static assets, favicon.
+ * Scheduled jobs under /api/cron/ have no cookie: they skip this gate and each
+ * route verifies its own bearer secret (fail-closed, see cronAuth.ts).
  * Fail-closed: missing/invalid cookie => redirect to /login (pages) or 401 (API).
  */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (pathname.startsWith(CRON_PATH_PREFIX)) return NextResponse.next();
 
   // Static assets and the login page itself stay reachable without a session.
   if (

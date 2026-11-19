@@ -25,6 +25,7 @@ const ACTIVE: BrokerAccount = {
   tradingBlocked: false,
   accountBlocked: false,
   equity: 100_000,
+  lastEquity: 100_000,
   cash: 100_000,
   buyingPower: 200_000,
 };
@@ -275,10 +276,11 @@ describe("AlpacaPaperBroker", () => {
 
   it("parses an account and rejects a malformed one", async () => {
     const good = mock([
-      { body: { status: "ACTIVE", trading_blocked: false, account_blocked: false, equity: "100000.5", cash: "5000", buying_power: "10000" } },
+      { body: { status: "ACTIVE", trading_blocked: false, account_blocked: false, equity: "100000.5", last_equity: "99000", cash: "5000", buying_power: "10000" } },
     ]);
     const a = await good.broker.getAccount();
     assert.equal(a.ok && a.value.equity, 100000.5);
+    assert.equal(a.ok && a.value.lastEquity, 99000);
     const bad = mock([{ body: { status: "ACTIVE", equity: "NaN" } }]);
     const b = await bad.broker.getAccount();
     assert.equal(!b.ok && b.code, "MALFORMED");
