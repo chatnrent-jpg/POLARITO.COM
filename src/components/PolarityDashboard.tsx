@@ -9,6 +9,7 @@ import {
   type FormEvent,
 } from "react";
 import AccountSelector from "@/components/AccountSelector";
+import AuditTrail from "@/components/AuditTrail";
 import AutoSimControls from "@/components/AutoSimControls";
 import LedgerPanel, { type CurrentMark } from "@/components/LedgerPanel";
 import LogoutButton from "@/components/LogoutButton";
@@ -18,6 +19,7 @@ import PolarityChart from "@/components/PolarityChart";
 import PremiumGate from "@/components/PremiumGate";
 import Transmission from "@/components/Transmission";
 import { applyAutoSim, buildAutoSimInput } from "@/lib/autoSim";
+import { recordDrafts } from "@/lib/auditStore";
 import {
   getAutoSimPrefs,
   getServerAutoSimPrefs,
@@ -234,8 +236,10 @@ export default function PolarityDashboard() {
     // Defer ledger write + notice so this effect only schedules external work.
     const t = window.setTimeout(() => {
       const result = applyAutoSim(autoInput, autoPrefs, accountId);
-      if (result.messages.length > 0) {
-        setAutoNotice(result.messages.join(" "));
+      const logged = recordDrafts(result.audit);
+      const messages = logged.ok ? result.messages : [...result.messages, logged.error];
+      if (messages.length > 0) {
+        setAutoNotice(messages.join(" "));
       }
     }, 0);
     return () => window.clearTimeout(t);
@@ -246,6 +250,7 @@ export default function PolarityDashboard() {
       <PageRefresher onRefresh={refreshInPlace} />
       <AccountSelector marks={current ? { [current.ticker]: current.close } : {}} />
       <AutoSimControls lastAction={autoPrefs.enabled ? autoNotice : null} />
+      <AuditTrail />
 
       <header className="flex w-full max-w-2xl flex-col items-center gap-4">
         <div className="flex w-full items-center justify-between gap-3">

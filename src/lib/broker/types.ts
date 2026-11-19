@@ -20,6 +20,8 @@ export type BrokerAccount = {
   tradingBlocked: boolean;
   accountBlocked: boolean;
   equity: number;
+  /** Equity at the previous session close; the base for the daily loss boundary. */
+  lastEquity: number;
   cash: number;
   buyingPower: number;
 };

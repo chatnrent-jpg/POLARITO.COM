@@ -153,6 +153,7 @@ export class AlpacaPaperBroker implements Broker {
     const d = res.value.data;
     if (res.value.status !== 200 || !isRecord(d)) return fail("MALFORMED", "Unexpected account response.");
     const equity = num(d.equity);
+    const lastEquity = num(d.last_equity);
     const cash = num(d.cash);
     const buyingPower = num(d.buying_power);
     if (
@@ -160,6 +161,7 @@ export class AlpacaPaperBroker implements Broker {
       typeof d.trading_blocked !== "boolean" ||
       typeof d.account_blocked !== "boolean" ||
       equity === null ||
+      lastEquity === null ||
       cash === null ||
       buyingPower === null
     ) {
@@ -172,6 +174,7 @@ export class AlpacaPaperBroker implements Broker {
         tradingBlocked: d.trading_blocked,
         accountBlocked: d.account_blocked,
         equity,
+        lastEquity,
         cash,
         buyingPower,
       },

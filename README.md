@@ -37,11 +37,26 @@ The **Auto · Simulated** panel enters and closes the analyzed ticker in the pap
 - **Sizing.** Fixed shares, or risk-based (percent of equity risked per trade against an assumed 3% stop).
 - **Risk guard (always on, `src/lib/risk.ts`).** New entries halt after a 2% daily realized loss and lock after a 4% daily gain. Size halves after each straight loss from the second on. One position is capped at 25% of equity, total exposure at 100%, and never above available cash. Closes are never blocked. Stale (older than 5 days) or malformed data is never traded.
 
-## Alpaca paper trading (server side, no orders are placed automatically yet)
+## Alpaca paper trading (server side)
 
-`src/lib/broker/` holds a paper-only broker adapter and an order executor. Nothing calls the executor from the app yet; it is the foundation for a scheduled runner. Set the `ALPACA_PAPER_*` and `POLARITO_*` variables from `.env.example`, then sign in and open `/api/broker/paper/status` to check the connection (read-only).
+`src/lib/broker/` holds a paper-only broker adapter and an order executor; `src/lib/paperRunner.ts` is the scheduled cycle that drives them. Set the `ALPACA_PAPER_*`, `POLARITO_*` and `CRON_SECRET` variables from `.env.example`.
+
+- **Status.** Sign in and open `/api/broker/paper/status` (read-only) to check the connection.
+- **Schedule.** `vercel.json` calls `/api/cron/paper-run` on weekdays at 21:30 UTC (after the close, in both EST and EDT). The route skips the browser login gate and instead requires `Authorization: Bearer $CRON_SECRET`; with no secret set it refuses everyone.
+- **Dry run.** `GET /api/cron/paper-run?dry=1` (with the bearer header) computes and audits every decision but sends no order. It works with credentials alone, before you enable trading.
+- **What a cycle does.** Per ticker in `POLARITO_PAPER_WATCHLIST` (max 5): load daily bars, drop any bar still forming (New York time), compute polarity, make the same decision as the browser sim, then send at most one DAY market order that queues for the next open. Equity, cash and positions come from the Alpaca paper account, not the browser.
+- **Risk.** Same risk guard as the sim, with the daily loss/profit boundary taken from the broker's equity vs. last close. Entries across tickers in one cycle are tracked so they cannot oversubscribe the account. Closes are never blocked.
+- **Known limits.** Losing-streak scale-down is not applied on the server (it needs closed-trade history). A flip closes first and re-enters at the next session once the broker confirms flat. Positions in tickers outside the watchlist count toward exposure but are never managed.
 
 Safety properties: hard-coded paper host; orders need `POLARITO_PAPER_TRADING_ENABLED=1` and an off kill switch; deterministic client order ids make retries idempotent; positions are reconciled against the broker before any order; closes flatten the broker's actual quantity; every error path returns a result instead of throwing, and credentials never appear in errors.
+
+## Audit trail
+
+Every Auto decision, including "held" and "stand aside", is recorded with its reason.
+
+- **Browser sim.** The **Audit trail** panel lists the newest 25 (up to 500 kept in this browser), repeats of the same decision are not re-logged, and you can download the full log as JSON.
+- **Server runner.** One structured JSON line per decision on stdout (`{"audit":{...}}`), searchable in Vercel logs, and the same records come back in the cron response.
+- Records only contain whitelisted, length-capped fields, so credentials and raw broker payloads can never end up in them. A record is written only after the outcome is known; a failed write is reported rather than hidden.
 
 ## Scripts
 
