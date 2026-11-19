@@ -127,10 +127,16 @@ describe("settings", () => {
     }
   });
 
+  it("accepts a nine-ticker list with spaces", () => {
+    const r = paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "SPY, MU, TSLA, GOOG, AVGO, GOOGL, AMZN, AAPL, NVDA" });
+    assert.equal(r.ok, true);
+    if (r.ok) assert.deepEqual(r.settings.watchlist, ["SPY", "MU", "TSLA", "GOOG", "AVGO", "GOOGL", "AMZN", "AAPL", "NVDA"]);
+  });
+
   it("refuses bad configuration instead of guessing", () => {
     assert.equal(paperRunnerSettings({}).ok, false);
     assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "AAPL,bad!" }).ok, false);
-    assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "A,B,C,D,E,F" }).ok, false);
+    assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "A,B,C,D,E,F,G,H,I,J,K" }).ok, false);
     assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "SPY", POLARITO_PAPER_RISK_PCT: "9" }).ok, false);
     assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "SPY", POLARITO_PAPER_SIZING: "yolo" }).ok, false);
     assert.equal(paperRunnerSettings({ POLARITO_PAPER_WATCHLIST: "SPY", POLARITO_PAPER_QTY: "1.5" }).ok, false);
@@ -299,11 +305,12 @@ describe("runPaperCycle", () => {
     assert.match(audit[0].reason, /Would enter long 166/);
   });
 
-  it("refuses a real run when disabled, killed or unconfigured", async () => {
+  it("refuses a real run when killed or unconfigured", async () => {
     for (const config of [
-      { enabled: false, killed: false, configured: true },
       { enabled: true, killed: true, configured: true },
+      { enabled: false, killed: true, configured: true },
       { enabled: true, killed: false, configured: false },
+      { enabled: false, killed: false, configured: false },
     ]) {
       const broker = new FakeBroker();
       const { d, audit } = deps(broker, async () => bars("2026-11-19", "drive"), { config });
@@ -312,6 +319,20 @@ describe("runPaperCycle", () => {
       assert.equal(broker.submitted.length, 0);
       assert.equal(audit[0].outcome, "error");
     }
+  });
+
+  it("until trading is switched on, a scheduled run only observes and sends nothing", async () => {
+    const broker = new FakeBroker();
+    const { d, audit } = deps(broker, async () => bars("2026-11-19", "drive"), {
+      config: { enabled: false, killed: false, configured: true },
+    });
+    const r = await runPaperCycle(d, settings(), { dryRun: false });
+    assert.equal(r.ok, true);
+    assert.equal(r.dryRun, true);
+    assert.equal(broker.submitted.length, 0);
+    assert.match(audit[0].reason, /only observes/);
+    assert.equal(audit[1].outcome, "dry-run");
+    assert.match(audit[1].reason, /Would enter long/);
   });
 
   it("places no order when the account cannot be read or is blocked", async () => {
