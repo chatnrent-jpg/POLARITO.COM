@@ -61,7 +61,7 @@ export type LedgerEntry = {
   quantity: number;
   /** Simulated fill = the engine's latest daily close. */
   price: number;
-  priceBasis: "last daily close";
+  priceBasis: "last daily close" | "next open";
   /** Session date of that close, YYYY-MM-DD. */
   priceDate: string;
   polarityAtEntry: Polarity;
@@ -139,7 +139,7 @@ function isEntry(x: unknown): x is LedgerEntry {
     e.quantity > 0 &&
     isNum(e.price) &&
     e.price > 0 &&
-    e.priceBasis === "last daily close" &&
+    (e.priceBasis === "last daily close" || e.priceBasis === "next open") &&
     isDate(e.priceDate) &&
     (e.polarityAtEntry === 1 || e.polarityAtEntry === -1) &&
     isNum(e.notional)

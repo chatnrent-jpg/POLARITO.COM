@@ -41,6 +41,8 @@ export type CandleKind = "green" | "red" | "flat";
 export type DayResult = {
   date: string;
   kind: CandleKind;
+  /** That day's opening price (used for next-open simulated fills). */
+  open: number;
   /** That day's closing price (used for simulated order pricing). */
   close: number;
   volume: number;
@@ -201,6 +203,7 @@ export function computePolaritySeries(
     results.push({
       date: bar.date,
       kind: candleKind(bar),
+      open: bar.open,
       close: bar.close,
       volume: bar.volume,
       netVolume: net,

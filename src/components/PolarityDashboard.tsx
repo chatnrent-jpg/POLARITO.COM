@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from "react";
 import AccountSelector from "@/components/AccountSelector";
+import AuditTrail from "@/components/AuditTrail";
 import AutoSimControls from "@/components/AutoSimControls";
 import LedgerPanel, { type CurrentMark } from "@/components/LedgerPanel";
 import LogoutButton from "@/components/LogoutButton";
@@ -10,7 +18,8 @@ import OrderModule, { type OrderAnalysis } from "@/components/OrderModule";
 import PolarityChart from "@/components/PolarityChart";
 import PremiumGate from "@/components/PremiumGate";
 import Transmission from "@/components/Transmission";
-import { applyAutoSim } from "@/lib/autoSim";
+import { applyAutoSim, buildAutoSimInput } from "@/lib/autoSim";
+import { recordDrafts } from "@/lib/auditStore";
 import {
   getAutoSimPrefs,
   getServerAutoSimPrefs,
@@ -191,56 +200,57 @@ export default function PolarityDashboard() {
       ? { ticker: view.ticker, close: latest.close, asOf: latest.date }
       : null;
 
-  // Auto enter/close: same analysis the order gate sees; only when Auto is on.
-  const autoTicker = analysis?.ticker ?? "";
-  const autoPolarity = analysis?.polarity ?? 0;
-  const autoClose = analysis?.close ?? 0;
-  const autoAsOf = analysis?.asOf ?? "";
-  const autoReady = analysis?.ready ?? false;
+  // Auto enter/close. The signal bar and the fill bar depend on the fill model
+  // (next-open acts on the last COMPLETED bar). Only runs when Auto is on.
+  const autoInput = useMemo(
+    () =>
+      view.status === "ready"
+        ? buildAutoSimInput(view.ticker, view.results, autoPrefs.fillMode)
+        : null,
+    [view, autoPrefs.fillMode],
+  );
 
   useEffect(() => {
     if (!autoPrefs.enabled) {
       lastAutoKey.current = "";
       return;
     }
-    if (!autoTicker || autoClose <= 0 || !autoAsOf) return;
+    if (!autoInput) return;
 
-    const key = `${accountId}|${autoTicker}|${autoAsOf}|${autoPolarity}|${autoReady}|${autoPrefs.quantity}`;
+    const key = [
+      accountId,
+      autoInput.ticker,
+      autoInput.signal.date,
+      autoInput.signal.polarity,
+      autoInput.signal.ready,
+      autoInput.fill.date,
+      autoInput.fill.price,
+      autoPrefs.quantity,
+      autoPrefs.sizingMode,
+      autoPrefs.riskPct,
+      autoPrefs.fillMode,
+    ].join("|");
     if (key === lastAutoKey.current) return;
     lastAutoKey.current = key;
 
-    const tickAnalysis = {
-      ticker: autoTicker,
-      polarity: autoPolarity as 1 | 0 | -1,
-      close: autoClose,
-      asOf: autoAsOf,
-      ready: autoReady,
-    };
-    const prefs = { enabled: true, quantity: autoPrefs.quantity };
     // Defer ledger write + notice so this effect only schedules external work.
     const t = window.setTimeout(() => {
-      const result = applyAutoSim(tickAnalysis, prefs, accountId);
-      if (result.messages.length > 0) {
-        setAutoNotice(result.messages.join(" "));
+      const result = applyAutoSim(autoInput, autoPrefs, accountId);
+      const logged = recordDrafts(result.audit);
+      const messages = logged.ok ? result.messages : [...result.messages, logged.error];
+      if (messages.length > 0) {
+        setAutoNotice(messages.join(" "));
       }
     }, 0);
     return () => window.clearTimeout(t);
-  }, [
-    autoPrefs.enabled,
-    autoPrefs.quantity,
-    accountId,
-    autoTicker,
-    autoPolarity,
-    autoClose,
-    autoAsOf,
-    autoReady,
-  ]);
+  }, [autoInput, autoPrefs, accountId]);
 
   return (
     <div className="flex w-full flex-1 flex-col items-center justify-center gap-10 px-4 py-10">
       <PageRefresher onRefresh={refreshInPlace} />
       <AccountSelector marks={current ? { [current.ticker]: current.close } : {}} />
       <AutoSimControls lastAction={autoPrefs.enabled ? autoNotice : null} />
+      <AuditTrail />
 
       <header className="flex w-full max-w-2xl flex-col items-center gap-4">
         <div className="flex w-full items-center justify-between gap-3">
