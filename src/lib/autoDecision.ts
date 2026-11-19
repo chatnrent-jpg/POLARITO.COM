@@ -183,8 +183,8 @@ export function decideAuto(
       return none(
         "aside",
         input.signal.ready
-          ? "Neutral: standing aside."
-          : "Insufficient history: standing aside.",
+          ? "Polarity is 0 (Neutral). Staying flat."
+          : "Not enough history yet. Staying flat.",
       );
     }
     return {
@@ -192,8 +192,8 @@ export function decideAuto(
       close: open[0],
       enter: null,
       reason: input.signal.ready
-        ? "Neutral: closing to stand aside."
-        : "Insufficient history: closing to stand aside.",
+        ? "Polarity went to 0 (Neutral). Closed the position."
+        : "Not enough history yet. Closed the position.",
       notes: [],
     };
   }
@@ -236,7 +236,7 @@ export function decideAuto(
           kind: "act",
           close: misaligned,
           enter: { side: wanted, quantity: plan.quantity },
-          reason: `Flip: close ${misaligned.side}, enter ${wanted}.`,
+          reason: `Polarity flipped. Closed the ${misaligned.side} and went ${wanted}.`,
           notes: plan.notes,
         }
       : {
@@ -250,7 +250,7 @@ export function decideAuto(
 
   // Aligned and already holding: never add size on every refresh.
   if (open.some((p) => p.side === wanted)) {
-    return none("hold", `Holding ${wanted}; signal still aligned.`);
+    return none("hold", `Already ${wanted}. Polarity is still ${wanted === "long" ? "+1" : "−1"}, no change.`);
   }
 
   const plan = planEntry(input, wanted, ledger, accountOf, prefs);
@@ -259,7 +259,7 @@ export function decideAuto(
     kind: "act",
     close: null,
     enter: { side: wanted, quantity: plan.quantity },
-    reason: `Enter ${wanted} on aligned gear.`,
+    reason: `Polarity is ${wanted === "long" ? "+1 (Drive)" : "−1 (Reverse)"}. Went ${wanted}.`,
     notes: plan.notes,
   };
 }
