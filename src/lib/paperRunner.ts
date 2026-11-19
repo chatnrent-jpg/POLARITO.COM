@@ -12,7 +12,7 @@
  * Virtues:
  *   Wisdom     - same regime gate as the sim: Neutral / unready => flat.
  *   Courage    - a valid decision is sent with no human step in the path.
- *   Temperance - risk-sized, daily loss / profit boundaries from the broker's
+ *   Temperance - fixed shares by default, still checked by the risk guard; daily loss / profit boundaries from the broker's
  *                own equity, in-cycle exposure tracking so several tickers can
  *                never oversubscribe the account; closes are never blocked.
  *   Justice    - an account we cannot read, bars we cannot validate, or any
@@ -62,7 +62,7 @@ export function paperRunnerSettings(
     return { ok: false, error: `POLARITO_PAPER_WATCHLIST allows at most ${MAX_WATCHLIST} tickers.` };
   }
 
-  const sizing = (env.POLARITO_PAPER_SIZING ?? "risk").trim().toLowerCase();
+  const sizing = (env.POLARITO_PAPER_SIZING ?? "fixed").trim().toLowerCase();
   if (sizing !== "risk" && sizing !== "fixed") {
     return { ok: false, error: 'POLARITO_PAPER_SIZING must be "risk" or "fixed".' };
   }
