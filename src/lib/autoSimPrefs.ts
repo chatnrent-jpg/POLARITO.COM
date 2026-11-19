@@ -1,6 +1,6 @@
 /**
  * Preferences for simulated auto enter/close. Browser-local only.
- * Fail-closed: unreadable / malformed storage => automation OFF.
+ * Default: automation ON. Missing or unreadable storage uses that default.
  */
 export const AUTO_SIM_STORAGE_KEY = "polarito.auto.v1";
 
@@ -12,7 +12,7 @@ export type AutoSimPrefs = {
 };
 
 export const DEFAULT_AUTO_SIM_PREFS: AutoSimPrefs = {
-  enabled: false,
+  enabled: true,
   quantity: 10,
 };
 

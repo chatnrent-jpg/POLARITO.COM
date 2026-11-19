@@ -60,8 +60,8 @@ import {
  * results and holds the Transmission in Neutral with the error on screen.
  * While loading, the previous ticker's state is cleared so one ticker's
  * result is never shown under another's name.
- * Auto sim is off by default; when on it reuses the same ledger APIs and
- * polarity gate as manual orders (never sentiment).
+ * Auto sim is on by default; it reuses the same ledger APIs and polarity
+ * gate as manual orders (never sentiment). Toggle off for fully manual.
  */
 type View =
   | { status: "idle" }

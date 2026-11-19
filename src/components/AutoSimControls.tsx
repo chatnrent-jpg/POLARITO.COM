@@ -11,7 +11,7 @@ import {
 
 /**
  * Toggle + share size for simulated auto enter/close.
- * Default off: manual OrderModule / LedgerPanel behavior is unchanged until enabled.
+ * Default on: same polarity gate as manual orders; turn off anytime to go fully manual.
  */
 export default function AutoSimControls({
   lastAction,
