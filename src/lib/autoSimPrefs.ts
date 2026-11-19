@@ -57,17 +57,35 @@ function parsePrefs(raw: string | null): AutoSimPrefs {
   }
 }
 
+/*
+ * useSyncExternalStore requires getSnapshot to return the SAME object while the
+ * stored value is unchanged; a fresh object per call loops React forever
+ * ("This page couldn't load"). Cache by the raw stored string.
+ */
+const SERVER_SNAPSHOT: AutoSimPrefs = Object.freeze({ ...DEFAULT_AUTO_SIM_PREFS });
+let cachedRaw: string | null | undefined;
+let cachedPrefs: AutoSimPrefs = SERVER_SNAPSHOT;
+
 export function getAutoSimPrefs(): AutoSimPrefs {
-  if (typeof window === "undefined") return { ...DEFAULT_AUTO_SIM_PREFS };
+  if (typeof window === "undefined") return SERVER_SNAPSHOT;
+  let raw: string | null;
   try {
-    return parsePrefs(window.localStorage.getItem(AUTO_SIM_STORAGE_KEY));
+    raw = window.localStorage.getItem(AUTO_SIM_STORAGE_KEY);
   } catch {
-    return { ...DEFAULT_AUTO_SIM_PREFS };
+    return SERVER_SNAPSHOT;
   }
+  if (raw !== cachedRaw) {
+    cachedRaw = raw;
+    const next = parsePrefs(raw);
+    if (next.enabled !== cachedPrefs.enabled || next.quantity !== cachedPrefs.quantity) {
+      cachedPrefs = Object.freeze(next);
+    }
+  }
+  return cachedPrefs;
 }
 
 export function getServerAutoSimPrefs(): AutoSimPrefs {
-  return { ...DEFAULT_AUTO_SIM_PREFS };
+  return SERVER_SNAPSHOT;
 }
 
 export type AutoSimPrefsResult =
