@@ -14,6 +14,7 @@ import {
   entryNumberFor,
   entryOrderId,
   isFailedStatus,
+  manualOrderId,
   MAX_CLOSE_ATTEMPTS,
   stopOrderId,
   type DayState,
@@ -91,6 +92,45 @@ export async function placeLiveEntry(a: LiveEntryArgs): Promise<LiveOrderResult>
     quantity: a.quantity,
     signalPolarity: a.polarity,
     signalDate: a.signalDate,
+    timeInForce: "day",
+    clientOrderId,
+  });
+  if (res.ok) {
+    return res.status === "submitted"
+      ? { ok: true, status: "submitted", order: res.order, clientOrderId, message: res.message }
+      : { ok: true, status: "noop", order: res.order, clientOrderId, message: res.message };
+  }
+  if (res.code === "BROKER" && DUPLICATE_ID.test(res.error)) return settleDuplicate(a.broker, clientOrderId, res.error);
+  return refuse(res.code, res.error, clientOrderId);
+}
+
+export type LiveManualBuyArgs = {
+  broker: LiveBroker;
+  config: PaperBrokerConfig;
+  /** New York session date, YYYY-MM-DD. */
+  date: string;
+  /** Entry number: DayState.maxEntry + 1 (manual and automatic entries share the sequence). */
+  nn: number;
+  ticker: string;
+  quantity: number;
+};
+
+/**
+ * A hand-placed long (the live panel's Buy button). Same executor, account, position and duplicate-id
+ * checks as an automatic entry, filed under the manual id pol-{date}-m{NN}-{TICKER}. A manual buy is
+ * long by definition, so the executor's polarity alignment check is satisfied with +1 and no signal is consulted.
+ */
+export async function placeLiveManualBuy(a: LiveManualBuyArgs): Promise<LiveOrderResult> {
+  const gated = liveGate(a.config);
+  if (gated) return gated;
+  const clientOrderId = manualOrderId(a.date, a.nn, a.ticker);
+  const res = await placeIntent(a.broker, a.config, {
+    action: "enter",
+    ticker: a.ticker,
+    side: "long",
+    quantity: a.quantity,
+    signalPolarity: 1,
+    signalDate: a.date,
     timeInForce: "day",
     clientOrderId,
   });

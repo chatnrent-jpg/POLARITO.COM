@@ -15,6 +15,7 @@ type LiveStatus = {
   account?: { equity: number; lastEquity: number; cash: number; buyingPower: number };
   positions?: LivePosition[];
   day?: { date: string; entries: number; lockedTicker: string | null; stoppedToday: boolean };
+  manual?: { watchlist: string[]; defaultQuantity: number; error?: string };
   auto?: { available: boolean; on: boolean; reason: string; at: string | null; openPositions: number; openOrders: number };
 };
 type Notice = { kind: "ok" | "wait" | "error"; text: string };
@@ -34,6 +35,9 @@ export default function LiveBrokerPanel() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [confirmAuto, setConfirmAuto] = useState(false);
+  const [buyTicker, setBuyTicker] = useState("");
+  const [buyQty, setBuyQty] = useState<string | null>(null);
+  const [confirmBuy, setConfirmBuy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -115,7 +119,42 @@ export default function LiveBrokerPanel() {
     }
   }
 
+  async function buy(ticker: string, quantity: number) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/broker/live/buy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker, quantity }),
+        cache: "no-store",
+      });
+      const data = (await res.json()) as { ok: boolean; filled?: boolean; message?: string; error?: string };
+      if (!data.ok) {
+        setNotice({ kind: "error", text: data.error ?? "The buy was refused. Nothing was sent." });
+      } else {
+        setNotice({ kind: data.filled ? "ok" : "wait", text: data.message ?? "Buy accepted; waiting for the fill." });
+      }
+    } catch {
+      setNotice({ kind: "error", text: "Could not reach the server. Nothing is assumed bought; check the positions below." });
+    } finally {
+      setConfirmBuy(false);
+      setBusy(false);
+      await load();
+    }
+  }
+
   const positions = status?.positions ?? [];
+  const watchlist = status?.manual?.watchlist ?? [];
+  const buyTickerShown = watchlist.includes(buyTicker) ? buyTicker : (watchlist[0] ?? "");
+  const buyQtyText = buyQty ?? String(status?.manual?.defaultQuantity ?? 1);
+  const buyQtyNum = Number(buyQtyText);
+  const buyQtyValid = buyQtyText.trim() !== "" && Number.isSafeInteger(buyQtyNum) && buyQtyNum >= 1;
+  const buyBlockedReason = !status?.tradingAllowed
+    ? (status?.blockedReason ?? "Live trading is not enabled.")
+    : watchlist.length === 0
+      ? (status?.manual?.error ?? "The live watchlist is empty.")
+      : null;
   const auto = status?.auto;
   const openPositions = auto?.openPositions ?? 0;
   const openOrders = auto?.openOrders ?? 0;
@@ -187,6 +226,74 @@ export default function LiveBrokerPanel() {
           {auto.reason !== "Auto is ON." && auto.reason !== "Auto is OFF." ? (
             <p className="mt-1 text-xs text-amber-300">{auto.reason}</p>
           ) : null}
+        </div>
+      ) : null}
+      {account ? (
+        <div className="mb-3 rounded border border-zinc-700 p-2">
+          <div className="mb-1 font-semibold text-zinc-200">Manual buy (long)</div>
+          <div className="flex items-center gap-2">
+            <select
+              aria-label="Ticker to buy"
+              value={buyTickerShown}
+              disabled={busy || buyBlockedReason !== null}
+              onChange={(e) => {
+                setBuyTicker(e.target.value);
+                setConfirmBuy(false);
+              }}
+              className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 disabled:opacity-50"
+            >
+              {watchlist.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <input
+              aria-label="Shares to buy"
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              value={buyQtyText}
+              disabled={busy || buyBlockedReason !== null}
+              onChange={(e) => {
+                setBuyQty(e.target.value);
+                setConfirmBuy(false);
+              }}
+              className="w-20 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 tabular-nums disabled:opacity-50"
+            />
+            {confirmBuy ? (
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={busy || !buyQtyValid || buyBlockedReason !== null}
+                  onClick={() => void buy(buyTickerShown, buyQtyNum)}
+                  className="rounded bg-red-600 px-2 py-1 text-white disabled:opacity-50"
+                >
+                  Confirm buy {buyQtyValid ? buyQtyNum : ""} {buyTickerShown}
+                </button>
+                <button type="button" disabled={busy} onClick={() => setConfirmBuy(false)} className="rounded border border-zinc-600 px-2 py-1">
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={busy || buyBlockedReason !== null || !buyQtyValid || buyTickerShown === ""}
+                onClick={() => {
+                  setNotice(null);
+                  setConfirmBuy(true);
+                }}
+                className="rounded border border-red-500 px-2 py-1 text-red-300 disabled:opacity-50"
+              >
+                Buy
+              </button>
+            )}
+          </div>
+          {buyBlockedReason ? <p className="mt-2 text-xs text-amber-300">Buy disabled: {buyBlockedReason}</p> : null}
+          <p className="mt-2 text-xs text-zinc-400">
+            Sends a real market buy, sized by the same risk limits as Auto (reduced or refused, never larger). One stock at a time. With Auto ON only today&apos;s stock can be bought, and Auto then manages the position by polarity (it may close it). Not filled until the position shows below.
+          </p>
         </div>
       ) : null}
       {status?.day ? (
