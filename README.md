@@ -71,7 +71,110 @@ Set `POLARITO_PAPER_INSTRUMENT=mirror` to make the Alpaca paper account move in 
 - **Trigger.** Vercel Hobby only allows daily crons, and a per-minute entry in `vercel.json` would fail a Hobby deploy, so none is added. Vercel Pro can run a cron every minute. Here `.github/workflows/mirror-run.yml` starts before the open and loops inside the job, calling the endpoint every 10s until just after the close (it reads the New York clock, so daylight saving needs no change). It stops after 5.5h and starts the next run itself, because a job is limited to 6h; a concurrency group keeps runs from overlapping. Add the repository secret `POLARITO_CRON_SECRET` (same value as `CRON_SECRET` in Vercel) and, optionally, the repository variable `POLARITO_BASE_URL` (default `https://www.polarito.com`). Start it by hand from the Actions tab (Run workflow).
 - **Cost.** Free on a public repository. On a private one it uses about 400 Actions minutes per trading day (about 8,400 a month) against 2,000 (Free) or 3,000 (Pro) included, roughly $50-65 a month at $0.008/min.
 
-Safety properties: hard-coded paper host; orders need `POLARITO_PAPER_TRADING_ENABLED=1` and an off kill switch; deterministic client order ids make retries idempotent; positions are reconciled against the broker before any order; closes flatten the broker's actual quantity; every error path returns a result instead of throwing, and credentials never appear in errors.
+Safety properties: hard-coded paper host (the live host is reachable only through the opt-in live path below); orders need `POLARITO_PAPER_TRADING_ENABLED=1` and an off kill switch; deterministic client order ids make retries idempotent; positions are reconciled against the broker before any order; closes flatten the broker's actual quantity; every error path returns a result instead of throwing, and credentials never appear in errors.
+
+## Live cash trading (real money, shipped OFF)
+
+One stock a day from a 10-name watchlist, on a real Alpaca account (decided: $1,000 account, 50% per-position cap, long-only at this size, 1% daily account stop, no re-entry after a stop-out). Everything is off until you set the variables in `.env.example` under "LIVE CASH". **With none of them set the app behaves exactly as before** (paper, options, mirror, cron, UI, Daily candle): the live keys are never read, the live host is never contacted, and the page renders no live panel. The polarity engine, Daily candle logic and the browser sim are untouched; the live code only calls them.
+
+### The two switches and the keys
+
+| Variable | Effect |
+| --- | --- |
+| `ALPACA_LIVE_KEY_ID`, `ALPACA_LIVE_SECRET_KEY` | Live keys. Separate from `ALPACA_PAPER_*`, which are never used for live (and these are never used for paper). |
+| `POLARITO_LIVE_ACCOUNT=1` | Switch 1. Uses the live keys and `https://api.alpaca.markets`. Read-only on its own: the pick observes and audits, the site shows the live account. |
+| `POLARITO_LIVE_TRADING_ENABLED=1` | Switch 2. Allows real orders. `POLARITO_BROKER_KILL` (shared) still stops everything. `POLARITO_PAPER_TRADING_ENABLED` has no effect on live. |
+| `POLARITO_PAPER_INSTRUMENT=pick` | Selects the pick runner. This is the deployment-wide instrument switch, so the daily paper/options/mirror runs do nothing on that deployment (use a second Vercel project if you want paper options to keep running). |
+
+Sizing and rail variables (`POLARITO_LIVE_WATCHLIST`, `_QTY`, `_MAX_POSITION_PCT`, `_DAILY_LOSS_PCT`, `_MAX_ENTRIES`, `_PICK_START`, `_FLATTEN_AT`, `_LONG_ONLY_FALLBACK`) are documented in `.env.example`. The live watchlist is its own variable; `POLARITO_PAPER_WATCHLIST` is never used for live.
+
+### How a day works (`src/lib/pickRunner.ts`)
+
+- **Loop.** `.github/workflows/pick-run.yml` calls `GET /api/cron/pick-run` about every 10s (same loop as the mirror; it exits at once while live is off). Each tick reads the live account, positions, working orders and today's orders, derives the day's state from those orders (no database), and re-checks everything before any order.
+- **Pick.** Before the first entry, each tick ranks the watchlist by `|netVolume| / noiseFloor` of the latest bar (how far the reading sits outside the Neutral band; Neutral scores 0) and takes the first eligible name, logging one line for every name it skipped and why. Eligible: bars ready and today's, not Neutral, side allowed, asset active and tradable (a short also needs `shortable` and an easy-to-borrow `borrow_status`), and at least one share under the cap and cash. A name that rounds to zero shares (price over half of equity, for example) is skipped to the next.
+- **GOOGL and GOOG are one company.** They are collapsed into one candidate (ranked by the better of the two). The more liquid class (20-day dollar volume, then alphabetical so `GOOG` before `GOOGL`) is tried first, the other class second if the first fails; one day only ever holds one of them.
+- **One stock a day.** Once the first entry exists (`e01`), the day is locked to that stock; later re-entries are for it only, even if another stock now reads stronger.
+- **Long only below $2,000.** Alpaca does not allow shorting under $2,000 of equity, so a Reverse reading is not tradable at $1,000. The short path exists and is gated on equity of at least $2,000, `shorting_enabled` on the account, and the asset checks above. If the top-ranked reading is a Reverse that cannot be traded, the default is to stand aside for the day (`POLARITO_LIVE_LONG_ONLY_FALLBACK=aside`); set `next` to take the next eligible Drive stock instead.
+- **Cap.** Entry size is `POLARITO_LIVE_QTY` shares (default 1) reduced by the shared risk engine (`src/lib/risk.ts`) with a 50% per-position cap on current equity, 100% total exposure and available cash. Only the live path passes this cap; the browser sim stays at 25%.
+- **Follow the signal.** A held stock follows its own polarity like the dashboard sim: Neutral closes, a flip closes then enters the other side of the same stock (waiting for the close to fill).
+- **1% stop.** Each tick, if the account is down 1% on the day (equity vs `last_equity`) the managed stock is flattened with a stop-out order and nothing is entered for the rest of the day, by the automation or by hand. A manual close at a loss counts: if it puts the day at -1% or worse the automation stays out; a smaller loss still allows re-entry. A stop does not limit gap losses (a 10% gap on one share of a $300 stock is about $30).
+- **End of day.** At 15:55 New York (`POLARITO_LIVE_FLATTEN_AT`; `off` holds overnight) the managed stock is flattened and entries stop. Entries stop after `POLARITO_LIVE_MAX_ENTRIES` per day (3), rejected ones included.
+- **Backstop.** The existing `loss-check.yml` (every 30 minutes) calls `/api/cron/loss-check`; in pick mode that route runs only the stop-out and end-of-day flatten (no signal, no entry), in case the 10s loop is not running.
+- **Only watchlist stocks are managed.** Other positions (and option positions) are never touched; they count toward exposure and cash.
+
+### Order ids (idempotent; Alpaca never reuses a `client_order_id`)
+
+| Order | Id |
+| --- | --- |
+| Entry number N | `pol-{YYYYMMDD}-e{NN}-{TICKER}` e.g. `pol-20261120-e02-NVDA` |
+| Close of entry N, attempt K (auto and manual share it) | `pol-{YYYYMMDD}-c{NN}-a{K}-{TICKER}` |
+| Stop-out flatten, attempt K (also the "stopped today" marker) | `pol-{YYYYMMDD}-s{NN}-a{K}-{TICKER}` |
+
+A retry or a parallel run computes the same id, so a double click, the automation and a stop-out cannot sell the same position twice. A duplicate-id refusal (HTTP 422) is treated as "already placed" only after the order is found by its id; otherwise it is an error. A close that ended canceled or rejected moves to the next attempt number; after 3 failed attempts a circuit breaker stops automatic tries and new entries and logs an error (close it in Alpaca's own dashboard). A position held overnight is closed under `c00`.
+
+### Closing on polarito.com for the live account
+
+With `POLARITO_LIVE_ACCOUNT=1` the page shows a "LIVE account (real cash)" panel read from Alpaca (`GET /api/broker/live/status`), never from the browser ledger. **Close** calls `POST /api/broker/live/close` (behind the login gate, same-origin only), which sells a long or buys to cover a short for the broker's own quantity. The panel says "closed" only after Alpaca accepted the order and its own position list no longer shows the stock; if the order is accepted but not filled it says so and the position stays shown as open; if Alpaca rejects it (for example wash-trade protection while an entry is still working) the error is shown and the position stays open. Working entries are not cancelled automatically: wait for the fill, then close. With live orders off (observe mode) Close sends nothing and says "would close". The browser's Auto toggle only drives the browser simulation and has no effect on the live account; to stop the live automation set `POLARITO_BROKER_KILL=1` (or remove `POLARITO_LIVE_TRADING_ENABLED`) in Vercel and redeploy.
+
+### Go-live checklist (one action per step; nothing sends a real order until step 25)
+
+A. Decide and fund
+1. Write down the decisions in "Decisions for Henry" below (or accept the defaults).
+2. Open (or confirm) an individual live Alpaca account. Do not fund it yet.
+3. Turn on two-factor sign-in on the Alpaca account.
+4. Fund $1,000 by ACH at least two trading days before step 25, so `last_equity` exists.
+5. From now on do not deposit or withdraw during market hours.
+
+B. Check the facts (no trading)
+6. In Alpaca, check whether margin and shorting show as enabled. Under $2,000 they will be off and Reverse readings will not be traded.
+7. For each of AAPL, MSFT, NVDA, AMZN, AVGO, GOOGL, GOOG, TSLA, JPM, WMT, look up the asset in Alpaca and write down `tradable`, `shortable`, `fractionable` and `borrow_status`. Short columns matter only from $2,000 of equity; the app accepts `easy_to_borrow` or `ETB` as a good `borrow_status`, so check the exact value Alpaca returns.
+8. Read Alpaca's fee schedule once for sell-side regulatory fees.
+
+C. Deploy the code (paper stays the default)
+9. Merge this change. Nothing changes until you set live variables.
+10. Make sure the repository secret `POLARITO_CRON_SECRET` exists (same value as `CRON_SECRET` in Vercel).
+11. On the paper account, send the same `client_order_id` twice (for example `curl -X POST https://paper-api.alpaca.markets/v2/orders` with your PAPER keys, `{"symbol":"WMT","qty":"1","side":"buy","type":"market","time_in_force":"day","client_order_id":"pol-test-dup-1"}`) and confirm the second answer is HTTP 422 "client_order_id must be unique".
+
+D. Observe on live keys (no orders possible)
+12. Create live Alpaca API keys.
+13. In Vercel set `ALPACA_LIVE_KEY_ID` and `ALPACA_LIVE_SECRET_KEY` (never in chat or the repo).
+14. In Vercel set `POLARITO_LIVE_WATCHLIST=AAPL,MSFT,NVDA,AMZN,AVGO,GOOGL,GOOG,TSLA,JPM,WMT`.
+15. In Vercel set `POLARITO_PAPER_INSTRUMENT=pick`.
+16. In Vercel set `POLARITO_BROKER_KILL=0`, and leave `POLARITO_LIVE_TRADING_ENABLED` unset.
+17. In Vercel set `POLARITO_LIVE_ACCOUNT=1`, then redeploy.
+18. Sign in and confirm the "LIVE account" panel shows your real equity and positions.
+19. During the session call `GET /api/cron/pick-run?dry=1` with the `Authorization: Bearer $CRON_SECRET` header. Read the ranked list, the skip reasons and the "Would enter" line in the response.
+20. In the Actions tab run the "Pick run" workflow by hand (it is also scheduled). It stays in observe mode.
+21. Leave it for at least 5 sessions.
+22. Each evening read the Vercel logs (`"source":"pick-runner"`) and write down the top-ranked stock, who was skipped and why, the "Would enter" line and each "Would close".
+23. On one day click Close on the live panel in observe mode and confirm it says "would close" with the right side and that nothing was sent.
+24. Check on screen that polarito.com shows the same polarity for the picked stock and for the skipped ones.
+
+E. First real orders (1 share) and the close-then-re-enter test
+25. On a day you can watch, set `POLARITO_LIVE_QTY=1` and `POLARITO_LIVE_TRADING_ENABLED=1` in Vercel and redeploy.
+26. Watch the first entry in Alpaca's dashboard and the logs: one order, correct side, 1 share, id `pol-{date}-e01-{TICKER}`.
+27. After `e01` fills, click Close on the live panel and confirm in Alpaca a real sell (long) or buy-to-cover (short) for 1 share with id `...-c01-a1-...`, and that the panel said "closed" only after Alpaca accepted it.
+28. Wait for the next ticks without touching anything. If the signal is still aligned and the day is above -1%, confirm `e02` for the same stock, 1 share, and never two entries; if not aligned, confirm nothing is placed and the reason is logged. This also shows how fast sale proceeds are usable again on a small cash account.
+29. Click Close again on the same position and confirm the second click is a no-op (same id) and nothing doubles.
+30. Rejected-close drill: while an entry order is still working, click Close and confirm Alpaca rejects it, the panel shows the error, the position stays open and nothing re-enters; then close once the entry has filled.
+31. After the session confirm the account is flat or matches the logged position, the day's entries are `e01`, `e02` in order, and the day's loss is inside 1%.
+32. If anything surprises you, set `POLARITO_BROKER_KILL=1` first and redeploy, then ask questions.
+33. Run 5 sessions at 1 share before raising anything; change one thing a week.
+
+### Decisions for Henry (chosen by the safest option where the plan left them open; change any with one variable)
+
+1. Down-day fallback: **stand aside** when the strongest reading is a Reverse that cannot be traded (`POLARITO_LIVE_LONG_ONLY_FALLBACK=aside`); `next` takes a weaker Drive stock.
+2. "Strongest" is `|netVolume| / noiseFloor` (relative volume outside the Neutral band). The repo's studies found no edge in following polarity and nothing backtests this ranking. Alphabet rule as above; no way to force one class.
+3. Skip-to-next when a name is unaffordable, not tradable or not shortable: yes, one logged line per skip. Neutral and stale names are skipped the same way.
+4. No cooldown after a manual close: the automation re-enters on the next tick if aligned and the day is above -1%.
+5. Entries per day: 3, rejected ones count. Pick start 10:00 New York. Flatten at 15:55 New York (overnight hold needs `POLARITO_LIVE_FLATTEN_AT=off`).
+6. Live Auto off switch: the kill switch / removing the trading-enabled variable (a redeploy), not a button; there is no server-side store. Closed-by-hand positions are re-entered by the automation unless you do this.
+7. Quantity 1 share. The shared risk engine's +4% daily profit lock also stops new entries for the day.
+8. One deployment with flags (a second Vercel project is cleaner if you want paper options to keep running, because `POLARITO_PAPER_INSTRUMENT=pick` switches the other runners off).
+9. Working entry orders are not cancelled by the app; a close during one is rejected by Alpaca and shown as an error.
+10. The stop-out order id carries an attempt number too (`s{NN}-a{K}`) so a rejected stop can be retried; a flat account that is already at -1% (for example after a manual loss) is locked out by the equity check rather than by a marker order.
+11. Unverified until you check (checklist 7, 28): the exact `borrow_status` values Alpaca returns, and how fast sale proceeds free up buying power on a sub-$2,000 account.
+12. Accept the risk: the repo's back-tests found no edge in following polarity, $1,000 of real cash can be lost, and a 1% stop does not cap gap losses.
 
 ## Audit log (server only)
 
