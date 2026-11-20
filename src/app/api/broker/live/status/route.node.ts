@@ -56,7 +56,7 @@ export async function GET() {
         ...base,
         account: account.value,
         positions: positions.value.filter(isStockPosition),
-        auto: { available: auto.available, on: auto.on, reason: auto.reason, at: auto.at },
+        auto: { available: auto.available, on: auto.on, reason: auto.reason, at: auto.at, openPositions: positions.value.length },
         day: {
           date: state.date,
           entries: state.entryCount,

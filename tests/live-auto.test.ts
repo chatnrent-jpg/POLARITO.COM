@@ -180,7 +180,7 @@ describe("Auto gates the live runner's signal-driven orders", () => {
 
 describe("POST /api/broker/live/auto", () => {
   const BASE = "https://www.polarito.com";
-  const ENV_KEYS = ["POLARITO_LIVE_ACCOUNT", "KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"];
+  const ENV_KEYS = ["POLARITO_LIVE_ACCOUNT", "ALPACA_LIVE_KEY_ID", "ALPACA_LIVE_SECRET_KEY", "KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"];
   let saved: Record<string, string | undefined> = {};
   let realFetch: typeof fetch;
   beforeEach(() => {
@@ -201,14 +201,28 @@ describe("POST /api/broker/live/auto", () => {
       headers: { "content-type": "application/json", ...headers },
       body: typeof body === "string" ? body : JSON.stringify(body),
     }) as unknown as NextRequest;
+  const alpaca = { positions: [] as unknown[], positionsFail: false, calls: [] as Array<{ url: string; method?: string }> };
   const withKv = (initial?: string | null) => {
     process.env.POLARITO_LIVE_ACCOUNT = "1";
+    process.env.ALPACA_LIVE_KEY_ID = "LIVEID";
+    process.env.ALPACA_LIVE_SECRET_KEY = "LIVESECRET";
     process.env.KV_REST_API_URL = KV.KV_REST_API_URL;
     process.env.KV_REST_API_TOKEN = KV.KV_REST_API_TOKEN;
+    alpaca.positions = [];
+    alpaca.positionsFail = false;
+    alpaca.calls = [];
     const kv = memoryKv(initial);
-    globalThis.fetch = kv.fetchImpl;
+    globalThis.fetch = (async (input: unknown, init?: { method?: string }) => {
+      const url = String(input);
+      if (url.startsWith(KV.KV_REST_API_URL)) return (kv.fetchImpl as unknown as (u: string, i?: unknown) => Promise<Reply>)(url, init);
+      alpaca.calls.push({ url, method: init?.method });
+      if (alpaca.positionsFail) return { ok: false, status: 500, json: async () => ({ message: "down" }) };
+      const data = url.endsWith("/v2/positions") ? alpaca.positions : [];
+      return { ok: true, status: 200, json: async () => data };
+    }) as unknown as typeof fetch;
     return kv;
   };
+  const heldNvda = () => [{ symbol: "NVDA", qty: "1", avg_entry_price: "100", side: "long" }];
 
   it("is in the audit sources", () => {
     assert.ok((AUDIT_SOURCES as readonly string[]).includes("live-auto"));
@@ -265,5 +279,87 @@ describe("POST /api/broker/live/auto", () => {
     kv.state.failNext = true;
     assert.equal((await autoPost(post({ auto: true }))).status, 502);
     assert.equal(kv.state.value, null);
+  });
+
+  it("refuses OFF while any position is open, server-side, and leaves Auto ON", async () => {
+    const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
+    alpaca.positions = heldNvda();
+    const res = await autoPost(post({ auto: false }));
+    assert.equal(res.status, 409);
+    const body = await res.json();
+    assert.equal(body.code, "POSITIONS_OPEN");
+    assert.match(body.error, /Close all positions first/);
+    assert.equal(JSON.parse(kv.state.value!).auto, true);
+    assert.ok(!kv.state.calls.some((c) => c.args[0] === "SET"), "nothing was written");
+    assert.ok(alpaca.calls.every((c) => c.method === "GET" && c.url.startsWith("https://api.alpaca.markets/")));
+  });
+
+  it("an option or off-watchlist position also blocks OFF", async () => {
+    withKv(JSON.stringify({ auto: true, at: "x" }));
+    alpaca.positions = [{ symbol: "SPY261120C00600000", qty: "1", avg_entry_price: "1", side: "long", asset_class: "us_option" }];
+    assert.equal((await autoPost(post({ auto: false }))).status, 409);
+  });
+
+  it("fails closed when positions cannot be read: OFF refused, Auto unchanged", async () => {
+    const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
+    alpaca.positionsFail = true;
+    const res = await autoPost(post({ auto: false }));
+    assert.equal(res.status, 502);
+    assert.equal((await res.json()).code, "POSITIONS_UNREADABLE");
+    assert.equal(JSON.parse(kv.state.value!).auto, true);
+    assert.ok(!kv.state.calls.some((c) => c.args[0] === "SET"));
+  });
+
+  it("without live credentials OFF is refused (cannot check positions)", async () => {
+    const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
+    delete process.env.ALPACA_LIVE_KEY_ID;
+    const res = await autoPost(post({ auto: false }));
+    assert.equal(res.status, 503);
+    assert.equal((await res.json()).code, "NO_BROKER");
+    assert.equal(JSON.parse(kv.state.value!).auto, true);
+  });
+
+  it("allows OFF when flat, and only unfilled orders do not block or get cancelled", async () => {
+    const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
+    const res = await autoPost(post({ auto: false }));
+    assert.equal(res.status, 200);
+    assert.equal(JSON.parse(kv.state.value!).auto, false);
+    assert.ok(alpaca.calls.every((c) => c.method === "GET"), "no order is cancelled or sent");
+    assert.ok(alpaca.calls.every((c) => !c.url.includes("/v2/orders")), "working orders are not even looked at");
+  });
+
+  it("drill: refused with a position open, closed, then OFF works", async () => {
+    const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
+    alpaca.positions = heldNvda();
+    assert.equal((await autoPost(post({ auto: false }))).status, 409);
+    alpaca.positions = [];
+    assert.equal((await autoPost(post({ auto: false }))).status, 200);
+    assert.equal(JSON.parse(kv.state.value!).auto, false);
+  });
+
+  it("turning ON is unchanged: no Alpaca call, allowed with positions open", async () => {
+    withKv();
+    alpaca.positions = heldNvda();
+    const res = await autoPost(post({ auto: true }));
+    assert.equal(res.status, 200);
+    assert.equal(alpaca.calls.length, 0);
+  });
+
+  it("restores ON when a position appears between the check and the write", async () => {
+    const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
+    let reads = 0;
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown, init?: { method?: string }) => {
+      if (String(input).endsWith("/v2/positions")) {
+        reads += 1;
+        if (reads === 2) return { ok: true, status: 200, json: async () => heldNvda() };
+      }
+      return (inner as unknown as (i: unknown, n?: unknown) => Promise<unknown>)(input, init);
+    }) as unknown as typeof fetch;
+    const res = await autoPost(post({ auto: false }));
+    assert.equal(res.status, 409);
+    const body = await res.json();
+    assert.match(body.error, /kept ON/);
+    assert.equal(JSON.parse(kv.state.value!).auto, true);
   });
 });
