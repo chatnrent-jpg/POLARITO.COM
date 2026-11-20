@@ -75,7 +75,7 @@ Safety properties: hard-coded paper host (the live host is reachable only throug
 
 ## Live cash trading (real money, shipped OFF)
 
-One stock a day from a 10-name watchlist, on a real Alpaca account (decided: $1,000 account, 50% per-position cap, long-only at this size, 1% daily account stop, no re-entry after a stop-out). Everything is off until you set the variables in `.env.example` under "LIVE CASH". **With none of them set the app behaves exactly as before** (paper, options, mirror, cron, UI, Daily candle): the live keys are never read, the live host is never contacted, and the page renders no live panel. The polarity engine, Daily candle logic and the browser sim are untouched; the live code only calls them.
+One stock a day from a 10-name watchlist, on a real Alpaca account (decided: $1,000 account, 50% per-position cap, long-only at this size, 1% daily account stop, no re-entry after a stop-out). Everything is off until you set the variables in `.env.example` under "LIVE CASH". **With none of them set the app behaves exactly as before** (paper, options, mirror, cron, UI, Daily candle): the live keys are never read, the live host is never contacted, and the order ticket stays simulated with no live block (the status route answers `live: false` and nothing is read from Alpaca). The polarity engine, Daily candle logic and the browser sim are untouched; the live code only calls them.
 
 ### The two switches and the keys
 
@@ -116,7 +116,7 @@ A retry or a parallel run computes the same id, so a double click, the automatio
 
 ### Live Auto: a real on/off on polarito.com
 
-The live panel has a **Live Auto** control (`POST /api/broker/live/auto`, behind the same login gate as Close, same-origin only, and only when `POLARITO_LIVE_ACCOUNT=1`). It defaults to **OFF at deploy** and is the single switch for the automation's signal-driven orders.
+The live block in the order ticket card has a **Live Auto** control (`POST /api/broker/live/auto`, behind the same login gate as Close, same-origin only, and only when `POLARITO_LIVE_ACCOUNT=1`). It defaults to **OFF at deploy** and is the single switch for the automation's signal-driven orders.
 
 | Auto OFF (default) | Auto ON |
 | --- | --- |
@@ -141,9 +141,44 @@ It fails closed: Auto is ON only when the store answers and says so. No store co
 
 The browser's own Auto toggle still drives only the browser simulation. Auto OFF never closes or cancels anything and is refused while positions or working orders are open; to get out, use Close (and let or make orders finish) first, then turn Auto OFF. For an emergency `POLARITO_BROKER_KILL=1` stops all live orders including the stop-out, so use it only with the position already flat or handled by hand.
 
+### The order ticket: simulated by default, LIVE when live is on
+
+The main page's order ticket (Stock Ticker from the analyzed selection, Order Type, Quantity (shares), Review Order, locked until the engine reports a gear) is unchanged. Only what Confirm does depends on the mode, shown as a badge in the card header (`MODE: SIMULATED`, grey, or `MODE: LIVE REAL CASH`, amber with an amber card border).
+
+| | Simulated (default) | LIVE |
+| --- | --- | --- |
+| When | Always, unless the server says live orders are possible | `POLARITO_LIVE_ACCOUNT=1` **and** `POLARITO_LIVE_TRADING_ENABLED=1`, kill switch off, live keys present (decided server-side by `GET /api/broker/live/status` `tradingAllowed`; while that is loading, unreadable or off the ticket stays simulated) |
+| Header | "Order · Simulated · {account}" | "Order · LIVE · Real cash" |
+| Confirm | Writes a simulated entry to the browser ledger | Sends a real market buy through `POST /api/broker/live/buy`; nothing is written to the simulated ledger |
+| Order Type | Long or Short | **Long only.** Short is refused with "Short is not supported in LIVE mode" (real cash, no shorting) |
+| Stocks | The analyzed ticker | The analyzed ticker, and it must be on `POLARITO_LIVE_WATCHLIST` (otherwise the ticket says so and Review Order stays locked) |
+| Gear gate | Must be aligned (Drive = Long) | Same, plus the server re-checks it (`requireDrive`: the engine's latest reading for the stock must be ready and Drive) |
+| Funds check | Simulated account cash | Live cash and buying power |
+| Open-position check | Simulated ledger (no long and short on one ticker) | Not used; the server applies one stock at a time against Alpaca |
+| Size | Exactly the shares typed | The shares typed, **reduced or refused, never raised**, by the live risk engine (below). Real cash is unlevered; the gear never increases size |
+| Review dialog | "Confirm simulated order" (green) | "Confirm LIVE order (real cash)" (amber), with the REAL ORDER warning |
+| Result | "Simulated LONG recorded ..." | The server's exact answer: "Alpaca accepted BUY n TICKER ..." (amber until the position shows at Alpaca, then green), or the reason it was refused |
+
+With `POLARITO_LIVE_ACCOUNT=1` the same card also holds a **LIVE account (real cash)** block (`src/components/LiveAccountPanel.tsx`): equity, today, cash, Live Auto ON/OFF with the "Confirm Auto ON" step and the OFF guard messages, today's stock, the stock positions and **Close** with "Confirm close". With live off the block is not rendered and the card is exactly what it was. If the live account is on but live orders are not (observe only, kill switch, missing keys), the ticket stays simulated and says why. The old floating corner panel is gone. The ticket has no sells, so there is no live sell path in it: closing is the Close button in the live block. The browser sim logic (`autoSim*.ts`, `autoDecision.ts`, `polarity.ts`, the ledger, `PageRefresher`, the default `marketApi.ts` fetch, mirror and Daily behavior) is untouched.
+
+### Live buy route rules (`POST /api/broker/live/buy`)
+
+The order ticket (live mode, above) sends its buy through `POST /api/broker/live/buy` (`{"ticker","quantity","requireDrive":true}`; `requireDrive` is optional for other callers), behind the same login gate and same-origin check as Close and Auto (`src/lib/liveBuy.ts`). No new environment variable is needed.
+
+- **Needs both switches.** `POLARITO_LIVE_ACCOUNT=1` and `POLARITO_LIVE_TRADING_ENABLED=1`; `POLARITO_BROKER_KILL` blocks it. Otherwise the ticket stays simulated, and a direct call is refused by the server (409 `LIVE_OFF` / `DISABLED` / `KILLED`) before any Alpaca call. There is no "would buy" observe mode.
+- **Long only, real stocks only.** A market buy (day) of a watchlist ticker whose Alpaca asset is active and tradable. Option positions never take part. GOOGL and GOOG count as one company.
+- **Same risk engine as Auto.** Size is the box quantity reduced by the shared engine (`sizeLiveEntry`: 50% per-position cap on equity, 100% total exposure, cash and buying power) against today's latest close. It is reduced or refused (`RISK`), never larger. The reply says what was sent, e.g. "Reduced from 10 to 3 by the risk limits".
+- **Lockouts.** Refused after a stop-out today (`STOPPED`), when the account is already down the daily stop (`DAILY_LOSS`), outside 09:30-16:00 New York (`MARKET_CLOSED`), and from the end-of-day flatten time on (`FLATTEN_TIME`, the flatten would sell it).
+- **One stock at a time.** Refused (409) if any position (stock or option) or working order exists in a different company (`OTHER_POSITION` / `OTHER_ORDER`). It never adds to a position or stacks on a working order in the same stock (`HELD` / `WORKING`).
+- **Auto ON rule.** With Auto ON, a manual buy is allowed only for the stock the day is already locked to (same company counts); a different ticker, or no stock picked yet, is refused (`AUTO_LOCK`). Auto ON then manages the position by polarity like any other, so it may close a manual buy on a Neutral or Reverse reading. With Auto OFF, nothing but the stop-out and the end-of-day flatten acts on it, and Close always works. Turning Auto OFF stays blocked while the position is open (unchanged).
+- **Fails closed.** An unreadable account, positions, working orders, today's orders, asset, Auto switch (a configured store that does not answer), prices, or a latest bar that is not today's all refuse (502 `UNREADABLE`, 409 `STALE`) and send nothing.
+- **Order id.** `pol-{YYYYMMDD}-m{NN}-{TICKER}`, where `NN` continues the same sequence as the automatic entries (`e`), so the next automatic entry is numbered after it and closes (`c{NN}`) never collide. A duplicate id (a double click, a racing request, or HTTP 422) is a no-op only when the live order is found by its id; otherwise it is an error. A manual buy that was rejected or canceled does not lock the day's stock.
+- **Honest wording.** "Alpaca accepted BUY ..." appears only after Alpaca returned the order. `filled: true` (and "The position is shown at Alpaca") only when Alpaca's own position list shows the stock; otherwise the reply says "Not filled yet".
+- **Audit.** Every attempt past the route's gates is logged with `source: live-manual-buy` (`entered`, `held` for an existing id, `blocked` for a refusal, `error`).
+
 ### Closing on polarito.com for the live account
 
-With `POLARITO_LIVE_ACCOUNT=1` the page shows a "LIVE account (real cash)" panel read from Alpaca (`GET /api/broker/live/status`), never from the browser ledger. **Close** calls `POST /api/broker/live/close` (behind the login gate, same-origin only), which sells a long or buys to cover a short for the broker's own quantity. The panel says "closed" only after Alpaca accepted the order and its own position list no longer shows the stock; if the order is accepted but not filled it says so and the position stays shown as open; if Alpaca rejects it (for example wash-trade protection while an entry is still working) the error is shown and the position stays open. Working entries are not cancelled automatically: wait for the fill, then close. With live orders off (observe mode) Close sends nothing and says "would close". The browser's Auto toggle only drives the browser simulation and has no effect on the live account; stop the live automation with the Live Auto control above (or, for an emergency, `POLARITO_BROKER_KILL=1` in Vercel and a redeploy).
+With `POLARITO_LIVE_ACCOUNT=1` the live block shows the account read from Alpaca (`GET /api/broker/live/status`), never from the browser ledger. **Close** calls `POST /api/broker/live/close` (behind the login gate, same-origin only), which sells a long or buys to cover a short for the broker's own quantity. The live block says "closed" only after Alpaca accepted the order and its own position list no longer shows the stock; if the order is accepted but not filled it says so and the position stays shown as open; if Alpaca rejects it (for example wash-trade protection while an entry is still working) the error is shown and the position stays open. Working entries are not cancelled automatically: wait for the fill, then close. With live orders off (observe mode) Close sends nothing and says "would close". The browser's Auto toggle only drives the browser simulation and has no effect on the live account; stop the live automation with the Live Auto control above (or, for an emergency, `POLARITO_BROKER_KILL=1` in Vercel and a redeploy).
 
 ### Go-live checklist (one action per step; nothing sends a real order until the steps that set `POLARITO_LIVE_TRADING_ENABLED=1` and turn Live Auto ON)
 
@@ -172,20 +207,20 @@ D. Observe on live keys (no orders possible)
 16. In Vercel set `POLARITO_PAPER_INSTRUMENT=pick`.
 17. In Vercel set `POLARITO_BROKER_KILL=0`, and leave `POLARITO_LIVE_TRADING_ENABLED` unset.
 18. In Vercel set `POLARITO_LIVE_ACCOUNT=1`, then redeploy.
-19. Sign in and confirm the "LIVE account" panel shows your real equity and positions.
+19. Sign in and confirm the live block in the order ticket card shows your real equity and positions.
 20. Confirm the panel says "Live Auto: OFF" (it must be OFF after every deploy until you turn it on).
 21. During the session call `GET /api/cron/pick-run?dry=1` with the `Authorization: Bearer $CRON_SECRET` header. Read the ranked list, the skip reasons and the "Would enter" line in the response.
 22. In the Actions tab run the "Pick run" workflow by hand (it is also scheduled). It stays in observe mode.
 23. Leave it for at least 5 sessions.
 24. Each evening read the Vercel logs (`"source":"pick-runner"`) and write down the top-ranked stock, who was skipped and why, the "Would enter" line and each "Would close".
-25. On one day click Close on the live panel in observe mode and confirm it says "would close" with the right side and that nothing was sent.
+25. On one day click Close in the live block in observe mode and confirm it says "would close" with the right side and that nothing was sent.
 26. Check on screen that polarito.com shows the same polarity for the picked stock and for the skipped ones.
 
 E. First real orders (1 share) and the close-then-re-enter test
 27. On a day you can watch, set `POLARITO_LIVE_QTY=1` and `POLARITO_LIVE_TRADING_ENABLED=1` in Vercel and redeploy.
-28. Click "Turn Auto ON" on the live panel and confirm with "Confirm Auto ON"; the panel must then say "Live Auto: ON".
+28. Click "Turn Auto ON" in the live block and confirm with "Confirm Auto ON"; the panel must then say "Live Auto: ON".
 29. Watch the first entry in Alpaca's dashboard and the logs: one order, correct side, 1 share, id `pol-{date}-e01-{TICKER}`.
-30. After `e01` fills, click Close on the live panel and confirm in Alpaca a real sell (long) or buy-to-cover (short) for 1 share with id `...-c01-a1-...`, and that the panel said "closed" only after Alpaca accepted it.
+30. After `e01` fills, click Close in the live block and confirm in Alpaca a real sell (long) or buy-to-cover (short) for 1 share with id `...-c01-a1-...`, and that the panel said "closed" only after Alpaca accepted it.
 31. Wait for the next ticks without touching anything. If the signal is still aligned and the day is above -1%, confirm `e02` for the same stock, 1 share, and never two entries; if not aligned, confirm nothing is placed and the reason is logged. This also shows how fast sale proceeds are usable again on a small cash account.
 32. Click Close again on the same position and confirm the second click is a no-op (same id) and nothing doubles.
 33. Rejected-close drill: while an entry order is still working, click Close and confirm Alpaca rejects it, the panel shows the error, the position stays open and nothing re-enters; then close once the entry has filled.

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useSyncExternalStore, type FormEvent } from "react";
+import LiveAccountPanel from "@/components/LiveAccountPanel";
+import { useLiveStatus } from "@/components/useLiveStatus";
 import {
   addLedgerEntry,
   canOpen,
@@ -46,12 +48,25 @@ const fieldCls =
  *   allowed? -> Review Order -> Confirm -> addLedgerEntry (simulated only).
  * The guard is re-run at confirm time against the current props, so a review
  * opened under one state can never be confirmed under another.
+ *
+ * Mode. By default the confirm step records a SIMULATED ledger entry. When the server says live
+ * orders are possible (POLARITO_LIVE_ACCOUNT=1 and POLARITO_LIVE_TRADING_ENABLED=1, kill switch off,
+ * keys present: useLiveStatus().liveOrders) the same ticket sends a REAL long market buy through
+ * POST /api/broker/live/buy instead, and nothing is written to the simulated ledger. Long only: a
+ * Short is refused in live mode. The server applies the real risk rules (watchlist, 50% cap, cash,
+ * stop-out lockout, market hours, one stock at a time) and may send fewer shares than asked.
  */
 export default function OrderModule({ analysis }: { analysis: OrderAnalysis | null }) {
   const [side, setSide] = useState<OrderSide | "">("");
   const [qtyRaw, setQtyRaw] = useState("");
   const [review, setReview] = useState<{ key: string; entry: LedgerEntry } | null>(null);
-  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ kind: "ok" | "wait" | "error"; text: string } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const feed = useLiveStatus();
+  const live = feed.liveOrders;
+  const liveStatus = feed.status;
+  const liveWatchlist = liveStatus?.manual?.watchlist ?? [];
+  const liveCash = liveStatus?.account ? Math.max(0, Math.min(liveStatus.account.cash, liveStatus.account.buyingPower)) : 0;
 
   const ledger = useSyncExternalStore(
     subscribeLedger,
@@ -65,15 +80,19 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
   const notional = qty.ok ? qty.qty * price : 0;
   const accountDef = getAccountDef(ledger.accountId);
   const account = computeAccount(ledger, {}, accountDef.initialBalance);
-  const hasFunds = qty.ok && notional <= account.cashAvailable;
-  // No simultaneous long and short on one ticker.
+  const cashLimit = live ? liveCash : account.cashAvailable;
+  const hasFunds = qty.ok && notional <= cashLimit;
+  // No simultaneous long and short on one ticker (simulated ledger only; the live account is checked by the server).
   const openCheck =
-    analysis && isOrderSide(side) ? canOpen(ledger, analysis.ticker, side) : { ok: true as const };
+    !live && analysis && isOrderSide(side) ? canOpen(ledger, analysis.ticker, side) : { ok: true as const };
+  // Live orders are long only and watchlist only (the server re-checks both).
+  const liveShort = live && side === "short";
+  const offWatchlist = live && analysis !== null && liveWatchlist.length > 0 && !liveWatchlist.includes(analysis.ticker);
 
-  const canReview = guard.canSubmit && openCheck.ok && qty.ok && hasFunds && price > 0;
+  const canReview = guard.canSubmit && openCheck.ok && qty.ok && hasFunds && price > 0 && !liveShort && !offWatchlist && !submitting;
 
   // A review only counts while every input it was built from is unchanged.
-  const key = `${ledger.accountId}|${analysis?.ticker}|${analysis?.polarity}|${analysis?.asOf}|${side}|${qtyRaw.trim()}`;
+  const key = `${live ? "live" : "sim"}|${ledger.accountId}|${analysis?.ticker}|${analysis?.polarity}|${analysis?.asOf}|${side}|${qtyRaw.trim()}`;
   const activeReview = review && review.key === key ? review.entry : null;
 
   const gearMeta = analysis && analysis.ready ? metaFor(analysis.polarity) : null;
@@ -84,10 +103,14 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
     const g = evaluateGuard(analysis, side);
     const q = validateQuantity(qtyRaw);
     if (!g.canSubmit || !q.ok || analysis.close <= 0) return null;
-    if (!canOpen(ledger, analysis.ticker, side).ok) return null;
     if (analysis.polarity !== 1 && analysis.polarity !== -1) return null;
     const total = q.qty * analysis.close;
-    if (total > account.cashAvailable) return null;
+    if (live) {
+      if (side !== "long" || offWatchlist || total > liveCash) return null;
+    } else {
+      if (!canOpen(ledger, analysis.ticker, side).ok) return null;
+      if (total > account.cashAvailable) return null;
+    }
     return {
       id: newEntryId(),
       createdAt: new Date().toISOString(),
@@ -114,11 +137,43 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
     setReview({ key, entry });
   }
 
+  async function submitLive(entry: LedgerEntry) {
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/broker/live/buy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker: entry.ticker, quantity: entry.quantity, requireDrive: true }),
+        cache: "no-store",
+      });
+      const data = (await res.json()) as { ok: boolean; filled?: boolean; message?: string; error?: string };
+      if (!data.ok) {
+        setNotice({ kind: "error", text: data.error ?? "The live buy was refused. Nothing was sent." });
+      } else {
+        setQtyRaw("");
+        setNotice({ kind: data.filled ? "ok" : "wait", text: data.message ?? "Live buy accepted; waiting for the fill." });
+      }
+    } catch {
+      setNotice({ kind: "error", text: "Could not reach the server. Nothing is assumed bought; check the live positions below." });
+    } finally {
+      setSubmitting(false);
+      await feed.reload();
+    }
+  }
+
   function onConfirm() {
     const entry = buildEntry();
     if (!entry || !activeReview) {
       setReview(null);
-      setNotice({ kind: "error", text: "Order no longer passes the safety gate. Nothing was recorded." });
+      setNotice({
+        kind: "error",
+        text: live ? "Order no longer passes the safety gate. Nothing was sent." : "Order no longer passes the safety gate. Nothing was recorded.",
+      });
+      return;
+    }
+    if (live) {
+      setReview(null);
+      void submitLive(entry);
       return;
     }
     // Executes against the account this order was reviewed under; refused if it is no longer active.
@@ -138,11 +193,21 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
   return (
     <section
       aria-label="Order module"
-      className="flex w-full flex-col gap-5 rounded-2xl border border-zinc-700 bg-zinc-900/60 p-5 sm:p-6"
+      className={`flex w-full flex-col gap-5 rounded-2xl border bg-zinc-900/60 p-5 sm:p-6 ${
+        live ? "border-2 border-amber-500" : "border-zinc-700"
+      }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-bold uppercase tracking-wider text-white">
-          Order · Simulated · {accountDef.name}
+        <h2 className="flex flex-wrap items-center gap-3 text-lg font-bold uppercase tracking-wider text-white">
+          {live ? <span className="text-amber-300">Order · LIVE · Real cash</span> : <span>Order · Simulated · {accountDef.name}</span>}
+          <span
+            data-testid="order-mode"
+            className={`rounded-md px-2 py-1 text-xs font-black tracking-widest ${
+              live ? "bg-amber-400 text-zinc-950" : "bg-zinc-700 text-slate-200"
+            }`}
+          >
+            {live ? "MODE: LIVE REAL CASH" : "MODE: SIMULATED"}
+          </span>
         </h2>
         {gearMeta ? (
           <span className={`text-lg font-black ${gearMeta.text}`}>
@@ -152,6 +217,19 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
           <span className="text-base font-semibold text-slate-300">No active gear</span>
         )}
       </div>
+
+      {!live && liveStatus?.live === true ? (
+        <p role="status" className="rounded-xl border border-amber-500/60 bg-zinc-950/60 p-3 text-sm font-medium text-amber-200">
+          The live account is connected but live orders are off
+          {liveStatus.blockedReason ? `: ${liveStatus.blockedReason}` : "."} This ticket stays simulated.
+        </p>
+      ) : null}
+      {live ? (
+        <p role="status" className="rounded-xl border-2 border-amber-400 bg-amber-950/40 p-3 text-sm font-semibold text-amber-200">
+          LIVE mode: Review Order then Confirm sends a real market buy to your Alpaca account. Long only, watchlist stocks only,
+          real cash is unlevered, and the server sizes it with the live risk limits (it may send fewer shares than you ask for).
+        </p>
+      ) : null}
 
       <form onSubmit={onReview} className="flex flex-col gap-5" noValidate>
         <div className="flex flex-col gap-2">
@@ -256,6 +334,17 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
           </p>
         )}
 
+        {guard.canSubmit && liveShort && (
+          <p role="alert" className="rounded-xl border-2 border-orange-400 bg-orange-950/60 p-4 text-lg font-bold text-orange-200">
+            Short is not supported in LIVE mode: the live account is long only (real cash, no shorting). Choose Long, or run with live orders off to simulate a short.
+          </p>
+        )}
+        {guard.canSubmit && offWatchlist && (
+          <p role="alert" className="rounded-xl border-2 border-orange-400 bg-orange-950/60 p-4 text-lg font-bold text-orange-200">
+            {analysis?.ticker} is not on the live watchlist (POLARITO_LIVE_WATCHLIST: {liveWatchlist.join(", ")}). No live order can be sent for it.
+          </p>
+        )}
+
         {guard.canSubmit && !openCheck.ok && (
           <p
             role="alert"
@@ -272,7 +361,7 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
         )}
         {guard.canSubmit && qty.ok && !hasFunds && (
           <p role="alert" className="text-base font-semibold text-red-300">
-            Order of {money(notional)} exceeds {accountDef.name} cash available ({money(account.cashAvailable)}).
+            Order of {money(notional)} exceeds {live ? "live account" : accountDef.name} cash available ({money(cashLimit)}).
           </p>
         )}
 
@@ -289,15 +378,15 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
       {activeReview && (
         <div
           role="dialog"
-          aria-label="Review simulated order"
-          className="flex flex-col gap-4 rounded-xl border-2 border-white bg-zinc-950 p-5"
+          aria-label={live ? "Review LIVE order" : "Review simulated order"}
+          className={`flex flex-col gap-4 rounded-xl border-2 bg-zinc-950 p-5 ${live ? "border-amber-400" : "border-white"}`}
         >
           <h3 className="text-lg font-black uppercase tracking-wider text-white">
-            Confirm simulated order
+            {live ? "Confirm LIVE order (real cash)" : "Confirm simulated order"}
           </h3>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-lg">
             <dt className="text-slate-300">Account</dt>
-            <dd className="font-bold text-white">{accountDef.name}</dd>
+            <dd className="font-bold text-white">{live ? "Alpaca LIVE account" : accountDef.name}</dd>
             <dt className="text-slate-300">Ticker</dt>
             <dd className="font-mono font-bold text-white">{activeReview.ticker}</dd>
             <dt className="text-slate-300">Side</dt>
@@ -306,7 +395,7 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
             <dd className="font-mono font-bold text-white">
               {activeReview.quantity.toLocaleString("en-US")}
             </dd>
-            <dt className="text-slate-300">Simulated price</dt>
+            <dt className="text-slate-300">{live ? "Reference price" : "Simulated price"}</dt>
             <dd className="font-mono font-bold text-white">
               {money(activeReview.price)}{" "}
               <span className="text-sm font-medium text-slate-400">
@@ -317,16 +406,19 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
             <dd className="font-mono font-bold text-white">{money(activeReview.notional)}</dd>
           </dl>
           <p className="text-sm text-slate-400">
-            Simulation only. No broker is contacted and no real order is placed. The price is the
-            last daily close, not a live fill.
+            {live
+              ? "REAL ORDER. Confirm sends a market buy to your live Alpaca account. The price shown is the last daily close, not the fill; the server may send fewer shares than asked under the risk limits, and it says exactly what was sent."
+              : "Simulation only. No broker is contacted and no real order is placed. The price is the last daily close, not a live fill."}
           </p>
           <div className="flex gap-3">
             <button
               type="button"
               onClick={onConfirm}
-              className="h-14 flex-1 rounded-xl bg-green-500 text-lg font-black uppercase tracking-wider text-zinc-950 hover:bg-green-400 focus:outline-none focus-visible:ring-4 focus-visible:ring-green-300"
+              className={`h-14 flex-1 rounded-xl text-lg font-black uppercase tracking-wider text-zinc-950 focus:outline-none focus-visible:ring-4 ${
+                live ? "bg-amber-400 hover:bg-amber-300 focus-visible:ring-amber-200" : "bg-green-500 hover:bg-green-400 focus-visible:ring-green-300"
+              }`}
             >
-              Confirm
+              {live ? "Confirm LIVE order" : "Confirm"}
             </button>
             <button
               type="button"
@@ -345,12 +437,16 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
           className={`rounded-xl p-4 text-base font-semibold ${
             notice.kind === "ok"
               ? "border-2 border-green-500 bg-green-950/50 text-green-200"
-              : "border-2 border-red-500 bg-red-950/50 text-red-200"
+              : notice.kind === "wait"
+                ? "border-2 border-amber-500 bg-amber-950/40 text-amber-200"
+                : "border-2 border-red-500 bg-red-950/50 text-red-200"
           }`}
         >
           {notice.text}
         </p>
       )}
+
+      <LiveAccountPanel feed={feed} />
     </section>
   );
 }

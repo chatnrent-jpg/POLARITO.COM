@@ -1,59 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import type { LiveFeed } from "@/components/useLiveStatus";
 
-type LivePosition = { ticker: string; side: "long" | "short"; quantity: number; avgEntryPrice: number };
-type LiveStatus = {
-  ok: boolean;
-  live?: boolean;
-  enabled?: boolean;
-  killed?: boolean;
-  configured?: boolean;
-  tradingAllowed?: boolean;
-  blockedReason?: string;
-  error?: string;
-  account?: { equity: number; lastEquity: number; cash: number; buyingPower: number };
-  positions?: LivePosition[];
-  day?: { date: string; entries: number; lockedTicker: string | null; stoppedToday: boolean };
-  auto?: { available: boolean; on: boolean; reason: string; at: string | null; openPositions: number; openOrders: number };
-};
 type Notice = { kind: "ok" | "wait" | "error"; text: string };
 
 const money = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
-const REFRESH_MS = 5_000;
 
 /**
- * The LIVE account, read from Alpaca through /api/broker/live/status (never from the browser ledger).
- * Close sends a real order through /api/broker/live/close; a position is only shown as closed once
- * Alpaca's own position list no longer has it.
+ * The LIVE account block that sits inside the order ticket's card (OrderModule). It renders nothing
+ * unless the server reports POLARITO_LIVE_ACCOUNT=1, so with live off the card is exactly what it was.
+ *
+ * Everything shown comes from Alpaca through /api/broker/live/status (via useLiveStatus), never from the
+ * browser ledger. Close sends a real order through /api/broker/live/close and Auto goes through
+ * /api/broker/live/auto; a position is only shown as closed once Alpaca's own position list says so.
+ * Buying is not here: the ticket above sends real buys through /api/broker/live/buy.
  */
-export default function LiveBrokerPanel() {
-  const [status, setStatus] = useState<LiveStatus | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
+  const { status, loadError, reload } = feed;
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [confirmAuto, setConfirmAuto] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch("/api/broker/live/status", { cache: "no-store" });
-      const data = (await res.json()) as LiveStatus;
-      setStatus(data);
-      setLoadError(data.ok ? null : (data.error ?? "Live status failed."));
-    } catch {
-      setLoadError("Could not reach the live status route.");
-    }
-  }, []);
-
-  useEffect(() => {
-    const first = window.setTimeout(() => void load(), 0);
-    const id = window.setInterval(() => void load(), REFRESH_MS);
-    return () => {
-      window.clearTimeout(first);
-      window.clearInterval(id);
-    };
-  }, [load]);
 
   async function close(ticker: string) {
     setBusy(true);
@@ -86,7 +54,7 @@ export default function LiveBrokerPanel() {
     } finally {
       setConfirming(null);
       setBusy(false);
-      await load();
+      await reload();
     }
   }
 
@@ -111,53 +79,58 @@ export default function LiveBrokerPanel() {
     } finally {
       setConfirmAuto(false);
       setBusy(false);
-      await load();
+      await reload();
     }
   }
 
-  const positions = status?.positions ?? [];
-  const auto = status?.auto;
+  if (status?.live !== true) return null;
+
+  const positions = status.positions ?? [];
+  const auto = status.auto;
   const openPositions = auto?.openPositions ?? 0;
   const openOrders = auto?.openOrders ?? 0;
   const offBlocked = Boolean(auto?.on && (openPositions > 0 || openOrders > 0));
-  const account = status?.account;
+  const account = status.account;
   const dayPnl = account ? account.equity - account.lastEquity : 0;
-  const tone = { ok: "text-green-400", wait: "text-amber-300", error: "text-red-400" } as const;
+  const tone = { ok: "text-green-300", wait: "text-amber-300", error: "text-red-300" } as const;
 
   return (
-    <aside
-      aria-label="Live account"
-      className="fixed right-4 top-4 z-50 max-h-[80vh] w-96 overflow-auto rounded-lg border border-red-500/60 bg-zinc-900 p-4 text-sm shadow-xl"
-    >
-      <h2 className="mb-2 flex items-center justify-between font-semibold text-red-300">
+    <div aria-label="Live account" className="flex flex-col gap-3 rounded-xl border-2 border-amber-500/70 bg-zinc-950/50 p-4">
+      <h3 className="flex flex-wrap items-center justify-between gap-2 text-base font-bold uppercase tracking-wider text-amber-300">
         <span>LIVE account (real cash)</span>
-        <span className="text-xs text-zinc-400">
-          {status?.killed ? "kill switch on" : status?.enabled ? "orders on" : "observe only"}
+        <span className="text-sm text-slate-400">
+          {status.killed ? "kill switch on" : status.enabled ? "orders on" : "observe only"}
         </span>
-      </h2>
-      {loadError ? <p className="text-red-400">{loadError}</p> : null}
+      </h3>
+      {loadError ? <p className="text-base font-semibold text-red-300">{loadError}</p> : null}
       {account ? (
-        <dl className="mb-3 grid grid-cols-2 gap-x-3 gap-y-1">
-          <dt className="text-zinc-400">Equity</dt>
-          <dd className="text-right tabular-nums">{money(account.equity)}</dd>
-          <dt className="text-zinc-400">Today</dt>
-          <dd className={`text-right tabular-nums ${dayPnl < 0 ? "text-red-400" : "text-green-400"}`}>{money(dayPnl)}</dd>
-          <dt className="text-zinc-400">Cash</dt>
-          <dd className="text-right tabular-nums">{money(account.cash)}</dd>
+        <dl className="grid grid-cols-3 gap-x-4 gap-y-1 text-lg">
+          <div>
+            <dt className="text-sm text-slate-400">Equity</dt>
+            <dd className="font-mono font-bold tabular-nums text-white">{money(account.equity)}</dd>
+          </div>
+          <div>
+            <dt className="text-sm text-slate-400">Today</dt>
+            <dd className={`font-mono font-bold tabular-nums ${dayPnl < 0 ? "text-red-300" : "text-green-300"}`}>{money(dayPnl)}</dd>
+          </div>
+          <div>
+            <dt className="text-sm text-slate-400">Cash</dt>
+            <dd className="font-mono font-bold tabular-nums text-white">{money(account.cash)}</dd>
+          </div>
         </dl>
       ) : null}
       {auto ? (
-        <div className="mb-3 rounded border border-zinc-700 p-2">
-          <div className="flex items-center justify-between">
-            <span className={auto.on ? "font-semibold text-green-400" : "font-semibold text-zinc-300"}>
+        <div className="rounded-lg border border-zinc-700 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className={auto.on ? "text-lg font-bold text-green-300" : "text-lg font-bold text-slate-200"}>
               Live Auto: {auto.on ? "ON" : "OFF"}
             </span>
             {confirmAuto ? (
               <span className="flex gap-2">
-                <button type="button" disabled={busy} onClick={() => void setAuto(true)} className="rounded bg-red-600 px-2 py-1 text-white disabled:opacity-50">
+                <button type="button" disabled={busy} onClick={() => void setAuto(true)} className="rounded-lg bg-red-600 px-3 py-2 font-bold text-white disabled:opacity-50">
                   Confirm Auto ON
                 </button>
-                <button type="button" disabled={busy} onClick={() => setConfirmAuto(false)} className="rounded border border-zinc-600 px-2 py-1">
+                <button type="button" disabled={busy} onClick={() => setConfirmAuto(false)} className="rounded-lg px-3 py-2 font-semibold text-white ring-1 ring-zinc-500">
                   Cancel
                 </button>
               </span>
@@ -166,55 +139,48 @@ export default function LiveBrokerPanel() {
                 type="button"
                 disabled={busy || !auto.available || offBlocked}
                 onClick={() => (auto.on ? void setAuto(false) : setConfirmAuto(true))}
-                className="rounded border border-zinc-500 px-2 py-1 disabled:opacity-50"
+                className="rounded-lg px-3 py-2 font-semibold text-white ring-1 ring-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {auto.on ? "Turn Auto OFF" : "Turn Auto ON"}
               </button>
             )}
           </div>
           {offBlocked ? (
-            <p className="mt-2 text-xs font-semibold text-amber-300">
+            <p className="mt-2 text-sm font-semibold text-amber-300">
               {openPositions > 0 ? `Close all positions first (${openPositions} open at Alpaca). ` : ""}
               {openOrders > 0 ? `Cancel or let working orders finish first (${openOrders} working at Alpaca). ` : ""}
               Auto can only be turned OFF when the account is flat with no working orders. Nothing is cancelled for you.
             </p>
           ) : null}
-          <p className="mt-2 text-xs text-zinc-400">
+          <p className="mt-2 text-sm text-slate-400">
             {auto.on
               ? "Auto ON: the server may place entries, re-entries and signal-driven closes (only when live orders are on). It can be turned OFF only when the account is flat with no working orders."
               : "Auto OFF: no entries, re-entries or signal-driven closes are sent. Still running: the 1% daily stop-out and the end-of-day flatten. Close always works."}
           </p>
-          {auto.reason !== "Auto is ON." && auto.reason !== "Auto is OFF." ? (
-            <p className="mt-1 text-xs text-amber-300">{auto.reason}</p>
-          ) : null}
+          {auto.reason !== "Auto is ON." && auto.reason !== "Auto is OFF." ? <p className="mt-1 text-sm text-amber-300">{auto.reason}</p> : null}
         </div>
       ) : null}
-      {status?.day ? (
-        <p className="mb-3 text-xs text-zinc-400">
+      {status.day ? (
+        <p className="text-sm text-slate-400">
           {status.day.lockedTicker ? `Today's stock: ${status.day.lockedTicker}. ` : "No entry yet today. "}
           Entries today: {status.day.entries}.
           {status.day.stoppedToday ? " Stopped out: no re-entry today." : ""}
         </p>
       ) : null}
-      {positions.length === 0 && account ? <p className="text-zinc-400">No stock positions at Alpaca.</p> : null}
+      {positions.length === 0 && account ? <p className="text-base text-slate-300">No stock positions at Alpaca.</p> : null}
       <ul className="space-y-2">
         {positions.map((p) => (
-          <li key={p.ticker} className="rounded border border-zinc-700 p-2">
-            <div className="flex items-center justify-between">
-              <span>
+          <li key={p.ticker} className="rounded-lg border border-zinc-700 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono text-lg font-bold text-white">
                 {p.side.toUpperCase()} {p.quantity} {p.ticker} @ {money(p.avgEntryPrice)}
               </span>
               {confirming === p.ticker ? (
                 <span className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void close(p.ticker)}
-                    className="rounded bg-red-600 px-2 py-1 text-white disabled:opacity-50"
-                  >
+                  <button type="button" disabled={busy} onClick={() => void close(p.ticker)} className="rounded-lg bg-red-600 px-3 py-2 font-bold text-white disabled:opacity-50">
                     Confirm close
                   </button>
-                  <button type="button" disabled={busy} onClick={() => setConfirming(null)} className="rounded border border-zinc-600 px-2 py-1">
+                  <button type="button" disabled={busy} onClick={() => setConfirming(null)} className="rounded-lg px-3 py-2 font-semibold text-white ring-1 ring-zinc-500">
                     Cancel
                   </button>
                 </span>
@@ -226,7 +192,7 @@ export default function LiveBrokerPanel() {
                     setNotice(null);
                     setConfirming(p.ticker);
                   }}
-                  className="rounded border border-red-500 px-2 py-1 text-red-300 disabled:opacity-50"
+                  className="rounded-lg px-3 py-2 font-bold text-red-300 ring-1 ring-red-500 disabled:opacity-50"
                 >
                   Close
                 </button>
@@ -236,10 +202,10 @@ export default function LiveBrokerPanel() {
         ))}
       </ul>
       {notice ? (
-        <p role="status" className={`mt-3 ${tone[notice.kind]}`}>
+        <p role={notice.kind === "error" ? "alert" : "status"} className={`text-base font-semibold ${tone[notice.kind]}`}>
           {notice.text}
         </p>
       ) : null}
-    </aside>
+    </div>
   );
 }

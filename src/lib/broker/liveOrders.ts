@@ -4,6 +4,7 @@
  * order the live pick sends carries a unique, deterministic id:
  *
  *   entry number N                 pol-{YYYYMMDD}-e{NN}-{TICKER}
+ *   manual buy (panel button)      pol-{YYYYMMDD}-m{NN}-{TICKER}        (shares the entry number sequence with e)
  *   close of entry N, attempt K    pol-{YYYYMMDD}-c{NN}-a{K}-{TICKER}   (auto close and manual close)
  *   stop-out flatten, attempt K    pol-{YYYYMMDD}-s{NN}-a{K}-{TICKER}   (also the "stopped today" marker)
  *
@@ -26,19 +27,21 @@ export const entryOrderId = (date: string, nn: number, ticker: string): string =
   `pol-${compactDate(date)}-e${pad(nn)}-${ticker}`;
 export const closeOrderId = (date: string, nn: number, attempt: number, ticker: string): string =>
   `pol-${compactDate(date)}-c${pad(nn)}-a${attempt}-${ticker}`;
+export const manualOrderId = (date: string, nn: number, ticker: string): string =>
+  `pol-${compactDate(date)}-m${pad(nn)}-${ticker}`;
 export const stopOrderId = (date: string, nn: number, attempt: number, ticker: string): string =>
   `pol-${compactDate(date)}-s${pad(nn)}-a${attempt}-${ticker}`;
 
 export type ParsedLiveId =
-  | { kind: "e"; nn: number; ticker: string }
+  | { kind: "e" | "m"; nn: number; ticker: string }
   | { kind: "c" | "s"; nn: number; attempt: number; ticker: string };
 
 export function parseLiveOrderId(id: string, date: string): ParsedLiveId | null {
   const prefix = `pol-${compactDate(date)}-`;
   if (!id.startsWith(prefix)) return null;
   const rest = id.slice(prefix.length);
-  const e = /^e(\d{2})-([A-Z][A-Z.-]*)$/.exec(rest);
-  if (e) return { kind: "e", nn: Number(e[1]), ticker: e[2] };
+  const e = /^([em])(\d{2})-([A-Z][A-Z.-]*)$/.exec(rest);
+  if (e) return { kind: e[1] as "e" | "m", nn: Number(e[2]), ticker: e[3] };
   const cs = /^([cs])(\d{2})-a(\d+)-([A-Z][A-Z.-]*)$/.exec(rest);
   if (cs) return { kind: cs[1] as "c" | "s", nn: Number(cs[2]), attempt: Number(cs[3]), ticker: cs[4] };
   return null;
@@ -50,11 +53,11 @@ export type CloseDayOrder = { order: BrokerOrder; id: Extract<ParsedLiveId, { ki
 export type DayState = {
   date: string;
   orders: DayOrder[];
-  /** Highest entry number used today (0 when none). The next entry is maxEntry + 1. */
+  /** Highest entry number used today, automatic (e) or manual (m), 0 when none. The next entry of either kind is maxEntry + 1. */
   maxEntry: number;
-  /** Entry orders today that did not fail (rejected / canceled ones are not counted). Informational only: nothing caps entries. */
+  /** Entry orders today (automatic and manual) that did not fail (rejected / canceled ones are not counted). Informational only: nothing caps entries. */
   entryCount: number;
-  /** Ticker of the day's first entry; later entries are for this stock only. null before the first entry. */
+  /** Ticker of the day's first entry (a manual buy counts once it did not fail); later entries are for this stock only. null before the first entry. */
   lockTicker: string | null;
   /** A stop-out flatten order exists today: no entry for the rest of the day. */
   stoppedToday: boolean;
@@ -66,13 +69,15 @@ export function deriveDayState(orders: readonly BrokerOrder[], date: string): Da
     const id = parseLiveOrderId(order.clientOrderId, date);
     if (id) parsed.push({ order, id });
   }
-  const entries = parsed.filter((p) => p.id.kind === "e").sort((a, b) => a.id.nn - b.id.nn);
+  const entries = parsed.filter((p) => p.id.kind === "e" || p.id.kind === "m").sort((a, b) => a.id.nn - b.id.nn);
+  // A manual buy that never went through (rejected, canceled) must not lock the day's stock.
+  const locking = entries.filter((p) => p.id.kind === "e" || !isFailedStatus(p.order.status));
   return {
     date,
     orders: parsed,
     maxEntry: entries.reduce((m, p) => Math.max(m, p.id.nn), 0),
     entryCount: entries.filter((p) => !isFailedStatus(p.order.status)).length,
-    lockTicker: entries.length > 0 ? entries[0].id.ticker : null,
+    lockTicker: locking.length > 0 ? locking[0].id.ticker : null,
     stoppedToday: parsed.some((p) => p.id.kind === "s"),
   };
 }
@@ -81,14 +86,14 @@ export function deriveDayState(orders: readonly BrokerOrder[], date: string): Da
 export function closeOrdersFor(state: DayState, ticker: string, nn: number): CloseDayOrder[] {
   const out: CloseDayOrder[] = [];
   for (const p of state.orders) {
-    if (p.id.kind !== "e" && p.id.ticker === ticker && p.id.nn === nn) out.push({ order: p.order, id: p.id });
+    if ((p.id.kind === "c" || p.id.kind === "s") && p.id.ticker === ticker && p.id.nn === nn) out.push({ order: p.order, id: p.id });
   }
   return out.sort((a, b) => a.id.attempt - b.id.attempt);
 }
 
 /** The entry number a position's closes are filed under: the day's highest entry for that ticker, or 0 (held overnight). */
 export function entryNumberFor(state: DayState, ticker: string): number {
-  return state.orders.reduce((m, p) => (p.id.kind === "e" && p.id.ticker === ticker ? Math.max(m, p.id.nn) : m), 0);
+  return state.orders.reduce((m, p) => ((p.id.kind === "e" || p.id.kind === "m") && p.id.ticker === ticker ? Math.max(m, p.id.nn) : m), 0);
 }
 
 /** True when every allowed close attempt for this position has failed: no more automatic tries. */
