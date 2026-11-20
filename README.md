@@ -57,7 +57,7 @@ Set `POLARITO_PAPER_INSTRUMENT=options` to run `src/lib/optionsRunner.ts` instea
 - Exits are sell-to-close: on Neutral, on a flip (the new option is bought next session once flat is confirmed), or when the option is within 60 days of expiry. They use a limit at the bid, or a market order when no usable quote exists. Closes are never blocked by risk limits.
 - The loss on a bought option is limited to the premium. `POLARITO_OPTIONS_CONTRACTS` sets contracts per entry (default 1, max 10).
 - Contracts come live from Alpaca's contract list; quotes use Alpaca's indicative option feed. The paper account must have options trading enabled.
-- The runner only checks once per weekday after the close, so exits happen at that check, not intraday.
+- Polarity is read once per weekday after the close, so polarity exits and entries happen at that check. Only the 2% loss stop runs during the session.
 - Plain stock positions are never touched in this mode. Close any leftover stock orders or positions in the watchlist first.
 
 Safety properties: hard-coded paper host; orders need `POLARITO_PAPER_TRADING_ENABLED=1` and an off kill switch; deterministic client order ids make retries idempotent; positions are reconciled against the broker before any order; closes flatten the broker's actual quantity; every error path returns a result instead of throwing, and credentials never appear in errors.
