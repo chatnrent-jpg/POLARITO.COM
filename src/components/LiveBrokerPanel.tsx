@@ -127,7 +127,7 @@ export default function LiveBrokerPanel() {
   return (
     <aside
       aria-label="Live account"
-      className="fixed bottom-4 right-4 z-50 max-h-[80vh] w-96 overflow-auto rounded-lg border border-red-500/60 bg-zinc-900 p-4 text-sm shadow-xl"
+      className="fixed right-4 top-4 z-50 max-h-[80vh] w-96 overflow-auto rounded-lg border border-red-500/60 bg-zinc-900 p-4 text-sm shadow-xl"
     >
       <h2 className="mb-2 flex items-center justify-between font-semibold text-red-300">
         <span>LIVE account (real cash)</span>
