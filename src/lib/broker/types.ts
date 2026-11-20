@@ -24,6 +24,10 @@ export type BrokerAccount = {
   lastEquity: number;
   cash: number;
   buyingPower: number;
+  /** Live adapter only: Alpaca's `shorting_enabled`. Absent when the response did not carry a boolean. */
+  shortingEnabled?: boolean;
+  /** Live adapter only: Alpaca's buying-power multiplier (1 = cash account). */
+  multiplier?: number;
 };
 
 export type BrokerPosition = {
@@ -41,6 +45,16 @@ export type BrokerOrder = {
   ticker: string;
   side: "buy" | "sell";
   quantity: number;
+};
+
+/** Alpaca asset flags the live pick checks before sending an order. */
+export type BrokerAsset = {
+  symbol: string;
+  status: string;
+  tradable: boolean;
+  shortable: boolean;
+  /** Alpaca's `borrow_status`; `easy_to_borrow` is deprecated and not read. */
+  borrowStatus: string | null;
 };
 
 export type MarketOrderRequest = {
@@ -78,3 +92,13 @@ export type OrderIntent = {
    */
   clientOrderId?: string;
 };
+
+/** What the live pick runner and the live close route need on top of the plain broker. */
+export interface LiveBroker extends Broker {
+  /** ok(null) when Alpaca has no such asset. */
+  getAsset(symbol: string): Promise<Result<BrokerAsset | null, BrokerErrorCode>>;
+  /** Every order (any status) created after `afterIso`, oldest first. */
+  listOrdersSince(afterIso: string): Promise<Result<BrokerOrder[], BrokerErrorCode>>;
+  /** Every still-working order, any symbol. */
+  listOpenOrders(): Promise<Result<BrokerOrder[], BrokerErrorCode>>;
+}

@@ -1,9 +1,11 @@
 /**
- * Alpaca PAPER trading adapter (server-side only).
+ * Alpaca trading adapter (server-side only).
  *
- * The base URL is a constant and is NOT configurable: this adapter cannot be
- * pointed at the live endpoint by an env var or a caller. Going live would be
- * a separate, deliberate code change. Credentials never appear in errors/logs.
+ * The target defaults to PAPER and both base URLs are constants: no env var or
+ * caller can supply a URL. The live host is used only when a caller passes
+ * `target: "live"`, and the only code that does so is `createLiveBroker`
+ * (src/lib/broker/liveConfig.ts), which needs the explicit live opt-in and the
+ * separate ALPACA_LIVE_* keys. Credentials never appear in errors/logs.
  */
 import {
   parseOccSymbol,
@@ -15,14 +17,19 @@ import {
 } from "@/lib/broker/options";
 import type {
   BrokerAccount,
+  BrokerAsset,
   BrokerErrorCode,
   BrokerOrder,
   BrokerPosition,
+  LiveBroker,
   MarketOrderRequest,
   Result,
 } from "@/lib/broker/types";
 
 export const ALPACA_PAPER_BASE_URL = "https://paper-api.alpaca.markets";
+/** Real-money trading host. Only reachable through `target: "live"`. */
+export const ALPACA_LIVE_BASE_URL = "https://api.alpaca.markets";
+export type AlpacaTarget = "paper" | "live";
 /** Read-only market data host, also fixed. Used only for option quotes. */
 export const ALPACA_DATA_BASE_URL = "https://data.alpaca.markets";
 const CONTRACT_PAGES_MAX = 5;
@@ -41,6 +48,8 @@ export type FetchLike = (
 export type AlpacaPaperOptions = {
   keyId: string;
   secretKey: string;
+  /** Default "paper". "live" talks to real money and is only built by createLiveBroker. */
+  target?: AlpacaTarget;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
 };
@@ -116,16 +125,18 @@ function parseContract(v: unknown): OptionContract | null {
   return { symbol: v.symbol, underlying: occ.underlying, type: occ.type, strike, expiration: occ.expiration, tradable: v.tradable };
 }
 
-export class AlpacaPaperBroker implements OptionsBroker {
+export class AlpacaPaperBroker implements OptionsBroker, LiveBroker {
   private readonly keyId: string;
   private readonly secretKey: string;
   private readonly fetchImpl: FetchLike;
   private readonly timeoutMs: number;
+  private readonly target: AlpacaTarget;
 
   constructor(opts: AlpacaPaperOptions) {
     if (!opts.keyId.trim() || !opts.secretKey.trim()) {
       throw new Error("Alpaca paper credentials are required.");
     }
+    this.target = opts.target === "live" ? "live" : "paper";
     this.keyId = opts.keyId.trim();
     this.secretKey = opts.secretKey.trim();
     this.fetchImpl = opts.fetchImpl ?? ((url, init) => fetch(url, init));
@@ -137,7 +148,7 @@ export class AlpacaPaperBroker implements OptionsBroker {
     method: "GET" | "POST",
     path: string,
     body?: unknown,
-    baseUrl: string = ALPACA_PAPER_BASE_URL,
+    baseUrl: string = this.target === "live" ? ALPACA_LIVE_BASE_URL : ALPACA_PAPER_BASE_URL,
   ): Promise<Result<{ status: number; data: unknown }, BrokerErrorCode>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -166,13 +177,13 @@ export class AlpacaPaperBroker implements OptionsBroker {
             : "no details";
         return fail(
           res.status === 403 || res.status === 422 ? "REJECTED" : "HTTP",
-          `Alpaca paper API returned ${res.status}: ${message}`,
+          `Alpaca ${this.target} API returned ${res.status}: ${message}`,
         );
       }
       return { ok: true, value: { status: res.status, data } };
     } catch (e) {
-      if (controller.signal.aborted) return fail("TIMEOUT", "Alpaca paper API timed out.");
-      return fail("NETWORK", `Alpaca paper API request failed (${e instanceof Error ? e.name : "error"}).`);
+      if (controller.signal.aborted) return fail("TIMEOUT", `Alpaca ${this.target} API timed out.`);
+      return fail("NETWORK", `Alpaca ${this.target} API request failed (${e instanceof Error ? e.name : "error"}).`);
     } finally {
       clearTimeout(timer);
     }
@@ -208,6 +219,8 @@ export class AlpacaPaperBroker implements OptionsBroker {
         lastEquity,
         cash,
         buyingPower,
+        ...(typeof d.shorting_enabled === "boolean" ? { shortingEnabled: d.shorting_enabled } : {}),
+        ...(num(d.multiplier) !== null ? { multiplier: num(d.multiplier) as number } : {}),
       },
     };
   }
@@ -252,6 +265,58 @@ export class AlpacaPaperBroker implements OptionsBroker {
       if (!parseOrder(item)) return fail("MALFORMED", "An open order failed validation; refusing to trust the list.");
     }
     return { ok: true, value: d.length };
+  }
+
+  async getAsset(symbol: string): Promise<Result<BrokerAsset | null, BrokerErrorCode>> {
+    const res = await this.request("GET", `/v2/assets/${encodeURIComponent(symbol)}`);
+    if (!res.ok) return res;
+    if (res.value.status === 404) return { ok: true, value: null };
+    const d = res.value.data;
+    if (
+      res.value.status !== 200 ||
+      !isRecord(d) ||
+      typeof d.symbol !== "string" ||
+      typeof d.status !== "string" ||
+      typeof d.tradable !== "boolean" ||
+      typeof d.shortable !== "boolean"
+    ) {
+      return fail("MALFORMED", "Asset response failed validation.");
+    }
+    return {
+      ok: true,
+      value: {
+        symbol: d.symbol,
+        status: d.status,
+        tradable: d.tradable,
+        shortable: d.shortable,
+        borrowStatus: typeof d.borrow_status === "string" ? d.borrow_status : null,
+      },
+    };
+  }
+
+  private async listOrders(path: string): Promise<Result<BrokerOrder[], BrokerErrorCode>> {
+    const res = await this.request("GET", path);
+    if (!res.ok) return res;
+    const d = res.value.data;
+    if (res.value.status !== 200 || !Array.isArray(d)) return fail("MALFORMED", "Unexpected orders response.");
+    const out: BrokerOrder[] = [];
+    for (const item of d) {
+      const order = parseOrder(item);
+      if (!order) return fail("MALFORMED", "An order failed validation; refusing to trust the list.");
+      out.push(order);
+    }
+    return { ok: true, value: out };
+  }
+
+  async listOrdersSince(afterIso: string): Promise<Result<BrokerOrder[], BrokerErrorCode>> {
+    if (!Number.isFinite(Date.parse(afterIso))) return fail("REJECTED", "A valid start time is required.");
+    return this.listOrders(
+      `/v2/orders?status=all&limit=500&direction=asc&after=${encodeURIComponent(new Date(afterIso).toISOString())}`,
+    );
+  }
+
+  async listOpenOrders(): Promise<Result<BrokerOrder[], BrokerErrorCode>> {
+    return this.listOrders("/v2/orders?status=open&limit=500&direction=asc");
   }
 
   async submitMarketOrder(req: MarketOrderRequest): Promise<Result<BrokerOrder, BrokerErrorCode>> {

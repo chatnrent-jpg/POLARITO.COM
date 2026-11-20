@@ -37,9 +37,15 @@ export async function GET(request: NextRequest) {
         { headers: NO_STORE },
       );
     }
+    if (instrument === "pick") {
+      return Response.json(
+        { ok: true, action: "none", reason: "Live pick mode is on. /api/cron/pick-run handles trading; the daily run does nothing." },
+        { headers: NO_STORE },
+      );
+    }
     if (instrument !== "stock" && instrument !== "options") {
       return Response.json(
-        { ok: false, code: "CONFIG", error: 'POLARITO_PAPER_INSTRUMENT must be "stock", "options" or "mirror".' },
+        { ok: false, code: "CONFIG", error: 'POLARITO_PAPER_INSTRUMENT must be "stock", "options", "mirror" or "pick".' },
         { status: 500, headers: NO_STORE },
       );
     }
