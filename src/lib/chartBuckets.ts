@@ -2,26 +2,22 @@
  * Chart bars.
  *
  *   1D  one bar: the latest session (unchanged).
- *   1W  one real WEEKLY candle per ISO week      1M  one per calendar month
- *   3M  one per calendar quarter                 1Y  one per calendar year
+ *   1W  ONE bar for the current ISO week        1M  one for the current month
+ *   3M  one for the current quarter             1Y  one for the current year
  *
- * A period bar is built from the real daily bars of its period (periodCandles.ts):
- * open of the first, high of the max, low of the min, close of the last, volume
- * summed. It is then read with the SAME engine rule a single day uses: the
+ * A period bar is built from the real daily bars of its period so far
+ * (periodCandles.ts): open of the first, high of the max, low of the min, close
+ * of the last, volume summed. It is then read with the SAME engine rule a single day uses: the
  * engine's own `netVolume` of that candle (green = +volume, red = -volume, flat =
  * close-location x volume) gated by `gate` against a Noise Floor. The period's
  * floor is the sum of its days' floors (each is 10% of the trailing 20-day
  * average volume), the same number scaled to the period. A period with any day
  * that lacks 20 bars of history stays Neutral with no floor, exactly as a single
- * day would. Only the current period's bar is live; finished periods never move.
+ * day would. The bar is recomputed on every data refresh while the period runs;
+ * once a new period starts, a new bar replaces it and the finished one is gone.
  */
 import { gate, netVolume, type DayResult, type Polarity, type Timeframe } from "@/lib/polarity";
-import {
-  aggregatePeriods,
-  MAX_PERIODS,
-  weekStart,
-  type Period,
-} from "@/lib/periodCandles";
+import { aggregatePeriods, weekStart, type Period } from "@/lib/periodCandles";
 import {
   classifySentiment,
   type SentimentByDate,
@@ -60,8 +56,6 @@ export type Bucket = {
   polarity: Polarity;
   /** Real OHLC + summed volume of a period bar. Absent on single-day bars. */
   candle?: BucketCandle;
-  /** Period bars only: true while the period is still running (the only bar that changes). */
-  live?: boolean;
 };
 
 export type BucketSentiment = {
@@ -113,49 +107,47 @@ export function bucketsFor(view: readonly DayResult[]): Bucket[] {
 }
 
 /**
- * Real period candles for 1W / 1M / 3M / 1Y. `bars` are the real daily bars (recent
- * live bars merged over older history) and `results` is the engine's series over
- * those same bars (for each day's Noise Floor). Only periods the loaded history
- * fully covers are returned, newest `MAX_PERIODS` of them.
+ * The single bar for 1W / 1M / 3M / 1Y: the newest period in `bars`, built from
+ * all of that period's real daily bars so far. `results` is the engine's series
+ * over those same bars (for each day's Noise Floor). Returns [] when the loaded
+ * bars do not reach back to the start of the period (never a half period).
  */
 export function periodBucketsFor(
   bars: readonly Bar[],
   results: readonly DayResult[],
   timeframe: Timeframe,
-  todayEt: string,
 ): Bucket[] {
   const mode = BUCKET_MODE[timeframe];
-  if (mode === "day") return [];
+  if (mode === "day" || bars.length === 0) return [];
   const floorByDate = new Map<string, number | null>();
   for (const r of results) floorByDate.set(r.date, r.noiseFloor);
 
-  return aggregatePeriods(bars, mode, todayEt)
-    .filter((c) => c.covered)
-    .slice(-MAX_PERIODS[mode])
-    .map((c) => {
-      const floors = c.dates.map((d) => floorByDate.get(d) ?? null);
-      const allReady = floors.every((f) => f !== null);
-      const noiseFloor = allReady ? floors.reduce<number>((s, f) => s + (f as number), 0) : null;
-      const net = netVolume({
-        date: c.dates[c.dates.length - 1],
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-        volume: c.volume,
-      });
-      return {
-        key: c.key,
-        mode,
-        label: labelFor(mode, c.dates, c.key),
-        dates: c.dates,
-        netVolume: net,
-        noiseFloor,
-        polarity: noiseFloor === null ? 0 : gate(net, noiseFloor),
-        candle: { open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume },
-        live: c.live,
-      };
-    });
+  const candles = aggregatePeriods(bars, mode, bars[bars.length - 1].date);
+  const c = candles[candles.length - 1];
+  if (!c || !c.covered) return [];
+  const floors = c.dates.map((d) => floorByDate.get(d) ?? null);
+  const allReady = floors.every((f) => f !== null);
+  const noiseFloor = allReady ? floors.reduce<number>((sum, f) => sum + (f as number), 0) : null;
+  const net = netVolume({
+    date: c.dates[c.dates.length - 1],
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+    volume: c.volume,
+  });
+  return [
+    {
+      key: c.key,
+      mode,
+      label: labelFor(mode, c.dates, c.key),
+      dates: c.dates,
+      netVolume: net,
+      noiseFloor,
+      polarity: noiseFloor === null ? 0 : gate(net, noiseFloor),
+      candle: { open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume },
+    },
+  ];
 }
 
 /**

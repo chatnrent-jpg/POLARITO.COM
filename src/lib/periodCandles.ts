@@ -25,14 +25,6 @@ export type Period = "week" | "month" | "quarter" | "year";
 /** Slack for a period that opens on a weekend or holiday (Jan 1 + weekend = up to 4 days). */
 export const COVERAGE_SLACK_DAYS = 4;
 
-/** Most candles drawn per view. */
-export const MAX_PERIODS: Readonly<Record<Period, number>> = Object.freeze({
-  week: 26,
-  month: 24,
-  quarter: 12,
-  year: 7,
-});
-
 export type PeriodCandle = {
   key: string;
   period: Period;
@@ -107,29 +99,6 @@ export function periodEnd(iso: string, period: Period): string {
 /** Stable key: the period's first calendar day, so keys sort chronologically. */
 export function periodKey(iso: string, period: Period): string {
   return periodStart(iso, period);
-}
-
-/** New York calendar date for an instant (the session date the feed uses). */
-export function easternDate(now: Date): string {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
-/**
- * Merge older history under the freshest bars. On a date both have, the recent
- * bar wins (it is the live one). Result is strictly ascending by date.
- */
-export function mergeBars(history: readonly Bar[], recent: readonly Bar[]): Bar[] {
-  const byDate = new Map<string, Bar>();
-  for (const b of history) byDate.set(b.date, b);
-  for (const b of recent) byDate.set(b.date, b);
-  return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
 /**

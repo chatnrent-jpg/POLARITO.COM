@@ -1,16 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { periodBucketsFor, sentimentForBucket } from "../src/lib/chartBuckets";
 import {
   aggregatePeriods,
-  easternDate,
-  mergeBars,
   periodEnd,
   periodStart,
   weekStart,
   type Period,
 } from "../src/lib/periodCandles";
-import { computePolaritySeries, type Bar } from "../src/lib/polarity";
+import type { Bar } from "../src/lib/polarity";
 
 /** Weekday bars from `from` (inclusive), n of them, deterministic prices and volume. */
 function makeBars(from: string, n: number): Bar[] {
@@ -68,12 +65,6 @@ describe("period boundaries", () => {
     assert.equal(monthly.length, 2);
     assert.deepEqual(monthly[0].dates, bars.slice(0, 5).map((b) => b.date)); // Jan 26-30
     assert.equal(monthly[1].key, "2026-02-01");
-  });
-
-  it("easternDate gives the New York session date, not the UTC date", () => {
-    assert.equal(easternDate(new Date("2026-11-20T03:00:00Z")), "2026-11-19"); // 22:00 EST the night before
-    assert.equal(easternDate(new Date("2026-07-01T03:59:00Z")), "2026-06-30"); // 23:59 EDT
-    assert.equal(easternDate(new Date("2026-07-01T04:00:00Z")), "2026-07-01");
   });
 });
 
@@ -146,7 +137,7 @@ describe("only the current candle changes", () => {
   });
 });
 
-describe("coverage and merging", () => {
+describe("coverage", () => {
   it("a period is covered only when the loaded history reaches its start", () => {
     const bars = makeBars("2026-01-14", 120); // starts mid January
     const c = aggregatePeriods(bars, "month", bars[bars.length - 1].date);
@@ -161,55 +152,5 @@ describe("coverage and merging", () => {
     const bars = makeBars("2026-01-02", 60); // Jan 1 is a holiday: first bar is Fri Jan 2
     assert.equal(aggregatePeriods(bars, "year", "2026-03-01")[0].covered, true);
     assert.equal(aggregatePeriods(bars, "quarter", "2026-03-01")[0].covered, true);
-  });
-
-  it("mergeBars puts older history under the live bars, recent wins, no duplicates", () => {
-    const history = makeBars("2025-01-02", 40);
-    const recent = makeBars(history[30].date, 30).map((b) => ({ ...b, close: b.close + 50 }));
-    const merged = mergeBars(history, recent);
-    const dates = merged.map((b) => b.date);
-    assert.deepEqual(dates, [...dates].sort());
-    assert.equal(new Set(dates).size, dates.length);
-    const overlap = merged.find((b) => b.date === history[35].date)!;
-    assert.equal(overlap.close, recent.find((b) => b.date === history[35].date)!.close);
-    assert.equal(merged[0].date, history[0].date);
-  });
-});
-
-describe("period buckets through the engine", () => {
-  const bars = makeBars("2024-06-03", 600);
-  const series = computePolaritySeries(bars);
-  const today = bars[bars.length - 1].date;
-
-  it("shows only covered periods, newest last, capped per view", () => {
-    const week = periodBucketsFor(bars, series, "1W", today);
-    const year = periodBucketsFor(bars, series, "1Y", today);
-    assert.equal(week.length, 26);
-    assert.ok(year.length >= 2 && year.length <= 7);
-    assert.equal(week[week.length - 1].live, true);
-    assert.ok(week.slice(0, -1).every((b) => b.live === false));
-    assert.equal(year[year.length - 1].mode, "year");
-  });
-
-  it("the live bucket's Net Volume follows the partial candle; finished ones never move", () => {
-    const live = periodBucketsFor(bars, series, "1M", today);
-    const bumped = bars.map((b, i) => (i === bars.length - 1 ? { ...b, close: b.open - 5, low: b.low - 5 } : b));
-    const bumpedSeries = computePolaritySeries(bumped);
-    const after = periodBucketsFor(bumped, bumpedSeries, "1M", today);
-    live.slice(0, -1).forEach((b, i) => assert.deepEqual(after[i], b));
-    assert.notDeepEqual(after[after.length - 1].candle, live[live.length - 1].candle);
-  });
-
-  it("sentimentForBucket pools the live news days of a period bar", () => {
-    const [b] = periodBucketsFor(bars, series, "1M", today);
-    assert.equal(sentimentForBucket(b, {}).live, false);
-    const byDate: Record<string, unknown> = {};
-    for (const date of b.dates) {
-      byDate[date] = { date, positiveHits: 3, negativeHits: 0, articles: 2, velocity: 1, polarity: 1, source: "news" };
-    }
-    const s = sentimentForBucket(b, byDate as never);
-    assert.equal(s.live, true);
-    assert.equal(s.polarity, 1);
-    assert.equal(s.positiveHits, 3 * b.dates.length);
   });
 });

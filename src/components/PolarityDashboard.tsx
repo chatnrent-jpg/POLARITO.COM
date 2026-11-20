@@ -420,7 +420,6 @@ export default function PolarityDashboard() {
           <PolarityChart
             results={view.results}
             bars={view.bars}
-            ticker={view.ticker}
             sentiment={view.sentiment}
           />
         </>

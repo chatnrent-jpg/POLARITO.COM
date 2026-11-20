@@ -67,34 +67,3 @@ export async function loadBars(
   // Sentiment is optional: malformed/missing entries are dropped and read as Neutral.
   return { ticker: payload.ticker, bars: payload.bars, sentiment: sanitizeSentiment(payload.sentiment) };
 }
-
-/** Public proxy URL for the chart's older daily history. Not a key. */
-export function historyEndpoint(ticker: string): string {
-  const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/$/, "");
-  return `${basePath}/api/bars/history?ticker=${encodeURIComponent(ticker)}`;
-}
-
-/**
- * Older daily bars for the chart's quarterly / yearly candles. Fetched once per
- * ticker and kept for the page session: finished history never changes.
- * Failure rejects (the chart then shows only fully covered periods).
- */
-const historyCache = new Map<string, Promise<Bar[]>>();
-
-export function loadHistoryBars(rawTicker: string, signal?: AbortSignal): Promise<Bar[]> {
-  const ticker = normalizeTicker(rawTicker);
-  if (!ticker) return Promise.reject(new Error("Invalid ticker."));
-  const cached = historyCache.get(ticker);
-  if (cached) return cached;
-  const request = (async () => {
-    const res = await fetch(historyEndpoint(ticker), { cache: "no-store", signal });
-    const payload = (await res.json()) as BarsPayload;
-    if (!payload || typeof payload !== "object" || !payload.ok || !Array.isArray(payload.bars)) {
-      throw new Error("History unavailable.");
-    }
-    return payload.bars;
-  })();
-  historyCache.set(ticker, request);
-  request.catch(() => historyCache.delete(ticker));
-  return request;
-}
