@@ -27,6 +27,14 @@ export const ALPACA_DAILY_TIMEFRAME = "1Day";
 
 /** ~1 year of sessions (252) + 20-day volume warm-up, with holiday margin. */
 const LOOKBACK_CALENDAR_DAYS = 450;
+/** Chart-only history (real quarterly / yearly candles need years of daily bars). */
+export const HISTORY_LOOKBACK_CALENDAR_DAYS = 2600;
+
+/** Default (every existing caller) stays 450 days; only an explicit larger request widens it, capped. */
+export function resolveLookbackDays(requested?: number): number {
+  return Math.min(Math.max(requested ?? LOOKBACK_CALENDAR_DAYS, LOOKBACK_CALENDAR_DAYS), HISTORY_LOOKBACK_CALENDAR_DAYS);
+}
+
 const REQUEST_LIMIT = 10_000; // Alpaca maximum; ~300 bars are expected
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -157,6 +165,7 @@ async function safeMessage(res: Response): Promise<string> {
 export async function fetchRealMarketData(
   ticker: string,
   range: { multiplier?: number; timespan?: string } = {},
+  options: { lookbackDays?: number } = {},
 ): Promise<Bar[]> {
   // 1) Firewall first: nothing else runs if the range is not exactly 1 day.
   const multiplier = range.multiplier ?? REQUIRED_MULTIPLIER;
@@ -187,7 +196,7 @@ export async function fetchRealMarketData(
   const feed = readFeed();
 
   const end = new Date();
-  const start = new Date(end.getTime() - LOOKBACK_CALENDAR_DAYS * 86_400_000);
+  const start = new Date(end.getTime() - resolveLookbackDays(options.lookbackDays) * 86_400_000);
 
   const url = new URL(ALPACA_BARS_URL);
   url.searchParams.set("symbols", symbol);

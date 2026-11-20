@@ -1,16 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   coerceTimeframe,
+  computePolaritySeries,
   DEFAULT_TIMEFRAME,
   metaFor,
   TIMEFRAMES,
   windowFor,
+  type Bar,
   type DayResult,
   type Timeframe,
 } from "@/lib/polarity";
-import { BUCKET_MODE, bucketsFor, sentimentForBucket } from "@/lib/chartBuckets";
+import { loadHistoryBars } from "@/lib/barsClient";
+import { BUCKET_MODE, bucketsFor, periodBucketsFor, sentimentForBucket } from "@/lib/chartBuckets";
+import { easternDate, mergeBars } from "@/lib/periodCandles";
 import {
   hasLiveSentiment,
   sentimentMeta,
@@ -25,6 +29,14 @@ const FLOOR_STROKE = "#cbd5e1"; // slate-300: crisp against the dark card
 const SENTIMENT_STROKE = "#c026ff"; // neon purple: neutral / unavailable news days
 const SENTIMENT_GOOD = "#22c55e"; // green: good-news day (+1 Driving)
 const SENTIMENT_BAD = "#ef4444"; // red: bad-news day (-1 Reversing)
+
+const UNIT_LABEL = {
+  day: "daily",
+  week: "weekly",
+  month: "monthly",
+  quarter: "quarterly",
+  year: "yearly",
+} as const;
 
 const sentimentColor = (polarity: number) =>
   polarity > 0 ? SENTIMENT_GOOD : polarity < 0 ? SENTIMENT_BAD : SENTIMENT_STROKE;
@@ -52,10 +64,18 @@ function compact(n: number): string {
  */
 export default function PolarityChart({
   results,
+  bars,
+  ticker,
   sentiment,
   initialTimeframe = DEFAULT_TIMEFRAME,
+  loadHistory = loadHistoryBars,
 }: {
   results: readonly DayResult[];
+  /** The real daily bars behind `results` (newest bar is the live one). */
+  bars: readonly Bar[];
+  ticker: string;
+  /** Older daily bars for quarterly / yearly candles. Defaults to the /api/bars/history proxy. */
+  loadHistory?: (ticker: string) => Promise<Bar[]>;
   /** Live news sentiment, by date. Missing or unavailable days plot as 0 (Neutral). */
   sentiment?: SentimentByDate;
   initialTimeframe?: Timeframe;
@@ -66,10 +86,51 @@ export default function PolarityChart({
 
   const [hover, setHover] = useState<number | null>(null);
 
-  const view = useMemo(() => windowFor(results, timeframe), [results, timeframe]);
-  // 1D/1W/1M: one bar per day. 3M: weekly bars. 1Y: monthly bars.
-  const buckets = useMemo(() => bucketsFor(view, timeframe), [view, timeframe]);
   const barUnit = BUCKET_MODE[timeframe];
+  const periodView = barUnit !== "day";
+  // Only quarterly / yearly bars need more than the ~450 days already loaded; fetched lazily on selection.
+  const needsHistory = barUnit === "quarter" || barUnit === "year";
+
+  // Older history (failure leaves it null, which hides uncovered periods); fetched once per ticker.
+  const [history, setHistory] = useState<{ ticker: string; bars: Bar[] | null } | null>(null);
+  useEffect(() => {
+    if (!needsHistory || !ticker) return;
+    let cancelled = false;
+    loadHistory(ticker).then(
+      (older) => {
+        if (!cancelled) setHistory({ ticker, bars: older });
+      },
+      () => {
+        if (!cancelled) setHistory({ ticker, bars: null });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [needsHistory, ticker, loadHistory]);
+  const olderBars = needsHistory && history?.ticker === ticker ? history.bars : null;
+
+  // New York "today" decides which period is still live. Read after mount (and on each data refresh), never during render.
+  const [clockToday, setClockToday] = useState<string | null>(null);
+  useEffect(() => {
+    const id = setTimeout(() => setClockToday(easternDate(new Date())), 0);
+    return () => clearTimeout(id);
+  }, [bars]);
+
+  // 1D: the latest session. 1W / 1M / 3M / 1Y: one real candle per week / month / quarter / year.
+  const buckets = useMemo(() => {
+    if (!periodView) return bucketsFor(windowFor(results, "1D"));
+    let merged = mergeBars(olderBars ?? [], bars);
+    let series: readonly DayResult[];
+    try {
+      series = computePolaritySeries(merged);
+    } catch {
+      merged = [...bars];
+      series = results;
+    }
+    const todayEt = clockToday ?? merged[merged.length - 1]?.date ?? "";
+    return periodBucketsFor(merged, series, timeframe, todayEt);
+  }, [periodView, results, bars, olderBars, timeframe, clockToday]);
   const liveSentiment = useMemo(() => hasLiveSentiment(sentiment), [sentiment]);
 
   const geometry = useMemo(() => {
@@ -148,7 +209,7 @@ export default function PolarityChart({
   const hovered = hover !== null && hover < buckets.length ? buckets[hover] : null;
   const hoveredSent = hovered ? sentimentForBucket(hovered, sentiment) : null;
 
-  const last = view[view.length - 1];
+  const last = results[results.length - 1];
   const lastMeta = last ? metaFor(last.polarity) : metaFor(0);
 
   function select(next: string) {
@@ -166,7 +227,7 @@ export default function PolarityChart({
           Net Volume · {timeframe}
           {barUnit !== "day" && (
             <span className="ml-2 text-sm font-semibold normal-case tracking-normal text-slate-300">
-              ({barUnit === "week" ? "weekly" : "monthly"} bars)
+              ({UNIT_LABEL[barUnit]} bars)
             </span>
           )}
         </h2>
@@ -398,7 +459,7 @@ export default function PolarityChart({
           </span>
           <span>
             <strong className="font-bold text-white">Bars</strong> ={" "}
-            {barUnit === "day" ? "daily" : barUnit === "week" ? "weekly" : "monthly"} Net Volume
+            {UNIT_LABEL[barUnit]} Net Volume
           </span>
         </li>
         <li className="flex items-center gap-3">

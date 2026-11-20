@@ -1,39 +1,67 @@
 /**
- * Chart bars. 1D / 1W / 1M show one bar per trading day. 3M groups days into
- * weekly bars and 1Y into monthly bars, so those views stay readable.
+ * Chart bars.
  *
- * A grouped bar uses the SAME rule as a day: the period's Net Volume (sum of the
- * daily Net Volumes) is gated against the period's Noise Floor (sum of the daily
- * floors). That is equivalent to gating the average day. A period with any day
- * that lacks 20 bars of history stays Neutral, exactly as a single day would.
- * Single-day bars pass the engine's own numbers through untouched.
+ *   1D  one bar: the latest session (unchanged).
+ *   1W  one real WEEKLY candle per ISO week      1M  one per calendar month
+ *   3M  one per calendar quarter                 1Y  one per calendar year
+ *
+ * A period bar is built from the real daily bars of its period (periodCandles.ts):
+ * open of the first, high of the max, low of the min, close of the last, volume
+ * summed. It is then read with the SAME engine rule a single day uses: the
+ * engine's own `netVolume` of that candle (green = +volume, red = -volume, flat =
+ * close-location x volume) gated by `gate` against a Noise Floor. The period's
+ * floor is the sum of its days' floors (each is 10% of the trailing 20-day
+ * average volume), the same number scaled to the period. A period with any day
+ * that lacks 20 bars of history stays Neutral with no floor, exactly as a single
+ * day would. Only the current period's bar is live; finished periods never move.
  */
-import { gate, type DayResult, type Polarity, type Timeframe } from "@/lib/polarity";
+import { gate, netVolume, type DayResult, type Polarity, type Timeframe } from "@/lib/polarity";
+import {
+  aggregatePeriods,
+  MAX_PERIODS,
+  weekStart,
+  type Period,
+} from "@/lib/periodCandles";
 import {
   classifySentiment,
   type SentimentByDate,
 } from "@/lib/sentimentEngine";
+import type { Bar } from "@/lib/polarity";
 
-export type BucketMode = "day" | "week" | "month";
+export { weekStart };
+
+export type BucketMode = "day" | Period;
 
 export const BUCKET_MODE: Readonly<Record<Timeframe, BucketMode>> = Object.freeze({
   "1D": "day",
-  "1W": "day",
-  "1M": "day",
-  "3M": "week",
-  "1Y": "month",
+  "1W": "week",
+  "1M": "month",
+  "3M": "quarter",
+  "1Y": "year",
 });
+
+export type BucketCandle = {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
 
 export type Bucket = {
   key: string;
   mode: BucketMode;
-  /** Human label: a date, a date range, or a month. */
+  /** Human label: a date, a date range, a month, a quarter or a year. */
   label: string;
   /** Trading days (ISO dates) inside this bar. */
   dates: string[];
   netVolume: number;
   noiseFloor: number | null;
   polarity: Polarity;
+  /** Real OHLC + summed volume of a period bar. Absent on single-day bars. */
+  candle?: BucketCandle;
+  /** Period bars only: true while the period is still running (the only bar that changes). */
+  live?: boolean;
 };
 
 export type BucketSentiment = {
@@ -49,72 +77,85 @@ export type BucketSentiment = {
 const fmtDate = (iso: string, opts: Intl.DateTimeFormatOptions) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", ...opts });
 
-/** Monday of the week containing this ISO date (UTC). */
-export function weekStart(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  const back = (d.getUTCDay() + 6) % 7; // Mon=0 ... Sun=6
-  d.setUTCDate(d.getUTCDate() - back);
-  return d.toISOString().slice(0, 10);
-}
-
-function labelFor(mode: BucketMode, dates: string[]): string {
+function labelFor(mode: BucketMode, dates: string[], key: string): string {
   const first = dates[0];
   const last = dates[dates.length - 1];
-  if (mode === "day") {
-    return fmtDate(first, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-  }
-  if (mode === "week") {
-    const a = fmtDate(first, { month: "short", day: "numeric" });
-    const b = fmtDate(last, { month: "short", day: "numeric", year: "numeric" });
-    return first === last ? b : `${a} – ${b}`;
-  }
-  return `${fmtDate(first, { month: "long", year: "numeric" })}`;
-}
-
-function groupKey(mode: BucketMode, date: string): string {
-  if (mode === "week") return weekStart(date);
-  if (mode === "month") return date.slice(0, 7);
-  return date;
-}
-
-/** Group a window of daily results into chart bars for the given timeframe. */
-export function bucketsFor(view: readonly DayResult[], timeframe: Timeframe): Bucket[] {
-  const mode = BUCKET_MODE[timeframe] ?? "day";
-  const groups = new Map<string, DayResult[]>();
-  for (const d of view) {
-    const k = groupKey(mode, d.date);
-    const g = groups.get(k);
-    if (g) g.push(d);
-    else groups.set(k, [d]);
-  }
-
-  return [...groups.entries()].map(([key, days]) => {
-    const dates = days.map((d) => d.date);
-    if (days.length === 1) {
-      const d = days[0];
-      return {
-        key,
-        mode,
-        label: labelFor(mode, dates),
-        dates,
-        netVolume: d.netVolume,
-        noiseFloor: d.noiseFloor,
-        polarity: d.polarity,
-      };
+  switch (mode) {
+    case "day":
+      return fmtDate(first, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    case "week": {
+      const a = fmtDate(first, { month: "short", day: "numeric" });
+      const b = fmtDate(last, { month: "short", day: "numeric", year: "numeric" });
+      return first === last ? b : `${a} – ${b}`;
     }
-    const netVolume = days.reduce((s, d) => s + d.netVolume, 0);
-    const allReady = days.every((d) => d.noiseFloor !== null);
-    const noiseFloor = allReady ? days.reduce((s, d) => s + (d.noiseFloor as number), 0) : null;
-    return {
-      key,
-      mode,
-      label: labelFor(mode, dates),
-      dates,
-      netVolume,
-      noiseFloor,
-      polarity: noiseFloor === null ? 0 : gate(netVolume, noiseFloor),
-    };
-  });
+    case "month":
+      return fmtDate(first, { month: "long", year: "numeric" });
+    case "quarter": {
+      const q = Math.floor((Number(key.slice(5, 7)) - 1) / 3) + 1;
+      return `Q${q} ${key.slice(0, 4)}`;
+    }
+    case "year":
+      return key.slice(0, 4);
+  }
+}
+
+/** One bar per trading day, carrying the engine's own numbers untouched. */
+export function bucketsFor(view: readonly DayResult[]): Bucket[] {
+  return view.map((d) => ({
+    key: d.date,
+    mode: "day" as const,
+    label: labelFor("day", [d.date], d.date),
+    dates: [d.date],
+    netVolume: d.netVolume,
+    noiseFloor: d.noiseFloor,
+    polarity: d.polarity,
+  }));
+}
+
+/**
+ * Real period candles for 1W / 1M / 3M / 1Y. `bars` are the real daily bars (recent
+ * live bars merged over older history) and `results` is the engine's series over
+ * those same bars (for each day's Noise Floor). Only periods the loaded history
+ * fully covers are returned, newest `MAX_PERIODS` of them.
+ */
+export function periodBucketsFor(
+  bars: readonly Bar[],
+  results: readonly DayResult[],
+  timeframe: Timeframe,
+  todayEt: string,
+): Bucket[] {
+  const mode = BUCKET_MODE[timeframe];
+  if (mode === "day") return [];
+  const floorByDate = new Map<string, number | null>();
+  for (const r of results) floorByDate.set(r.date, r.noiseFloor);
+
+  return aggregatePeriods(bars, mode, todayEt)
+    .filter((c) => c.covered)
+    .slice(-MAX_PERIODS[mode])
+    .map((c) => {
+      const floors = c.dates.map((d) => floorByDate.get(d) ?? null);
+      const allReady = floors.every((f) => f !== null);
+      const noiseFloor = allReady ? floors.reduce<number>((s, f) => s + (f as number), 0) : null;
+      const net = netVolume({
+        date: c.dates[c.dates.length - 1],
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume,
+      });
+      return {
+        key: c.key,
+        mode,
+        label: labelFor(mode, c.dates, c.key),
+        dates: c.dates,
+        netVolume: net,
+        noiseFloor,
+        polarity: noiseFloor === null ? 0 : gate(net, noiseFloor),
+        candle: { open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume },
+        live: c.live,
+      };
+    });
 }
 
 /**

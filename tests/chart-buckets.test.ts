@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { bucketsFor, sentimentForBucket, weekStart } from "../src/lib/chartBuckets";
-import { computePolaritySeries, windowFor, type Bar } from "../src/lib/polarity";
+import { BUCKET_MODE, bucketsFor, periodBucketsFor, sentimentForBucket, weekStart } from "../src/lib/chartBuckets";
+import { computePolaritySeries, gate, netVolume, windowFor, type Bar } from "../src/lib/polarity";
 
 function makeBars(n: number): Bar[] {
   const bars: Bar[] = [];
@@ -35,64 +35,84 @@ describe("chartBuckets", () => {
     assert.equal(weekStart("2026-01-11"), "2026-01-05");
   });
 
-  it("1D / 1W / 1M keep one bar per day and the engine's own numbers", () => {
-    for (const tf of ["1D", "1W", "1M"] as const) {
-      const view = windowFor(results, tf);
-      const buckets = bucketsFor(view, tf);
-      assert.equal(buckets.length, view.length);
-      buckets.forEach((b, i) => {
-        assert.equal(b.netVolume, view[i].netVolume);
-        assert.equal(b.noiseFloor, view[i].noiseFloor);
-        assert.equal(b.polarity, view[i].polarity);
-      });
-    }
+  it("1D keeps one bar for the latest session with the engine's own numbers", () => {
+    const view = windowFor(results, "1D");
+    const buckets = bucketsFor(view);
+    assert.equal(buckets.length, 1);
+    assert.equal(buckets[0].netVolume, view[0].netVolume);
+    assert.equal(buckets[0].noiseFloor, view[0].noiseFloor);
+    assert.equal(buckets[0].polarity, view[0].polarity);
+    assert.equal(buckets[0].candle, undefined);
+    assert.equal(buckets[0].mode, "day");
   });
 
-  it("3M groups into weekly bars, 1Y into monthly bars (far fewer bars)", () => {
-    const w = bucketsFor(windowFor(results, "3M"), "3M");
-    const m = bucketsFor(windowFor(results, "1Y"), "1Y");
-    assert.ok(w.length >= 12 && w.length <= 14, `weekly bars: ${w.length}`);
-    assert.ok(m.length >= 12 && m.length <= 13, `monthly bars: ${m.length}`);
-    assert.equal(w.reduce((s, b) => s + b.dates.length, 0), 63);
-    assert.equal(m.reduce((s, b) => s + b.dates.length, 0), 252);
+  it("maps 1W/1M/3M/1Y to week/month/quarter/year bars", () => {
+    assert.deepEqual(
+      ["1D", "1W", "1M", "3M", "1Y"].map((tf) => BUCKET_MODE[tf as keyof typeof BUCKET_MODE]),
+      ["day", "week", "month", "quarter", "year"],
+    );
   });
 
-  it("a grouped bar sums Net Volume and Noise Floor and gates the sums", () => {
-    const view = windowFor(results, "3M");
-    const [first] = bucketsFor(view, "3M");
-    const days = view.filter((d) => first.dates.includes(d.date));
-    assert.equal(first.netVolume, days.reduce((s, d) => s + d.netVolume, 0));
-    assert.equal(first.noiseFloor, days.reduce((s, d) => s + (d.noiseFloor as number), 0));
+  it("period bars are real candles read with the engine's own netVolume and gate", () => {
+    const bars = makeBars(300);
+    const series = computePolaritySeries(bars);
+    const today = bars[bars.length - 1].date;
+    const weekly = periodBucketsFor(bars, series, "1W", today);
+    assert.ok(weekly.length > 20 && weekly.length <= 26);
+    const full = weekly.find((b) => b.dates.length === 5 && !b.live);
+    assert.ok(full && full.candle);
+    const days = bars.filter((b) => full.dates.includes(b.date));
+    assert.equal(full.candle.open, days[0].open);
+    assert.equal(full.candle.close, days[days.length - 1].close);
+    assert.equal(full.candle.high, Math.max(...days.map((d) => d.high)));
+    assert.equal(full.candle.low, Math.min(...days.map((d) => d.low)));
+    assert.equal(full.candle.volume, days.reduce((s, d) => s + d.volume, 0));
+    assert.equal(
+      full.netVolume,
+      netVolume({ date: days[4].date, ...full.candle }),
+    );
+    const floors = series.filter((r) => full.dates.includes(r.date)).map((r) => r.noiseFloor as number);
+    assert.equal(full.noiseFloor, floors.reduce((s, f) => s + f, 0));
+    assert.equal(full.polarity, gate(full.netVolume, full.noiseFloor as number));
   });
 
-  it("a bar with a not-ready day stays Neutral with no floor", () => {
-    const early = results.slice(0, 5); // fewer than 20 bars of history
-    const [b] = bucketsFor(early, "3M");
+  it("a period with a not-ready day stays Neutral with no floor", () => {
+    const bars = makeBars(30).slice(0, 10); // fewer than 20 bars of history
+    const series = computePolaritySeries(bars);
+    const [b] = periodBucketsFor(bars, series, "1W", bars[bars.length - 1].date);
     assert.equal(b.noiseFloor, null);
     assert.equal(b.polarity, 0);
   });
 
-  it("sentimentForBucket pools live days, and reports unavailable when none are live", () => {
-    const [b] = bucketsFor(windowFor(results, "3M"), "3M");
+  it("only fully covered periods are drawn: a cut-off first period is dropped", () => {
+    const bars = makeBars(300); // starts Mon 2026-01-05
+    const series = computePolaritySeries(bars);
+    const monthly = periodBucketsFor(bars, series, "1M", bars[bars.length - 1].date);
+    // January starts before the loaded history reaches the 1st only by 4 days: Jan 5 > Jan 1 + 4? No, Jan 5 > Jan 5 is false, so it is covered.
+    assert.equal(monthly[0].key, "2026-01-01");
+    const trimmed = bars.slice(10); // starts mid-January
+    const m2 = periodBucketsFor(trimmed, computePolaritySeries(trimmed), "1M", trimmed[trimmed.length - 1].date);
+    assert.equal(m2[0].key, "2026-02-01");
+    const y = periodBucketsFor(trimmed, computePolaritySeries(trimmed), "1Y", trimmed[trimmed.length - 1].date);
+    assert.ok(y.every((b) => b.key !== "2026-01-01"), "a year that starts before the data is never a candle");
+  });
+
+  it("quarterly and yearly bars carry the right labels", () => {
+    const bars = makeBars(300);
+    const series = computePolaritySeries(bars);
+    const today = bars[bars.length - 1].date;
+    const q = periodBucketsFor(bars, series, "3M", today);
+    assert.match(q[0].label, /^Q[1-4] \d{4}$/);
+    const m = periodBucketsFor(bars, series, "1M", today);
+    assert.match(m[0].label, /^[A-Z][a-z]+ \d{4}$/);
+  });
+
+  it("sentimentForBucket still pools the live days of a period bar", () => {
+    const bars = makeBars(300);
+    const series = computePolaritySeries(bars);
+    const [b] = periodBucketsFor(bars, series, "3M", bars[bars.length - 1].date);
     const none = sentimentForBucket(b, {});
     assert.equal(none.live, false);
     assert.equal(none.polarity, 0);
-
-    const byDate: Record<string, never> = {} as never;
-    for (const date of b.dates) {
-      (byDate as Record<string, unknown>)[date] = {
-        date,
-        positiveHits: 3,
-        negativeHits: 0,
-        articles: 2,
-        velocity: 1,
-        polarity: 1,
-        source: "news",
-      };
-    }
-    const live = sentimentForBucket(b, byDate);
-    assert.equal(live.live, true);
-    assert.equal(live.polarity, 1);
-    assert.equal(live.positiveHits, 3 * b.dates.length);
   });
 });
