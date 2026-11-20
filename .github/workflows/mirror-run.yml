@@ -1,0 +1,135 @@
+name: Mirror run
+
+# Drives the live Alpaca paper mirror (/api/cron/mirror-run) every ~10s during the US
+# session so the paper account follows POLARITO's SPY polarity with no added lag.
+#
+# GitHub's schedule trigger is 5-minute minimum and often late, so it is used only to START
+# a job. The job then loops by itself and decides when to run from the New York clock, which
+# handles daylight saving time: two cron entries (13:20 and 14:20 UTC) cover both EDT and EST,
+# and a run that starts outside 09:20-16:02 New York (or on a weekend) exits at once.
+#
+# A job may run at most 6h, and the session is 6.5h, so a job stops after 5.5h and starts the
+# next run itself (workflow_dispatch). The concurrency group queues that run until this one
+# ends, so two loops never overlap and the hand-off has no gap.
+#
+# Needs (Settings -> Secrets and variables -> Actions):
+#   secret    POLARITO_CRON_SECRET  same value as CRON_SECRET in Vercel (already used by loss-check.yml)
+#   variable  POLARITO_BASE_URL     e.g. https://www.polarito.com  (optional; that is the default)
+# The endpoint does nothing unless Vercel has POLARITO_PAPER_INSTRUMENT=mirror, and it only
+# sends orders when POLARITO_PAPER_TRADING_ENABLED=1 and the kill switch is off.
+#
+# Cost: standard runners are free and unlimited on a PUBLIC repo. On a PRIVATE repo this job
+# bills about 400 minutes per trading day (~8,400 per month), far above the 2,000 (Free) or
+# 3,000 (Pro) included; at the Linux rate of $0.008/min that is roughly $50-65/month.
+
+on:
+  schedule:
+    - cron: "20 13 * * 1-5"
+    - cron: "20 14 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: mirror-run
+  cancel-in-progress: false
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - name: Call the mirror every 10 seconds while the market is open
+        env:
+          POLARITO_CRON_SECRET: ${{ secrets.POLARITO_CRON_SECRET }}
+          POLARITO_BASE_URL: ${{ vars.POLARITO_BASE_URL }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -u
+          BASE="${POLARITO_BASE_URL:-https://www.polarito.com}"
+          BASE="${BASE%/}"
+          case "$BASE" in
+            https://*) ;;
+            *) echo "POLARITO_BASE_URL must start with https://" >&2; exit 1 ;;
+          esac
+          if [ -z "${POLARITO_CRON_SECRET:-}" ]; then
+            echo "POLARITO_CRON_SECRET is not set in this repository's secrets." >&2
+            exit 1
+          fi
+
+          INTERVAL=10            # seconds between calls
+          MAX_SECONDS=19800      # 5h30m per job, under the 6h job limit
+          OPEN_MIN=$((9 * 60 + 20))    # start 10 minutes before the 09:30 open
+          CLOSE_MIN=$((16 * 60 + 2))   # stop just after the 16:00 close
+          HOLIDAY_AFTER=$((10 * 60))   # after 10:00 ET, repeated "bar is not today" means a holiday
+          HOLIDAY_STREAK=30
+          OUT="${RUNNER_TEMP:-/tmp}/mirror-out.json"
+
+          et_now() { TZ=America/New_York date '+%u %H:%M:%S'; }
+          in_window() {
+            local dow hms h m mins
+            read -r dow hms < <(et_now)
+            h="${hms:0:2}"; m="${hms:3:2}"
+            mins=$((10#$h * 60 + 10#$m))
+            [ "$dow" -le 5 ] && [ "$mins" -ge "$OPEN_MIN" ] && [ "$mins" -lt "$CLOSE_MIN" ]
+          }
+          et_minutes() {
+            local dow hms
+            read -r dow hms < <(et_now)
+            echo $((10#${hms:0:2} * 60 + 10#${hms:3:2}))
+          }
+
+          if ! in_window; then
+            echo "Outside the US session window (weekday 09:20-16:02 New York). Nothing to do."
+            exit 0
+          fi
+
+          START=$SECONDS
+          stale=0
+          failures=0
+          while in_window; do
+            if [ $((SECONDS - START)) -ge "$MAX_SECONDS" ]; then
+              echo "Reached the 5h30m job limit with the market still open. Starting the next run."
+              gh workflow run mirror-run.yml --repo "$GITHUB_REPOSITORY" --ref "${GITHUB_REF_NAME:-master}" \
+                || { echo "Could not start the next run." >&2; exit 1; }
+              exit 0
+            fi
+            tick=$SECONDS
+            code=$(curl --silent --show-error --max-time 25 --output "$OUT" --write-out '%{http_code}' \
+              -H "Authorization: Bearer $POLARITO_CRON_SECRET" \
+              "$BASE/api/cron/mirror-run?ticks=1" 2>/dev/null) || code=000
+            summary=$(jq -r 'if .action == "none" then .reason
+                             else [.reports[]?.results[]? | "\(.outcome): \(.reason[0:110])"] | join(" | ") end' "$OUT" 2>/dev/null || true)
+            echo "$(TZ=America/New_York date '+%H:%M:%S') ET http=$code ${summary:-no body}"
+
+            if [ "$code" = "401" ]; then
+              echo "Unauthorized: POLARITO_CRON_SECRET does not match CRON_SECRET in Vercel." >&2
+              exit 1
+            fi
+            if jq -e '.action == "none"' "$OUT" >/dev/null 2>&1; then
+              echo "The site is not in mirror mode (POLARITO_PAPER_INSTRUMENT=mirror). Stopping."
+              exit 0
+            fi
+            if [ "$code" = "200" ]; then failures=0; else failures=$((failures + 1)); fi
+            if [ "$failures" -ge 60 ]; then
+              echo "60 failed calls in a row. Stopping so the failure is visible." >&2
+              exit 1
+            fi
+            if jq -e '[.reports[]?.results[]? | select(.reason | test("is not today"))] | length > 0' "$OUT" >/dev/null 2>&1 \
+               && [ "$(et_minutes)" -ge "$HOLIDAY_AFTER" ]; then
+              stale=$((stale + 1))
+            else
+              stale=0
+            fi
+            if [ "$stale" -ge "$HOLIDAY_STREAK" ]; then
+              echo "No bar for today after 10:00 New York: the market looks closed today. Stopping."
+              exit 0
+            fi
+
+            spent=$((SECONDS - tick))
+            [ "$spent" -lt "$INTERVAL" ] && sleep $((INTERVAL - spent))
+          done
+          echo "The session window has ended."

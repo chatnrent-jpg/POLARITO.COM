@@ -11,7 +11,7 @@
  */
 export const AUDIT_VERSION = 1;
 
-export const AUDIT_SOURCES = ["browser-sim", "paper-runner", "options-runner"] as const;
+export const AUDIT_SOURCES = ["browser-sim", "paper-runner", "options-runner", "mirror-runner"] as const;
 export type AuditSource = (typeof AUDIT_SOURCES)[number];
 
 export const AUDIT_OUTCOMES = [

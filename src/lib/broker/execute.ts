@@ -36,12 +36,15 @@ export type ExecuteResult =
   | { ok: false; code: ExecuteCode; error: string };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const CLIENT_ORDER_ID = /^[A-Za-z0-9_.-]{1,48}$/;
 
 const refuse = (code: ExecuteCode, error: string): ExecuteResult => ({ ok: false, code, error });
 
 /** Deterministic: the same signal can only ever produce the same order id. */
-export function clientOrderIdFor(intent: Pick<OrderIntent, "action" | "ticker" | "side" | "signalDate">): string {
-  return `pol-${intent.ticker}-${intent.action}-${intent.side}-${intent.signalDate}`;
+export function clientOrderIdFor(
+  intent: Pick<OrderIntent, "action" | "ticker" | "side" | "signalDate" | "clientOrderId">,
+): string {
+  return intent.clientOrderId ?? `pol-${intent.ticker}-${intent.action}-${intent.side}-${intent.signalDate}`;
 }
 
 export function validateIntent(intent: OrderIntent): { ok: true; ticker: string } | { ok: false; error: string } {
@@ -65,6 +68,9 @@ export function validateIntent(intent: OrderIntent): { ok: true; ticker: string 
     if (!Number.isSafeInteger(intent.quantity) || intent.quantity < 1 || intent.quantity > MAX_SHARES) {
       return { ok: false, error: `Quantity must be a whole number from 1 to ${MAX_SHARES.toLocaleString("en-US")}.` };
     }
+  }
+  if (intent.clientOrderId !== undefined && !CLIENT_ORDER_ID.test(intent.clientOrderId)) {
+    return { ok: false, error: "Client order id must be 1-48 letters, digits, '_', '.' or '-'." };
   }
   if (intent.timeInForce !== undefined && intent.timeInForce !== "day" && intent.timeInForce !== "opg") {
     return { ok: false, error: "Unknown time in force." };

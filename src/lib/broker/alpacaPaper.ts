@@ -239,6 +239,21 @@ export class AlpacaPaperBroker implements OptionsBroker {
     return order ? { ok: true, value: order } : fail("MALFORMED", "Order response failed validation.");
   }
 
+  /** Number of still-working (open) orders for one symbol. */
+  async openOrderCount(ticker: string): Promise<Result<number, BrokerErrorCode>> {
+    const res = await this.request(
+      "GET",
+      `/v2/orders?status=open&limit=50&symbols=${encodeURIComponent(ticker)}`,
+    );
+    if (!res.ok) return res;
+    const d = res.value.data;
+    if (res.value.status !== 200 || !Array.isArray(d)) return fail("MALFORMED", "Unexpected open orders response.");
+    for (const item of d) {
+      if (!parseOrder(item)) return fail("MALFORMED", "An open order failed validation; refusing to trust the list.");
+    }
+    return { ok: true, value: d.length };
+  }
+
   async submitMarketOrder(req: MarketOrderRequest): Promise<Result<BrokerOrder, BrokerErrorCode>> {
     if (!Number.isSafeInteger(req.quantity) || req.quantity < 1) {
       return fail("REJECTED", "Order quantity must be a whole number of shares.");
