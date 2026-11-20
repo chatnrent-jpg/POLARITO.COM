@@ -201,17 +201,27 @@ describe("close, then re-enter the same day, with real orders", () => {
     assert.match(t.audit.at(-1)!.reason, /Standing aside|shorting needs/);
   });
 
-  it("the daily entry cap ends re-entry (rejected entries count too)", async () => {
-    const t = pickSetup({ specs: SPECS(), env: { POLARITO_LIVE_MAX_ENTRIES: "1" } });
+  it("re-entry is unlimited: ten close/re-enter cycles all go through, decided only by polarity", async () => {
+    const t = pickSetup({ specs: SPECS() });
     await tick(t);
-    await closeLivePosition(closeDeps(t), "NVDA");
+    for (let i = 0; i < 10; i++) {
+      const closed = await closeLivePosition(closeDeps(t), "NVDA");
+      assert.ok(closed.ok && closed.status === "submitted");
+      await tick(t);
+      assert.equal(t.broker.positions.length, 1, `cycle ${i}`);
+    }
+    assert.equal(t.broker.submitted.length, 21);
+    assert.equal(t.broker.submitted.at(-1)!.clientOrderId, "pol-20261119-e11-NVDA");
+    assert.ok(!t.audit.some((a) => /entry cap/i.test(a.reason)));
+  });
+
+  it("rejected entries never block re-entry (the entry number just moves on)", async () => {
+    const t = pickSetup({ specs: SPECS() });
+    for (const n of [1, 2, 3, 4]) {
+      t.broker.orders.push({ ...filled(`pol-20261119-e0${n}-NVDA`, "NVDA"), status: n % 2 ? "rejected" : "canceled" });
+    }
     await tick(t);
-    assert.equal(t.broker.submitted.length, 2);
-    assert.match(t.audit.at(-1)!.reason, /Daily entry cap \(1\) reached/);
-    const rej = pickSetup({ specs: SPECS(), env: { POLARITO_LIVE_MAX_ENTRIES: "1" } });
-    rej.broker.orders.push({ ...filled("pol-20261119-e01-NVDA", "NVDA"), status: "rejected" });
-    await tick(rej);
-    assert.equal(rej.broker.submitted.length, 0);
+    assert.deepEqual(ids(t), ["pol-20261119-e05-NVDA"]);
   });
 
   it("the next entry number comes from the broker's orders, so a restart cannot reuse an id", async () => {

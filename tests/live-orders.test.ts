@@ -64,7 +64,7 @@ describe("deriveDayState", () => {
     assert.deepEqual([s.maxEntry, s.entryCount, s.lockTicker, s.stoppedToday], [0, 0, null, false]);
   });
 
-  it("counts entries (rejected ones too), locks to the first stock, and sees a stop marker", () => {
+  it("numbers every entry id (rejected too) but counts only live ones, locks to the first stock, and sees a stop marker", () => {
     const s = deriveDayState(
       [
         order("pol-20261119-e02-NVDA", "rejected", "NVDA"),
@@ -75,7 +75,7 @@ describe("deriveDayState", () => {
       TODAY,
     );
     assert.equal(s.maxEntry, 2);
-    assert.equal(s.entryCount, 2);
+    assert.equal(s.entryCount, 1, "a rejected entry is not counted");
     assert.equal(s.lockTicker, "NVDA");
     assert.equal(s.stoppedToday, true);
   });

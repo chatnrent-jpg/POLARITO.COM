@@ -52,7 +52,7 @@ export type DayState = {
   orders: DayOrder[];
   /** Highest entry number used today (0 when none). The next entry is maxEntry + 1. */
   maxEntry: number;
-  /** Entry orders placed today, rejected and canceled ones included. */
+  /** Entry orders today that did not fail (rejected / canceled ones are not counted). Informational only: nothing caps entries. */
   entryCount: number;
   /** Ticker of the day's first entry; later entries are for this stock only. null before the first entry. */
   lockTicker: string | null;
@@ -71,7 +71,7 @@ export function deriveDayState(orders: readonly BrokerOrder[], date: string): Da
     date,
     orders: parsed,
     maxEntry: entries.reduce((m, p) => Math.max(m, p.id.nn), 0),
-    entryCount: entries.length,
+    entryCount: entries.filter((p) => !isFailedStatus(p.order.status)).length,
     lockTicker: entries.length > 0 ? entries[0].id.ticker : null,
     stoppedToday: parsed.some((p) => p.id.kind === "s"),
   };

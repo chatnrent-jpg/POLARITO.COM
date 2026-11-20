@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { logAudit } from "@/lib/audit";
 import { createLiveBroker, liveBrokerConfig, liveOptedIn, liveSettings } from "@/lib/broker/liveConfig";
+import { createAutoStore, readAutoState } from "@/lib/liveAutoStore";
 import { cronAuthorized } from "@/lib/cronAuth";
 import { fetchRealMarketData } from "@/lib/marketApi";
 import { MIRROR_TICK_GAP_MS } from "@/lib/mirrorRunner";
@@ -20,6 +21,8 @@ const MAX_TICKS = 12;
  * POLARITO_PAPER_INSTRUMENT=pick AND POLARITO_LIVE_ACCOUNT=1, so a scheduler can keep
  * calling it harmlessly. Orders also need POLARITO_LIVE_TRADING_ENABLED=1 and an off
  * kill switch; until then every tick only observes and audits. `dry=1` never sends.
+ * Signal-driven orders also need the persisted live Auto switch ON (default OFF; set from the
+ * site). Stop-out and end-of-day flatten ignore it.
  * Auth: `Authorization: Bearer $CRON_SECRET`; no secret => nobody gets in.
  */
 export async function GET(request: NextRequest) {
@@ -53,7 +56,9 @@ export async function GET(request: NextRequest) {
     const requested = Number(request.nextUrl.searchParams.get("ticks") ?? "1");
     const ticks = Number.isSafeInteger(requested) ? Math.min(Math.max(requested, 1), MAX_TICKS) : 1;
 
+    const autoStore = createAutoStore(process.env);
     const deps = {
+      readAuto: () => readAutoState(autoStore),
       broker,
       config: liveBrokerConfig(process.env),
       loadBars: (ticker: string) => fetchRealMarketData(ticker),

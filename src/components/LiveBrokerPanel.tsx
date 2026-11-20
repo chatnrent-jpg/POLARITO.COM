@@ -14,7 +14,8 @@ type LiveStatus = {
   error?: string;
   account?: { equity: number; lastEquity: number; cash: number; buyingPower: number };
   positions?: LivePosition[];
-  day?: { date: string; entries: number; maxEntries: number | null; lockedTicker: string | null; stoppedToday: boolean };
+  day?: { date: string; entries: number; lockedTicker: string | null; stoppedToday: boolean };
+  auto?: { available: boolean; on: boolean; reason: string; at: string | null };
 };
 type Notice = { kind: "ok" | "wait" | "error"; text: string };
 
@@ -32,6 +33,7 @@ export default function LiveBrokerPanel() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [confirmAuto, setConfirmAuto] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -88,7 +90,33 @@ export default function LiveBrokerPanel() {
     }
   }
 
+  async function setAuto(auto: boolean) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/broker/live/auto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto }),
+        cache: "no-store",
+      });
+      const data = (await res.json()) as { ok: boolean; error?: string };
+      setNotice(
+        data.ok
+          ? { kind: "ok", text: auto ? "Live Auto is ON." : "Live Auto is OFF." }
+          : { kind: "error", text: data.error ?? "Auto was not changed." },
+      );
+    } catch {
+      setNotice({ kind: "error", text: "Could not reach the server. Auto was not changed; check the state shown." });
+    } finally {
+      setConfirmAuto(false);
+      setBusy(false);
+      await load();
+    }
+  }
+
   const positions = status?.positions ?? [];
+  const auto = status?.auto;
   const account = status?.account;
   const dayPnl = account ? account.equity - account.lastEquity : 0;
   const tone = { ok: "text-green-400", wait: "text-amber-300", error: "text-red-400" } as const;
@@ -115,11 +143,46 @@ export default function LiveBrokerPanel() {
           <dd className="text-right tabular-nums">{money(account.cash)}</dd>
         </dl>
       ) : null}
+      {auto ? (
+        <div className="mb-3 rounded border border-zinc-700 p-2">
+          <div className="flex items-center justify-between">
+            <span className={auto.on ? "font-semibold text-green-400" : "font-semibold text-zinc-300"}>
+              Live Auto: {auto.on ? "ON" : "OFF"}
+            </span>
+            {confirmAuto ? (
+              <span className="flex gap-2">
+                <button type="button" disabled={busy} onClick={() => void setAuto(true)} className="rounded bg-red-600 px-2 py-1 text-white disabled:opacity-50">
+                  Confirm Auto ON
+                </button>
+                <button type="button" disabled={busy} onClick={() => setConfirmAuto(false)} className="rounded border border-zinc-600 px-2 py-1">
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={busy || !auto.available}
+                onClick={() => (auto.on ? void setAuto(false) : setConfirmAuto(true))}
+                className="rounded border border-zinc-500 px-2 py-1 disabled:opacity-50"
+              >
+                {auto.on ? "Turn Auto OFF" : "Turn Auto ON"}
+              </button>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-zinc-400">
+            {auto.on
+              ? "Auto ON: the server may place entries, re-entries and signal-driven closes (only when live orders are on)."
+              : "Auto OFF: no entries, re-entries or signal-driven closes are sent. Still running: the 1% daily stop-out and the end-of-day flatten. Close always works."}
+          </p>
+          {auto.reason !== "Auto is ON." && auto.reason !== "Auto is OFF." ? (
+            <p className="mt-1 text-xs text-amber-300">{auto.reason}</p>
+          ) : null}
+        </div>
+      ) : null}
       {status?.day ? (
         <p className="mb-3 text-xs text-zinc-400">
           {status.day.lockedTicker ? `Today's stock: ${status.day.lockedTicker}. ` : "No entry yet today. "}
-          Entries {status.day.entries}
-          {status.day.maxEntries ? ` of ${status.day.maxEntries}` : ""}.
+          Entries today: {status.day.entries}.
           {status.day.stoppedToday ? " Stopped out: no re-entry today." : ""}
         </p>
       ) : null}

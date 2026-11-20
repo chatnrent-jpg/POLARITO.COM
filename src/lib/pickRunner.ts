@@ -10,12 +10,15 @@
  *   3. stop-out: account down dailyLossPct on the day => flatten with the stop id
  *      and stand aside until the next session (no re-entry, by automation or by hand);
  *   4. end of day: flatten at flattenAt and stop entering;
- *   5. a held stock follows its own polarity (Neutral closes, a flip closes then enters
+ *   5. Auto gate: unless the persisted live Auto switch is ON (liveAutoStore.ts, default OFF,
+ *      fail-closed), every signal-driven step below is only LOGGED as "would ..." and no
+ *      order is sent. Steps 3 and 4 (and the loss-only backstop) are not gated;
+ *   6. a held stock follows its own polarity (Neutral closes, a flip closes then enters
  *      the other side), exactly the rule the dashboard sim uses;
- *   6. when flat, the first entry of the day is the first ELIGIBLE name in the ranking
+ *   7. when flat, the first entry of the day is the first ELIGIBLE name in the ranking
  *      (pickRank.ts); once an entry exists the day is locked to that one stock and
- *      later re-entries are for it only. A close (auto, manual or stop) never blocks
- *      re-entry except a stop-out, a daily-entry cap or a 3-attempt close failure.
+ *      later re-entries are for it only. Re-entry has no count limit: it is decided by
+ *      market polarity alone. Only a stop-out or a 3-attempt close failure stops it.
  *
  * It adds no signal logic: polarity comes from computePolaritySeries /
  * buildAutoSimInput (the dashboard's own call chain) and the wanted side from
@@ -33,6 +36,7 @@ import type { BrokerAccount, BrokerPosition, LiveBroker } from "@/lib/broker/typ
 import { sessionOpen } from "@/lib/mirrorRunner";
 import { newYorkClock, type RunReport, type TickerReport } from "@/lib/paperRunner";
 import { computePolaritySeries, type Bar, type DayResult } from "@/lib/polarity";
+import type { AutoState } from "@/lib/liveAutoStore";
 import { rankCandidates, sizeLiveEntry, toReading, walkCandidates, type Reading } from "@/lib/pickRank";
 
 export type PickDeps = {
@@ -43,6 +47,8 @@ export type PickDeps = {
   now?: () => Date;
   /** Waiting for a close to fill only; never delays a decision. */
   sleep?: (ms: number) => Promise<void>;
+  /** Reads the persisted live Auto switch. Missing or throwing means OFF (fail-closed). */
+  readAuto?: () => Promise<AutoState>;
 };
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -141,14 +147,18 @@ export async function runPickTick(
       return done();
     }
 
+    // Set once the stop-out and flatten rails have passed (they ignore Auto).
+    let auto: AutoState | null = null;
+    const autoOffNote = (): string => (!dryRun && auto !== null && !auto.on ? ` Nothing was sent: ${auto.reason}` : "");
+
     const managed = stock.filter((p) => settings.watchlist.includes(p.ticker));
     const dayPnl = account.equity - account.lastEquity;
     const dayLossPct = (dayPnl / account.lastEquity) * 100;
     const notes: string[] = [];
 
-    const closeManaged = async (pos: BrokerPosition, kind: "close" | "stop", why: string, signal: Partial<AuditDraft> = {}): Promise<boolean> => {
-      if (dryRun) {
-        record({ ...signal, ticker: pos.ticker, outcome: "dry-run", reason: `Would ${kind === "stop" ? "stop out and flatten" : "close"} ${pos.side} ${pos.quantity} ${pos.ticker}. ${why}`, side: pos.side, quantity: pos.quantity });
+    const closeManaged = async (pos: BrokerPosition, kind: "close" | "stop", why: string, signal: Partial<AuditDraft> = {}, dry: boolean = dryRun): Promise<boolean> => {
+      if (dry) {
+        record({ ...signal, ticker: pos.ticker, outcome: "dry-run", reason: `Would ${kind === "stop" ? "stop out and flatten" : "close"} ${pos.side} ${pos.quantity} ${pos.ticker}. ${why}${autoOffNote()}`, side: pos.side, quantity: pos.quantity });
         return true;
       }
       const res: LiveOrderResult = await placeLiveClose({ broker: deps.broker, config: deps.config, state, ticker: pos.ticker, side: pos.side, kind });
@@ -188,6 +198,25 @@ export async function runPickTick(
     if (options.lossOnly) {
       record({ ticker: PICK_LABEL, outcome: "held", reason: `Loss check: ${dayLossPct.toFixed(2)}% today, stop at -${settings.dailyLossPct}%. No action.` });
       return done();
+    }
+
+    // Auto gate for everything signal-driven. Stop-out and end-of-day flatten above ignore it.
+    let autoRead: AutoState;
+    try {
+      autoRead = deps.readAuto
+        ? await deps.readAuto()
+        : { on: false, available: false, at: null, reason: "No Auto source is wired up. Auto is OFF." };
+    } catch {
+      autoRead = { on: false, available: true, at: null, reason: "Reading Auto failed. Auto is OFF." };
+    }
+    auto = autoRead;
+    const signalDry = dryRun || !autoRead.on;
+    if (!dryRun && !autoRead.on) {
+      record({
+        ticker: PICK_LABEL,
+        outcome: "aside",
+        reason: `Live Auto is OFF: no entries, re-entries or signal-driven closes are sent (only the ${settings.dailyLossPct}% stop-out and the end-of-day flatten still run). ${autoRead.reason}`,
+      });
     }
 
     const barsCache = new Map<string, { bars: Bar[]; series: DayResult[] } | { error: string }>();
@@ -275,8 +304,8 @@ export async function runPickTick(
         price: reading.price,
         notes: [...allNotes, ...walked.pick.notes],
       };
-      if (dryRun) {
-        record({ ...base, outcome: "dry-run", reason: `Would enter ${side} ${quantity} ${reading.ticker} as entry ${state.maxEntry + 1}. ${why}`.trim() });
+      if (signalDry) {
+        record({ ...base, outcome: "dry-run", reason: `Would enter ${side} ${quantity} ${reading.ticker} as entry ${state.maxEntry + 1}. ${why}${autoOffNote()}`.trim() });
         return;
       }
       const res = await placeLiveEntry({
@@ -301,7 +330,6 @@ export async function runPickTick(
 
     const entryBlocker = (): string | null => {
       if (state.stoppedToday) return "Stopped out today. No re-entry until the next session.";
-      if (state.entryCount >= settings.maxEntries) return `Daily entry cap (${settings.maxEntries}) reached. No more entries today.`;
       if (state.lockTicker && !settings.watchlist.includes(state.lockTicker)) {
         return `Today's stock ${state.lockTicker} is no longer on the watchlist. Standing aside.`;
       }
@@ -344,7 +372,7 @@ export async function runPickTick(
           wanted === null
             ? input.signal.ready ? "Polarity went to 0 (Neutral). Closed the position." : "Not enough history yet. Closed the position."
             : `Polarity flipped. Closed the ${pos.side} and going ${wanted}.`;
-        const closed = await closeManaged(pos, "close", why, sig);
+        const closed = await closeManaged(pos, "close", why, sig, signalDry);
         if (!closed || wanted === null) continue;
 
         // Flip: enter the other side of the SAME stock once the close shows as filled.
@@ -353,7 +381,7 @@ export async function runPickTick(
           record({ ticker: pos.ticker, ...sig, outcome: "aside", reason: blocker });
           continue;
         }
-        if (dryRun) {
+        if (signalDry) {
           await attemptEntry([pos.ticker], "Flip entry.");
           continue;
         }
@@ -384,7 +412,7 @@ export async function runPickTick(
     // Flat in every watchlist stock: re-enter the day's stock, or pick one.
     const blocker = entryBlocker();
     if (blocker) {
-      record({ ticker: state.lockTicker ?? PICK_LABEL, outcome: state.entryCount >= settings.maxEntries ? "blocked" : "aside", reason: blocker, notes });
+      record({ ticker: state.lockTicker ?? PICK_LABEL, outcome: "aside", reason: blocker, notes });
       return done();
     }
     const candidates = state.lockTicker ? [state.lockTicker] : settings.watchlist;

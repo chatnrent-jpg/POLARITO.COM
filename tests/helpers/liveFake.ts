@@ -143,6 +143,8 @@ export function pickSetup(opts: {
   positions?: BrokerPosition[];
   now?: Date;
   config?: PaperBrokerConfig;
+  /** Live Auto switch. Default ON so existing scenarios exercise the signal path; tests set false. */
+  auto?: boolean;
 }) {
   const settingsRes = liveSettings({
     POLARITO_LIVE_WATCHLIST: Object.keys(opts.specs).join(","),
@@ -154,7 +156,9 @@ export function pickSetup(opts: {
   const audit: AuditRecord[] = [];
   let clock = opts.now ?? MID_SESSION;
   const specs = opts.specs;
+  const autoState = { on: opts.auto ?? true };
   const deps: PickDeps = {
+    readAuto: async () => ({ on: autoState.on, available: true, at: null, reason: autoState.on ? "Auto is ON." : "Auto is OFF." }),
     broker,
     config: opts.config ?? LIVE_ON,
     loadBars: async (ticker) => {
@@ -166,5 +170,5 @@ export function pickSetup(opts: {
     now: () => clock,
     sleep: async () => {},
   };
-  return { broker, audit, deps, settings, specs, setNow: (d: Date) => (clock = d), now: () => clock };
+  return { broker, audit, deps, settings, specs, autoState, setNow: (d: Date) => (clock = d), now: () => clock };
 }

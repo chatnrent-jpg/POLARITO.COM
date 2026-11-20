@@ -1,7 +1,8 @@
 import { connection } from "next/server";
 import { deriveDayState } from "@/lib/broker/liveOrders";
-import { createLiveBroker, liveBrokerConfig, liveOptedIn, liveSettings } from "@/lib/broker/liveConfig";
+import { createLiveBroker, liveBrokerConfig, liveOptedIn } from "@/lib/broker/liveConfig";
 import { tradingGate } from "@/lib/broker/config";
+import { createAutoStore, readAutoState } from "@/lib/liveAutoStore";
 import { newYorkClock } from "@/lib/paperRunner";
 import { isStockPosition } from "@/lib/pickRunner";
 
@@ -48,17 +49,17 @@ export async function GET() {
     }
     if (!account.ok || !positions.ok || !orders.ok) throw new Error("unreachable");
     const state = deriveDayState(orders.value, newYorkClock(now).date);
-    const settings = liveSettings(process.env);
+    const auto = await readAutoState(createAutoStore(process.env));
     return Response.json(
       {
         ok: true,
         ...base,
         account: account.value,
         positions: positions.value.filter(isStockPosition),
+        auto: { available: auto.available, on: auto.on, reason: auto.reason, at: auto.at },
         day: {
           date: state.date,
           entries: state.entryCount,
-          maxEntries: settings.ok ? settings.settings.maxEntries : null,
           lockedTicker: state.lockTicker,
           stoppedToday: state.stoppedToday,
         },

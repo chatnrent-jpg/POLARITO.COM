@@ -22,7 +22,6 @@ export const LIVE_SHORT_MIN_EQUITY = 2_000;
 export const DEFAULT_LIVE_QTY = 1;
 export const DEFAULT_LIVE_MAX_POSITION_PCT = 50;
 export const DEFAULT_LIVE_DAILY_LOSS_PCT = 1;
-export const DEFAULT_LIVE_MAX_ENTRIES = 3;
 export const DEFAULT_LIVE_PICK_START = "10:00";
 export const DEFAULT_LIVE_FLATTEN_AT = "15:55";
 
@@ -36,8 +35,6 @@ export type LiveSettings = {
   maxPositionPct: number;
   /** Flatten and stand aside once the account is down this percent on the day. */
   dailyLossPct: number;
-  /** Max entry orders per day, rejected ones included. */
-  maxEntries: number;
   /** Minutes after midnight New York before the first entry of the day may be picked. */
   pickStartMinutes: number;
   /** Minutes after midnight New York at which the position is flattened and entries stop; null = hold overnight. */
@@ -106,10 +103,6 @@ export function liveSettings(env: BrokerEnv): { ok: true; settings: LiveSettings
   if (!Number.isFinite(cap) || cap < 5 || cap > 100) {
     return { ok: false, error: "POLARITO_LIVE_MAX_POSITION_PCT must be between 5 and 100." };
   }
-  const maxEntries = Number((env.POLARITO_LIVE_MAX_ENTRIES ?? String(DEFAULT_LIVE_MAX_ENTRIES)).trim());
-  if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || maxEntries > 10) {
-    return { ok: false, error: "POLARITO_LIVE_MAX_ENTRIES must be a whole number from 1 to 10." };
-  }
   // A bad stop value falls back to the strict 1% rather than loosening the stop.
   const lossRaw = Number((env.POLARITO_LIVE_DAILY_LOSS_PCT ?? "").trim());
   const dailyLossPct =
@@ -144,7 +137,6 @@ export function liveSettings(env: BrokerEnv): { ok: true; settings: LiveSettings
       quantity,
       maxPositionPct: cap,
       dailyLossPct,
-      maxEntries,
       pickStartMinutes: start,
       flattenAtMinutes,
       longOnlyFallback: fallback,
