@@ -36,6 +36,10 @@ export type BrokerPosition = {
   /** Always positive; the side carries the direction. */
   quantity: number;
   avgEntryPrice: number;
+  /** Read-only display fields from Alpaca; present only when Alpaca sent a finite number. */
+  currentPrice?: number;
+  marketValue?: number;
+  unrealizedPnl?: number;
 };
 
 export type BrokerOrder = {
@@ -45,6 +49,11 @@ export type BrokerOrder = {
   ticker: string;
   side: "buy" | "sell";
   quantity: number;
+  /** Read-only display fields from Alpaca; present only when Alpaca sent them. */
+  filledQuantity?: number;
+  filledAvgPrice?: number;
+  submittedAt?: string;
+  filledAt?: string;
 };
 
 /** Alpaca asset flags the live pick checks before sending an order. */

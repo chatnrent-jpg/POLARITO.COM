@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useSyncExternalStore, type ChangeEvent } from "react";
+import { useLiveMode } from "@/components/LiveModeProvider";
+import { liveDay, type LiveMode } from "@/lib/liveMode";
 import {
   computeAccount,
   getAccountsOverviewSnapshot,
@@ -19,6 +21,62 @@ import {
 
 const money = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+const signedMoney = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${money(Math.abs(n))}`;
+
+/** The account card while live is on: every figure from Alpaca, or an explicit "unavailable" (never simulated or stale numbers). */
+function LiveAccountCard({ mode }: { mode: Exclude<LiveMode, { kind: "sim" }> }) {
+  const day = mode.kind === "live" ? liveDay(mode.account) : null;
+  return (
+    <section
+      aria-label="Active account"
+      className="flex w-full max-w-5xl flex-col gap-4 rounded-2xl border-2 border-amber-500 bg-zinc-900 p-5 sm:p-6"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-6">
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-sm font-semibold uppercase tracking-wide text-amber-300">
+            Active Account · LIVE · Real cash
+          </span>
+          <span className="truncate text-3xl font-black tracking-tight text-white sm:text-4xl">Alpaca live account</span>
+        </div>
+        {mode.kind === "live" ? (
+          <div className="flex flex-col gap-1 sm:items-end">
+            <span className="text-sm font-semibold uppercase tracking-wide text-slate-300">Total Equity</span>
+            <span className="font-mono text-3xl font-black tabular-nums text-white sm:text-4xl">{money(mode.account.equity)}</span>
+          </div>
+        ) : null}
+      </div>
+      {mode.kind === "live" && day ? (
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="rounded-xl bg-zinc-950/60 px-4 py-3 ring-1 ring-zinc-700">
+            <dt className="text-sm font-semibold uppercase tracking-wide text-slate-300">Cash</dt>
+            <dd className="font-mono text-xl font-bold tabular-nums text-white">{money(mode.account.cash)}</dd>
+          </div>
+          <div className="rounded-xl bg-zinc-950/60 px-4 py-3 ring-1 ring-zinc-700">
+            <dt className="text-sm font-semibold uppercase tracking-wide text-slate-300">Today P&amp;L</dt>
+            <dd className={`font-mono text-xl font-bold tabular-nums ${day.pnl > 0 ? "text-green-400" : day.pnl < 0 ? "text-red-400" : "text-white"}`}>
+              {signedMoney(day.pnl)}
+              {day.pct !== null ? ` (${day.pct >= 0 ? "+" : "−"}${Math.abs(day.pct).toFixed(2)}%)` : ""}
+            </dd>
+          </div>
+          <div className="rounded-xl bg-zinc-950/60 px-4 py-3 ring-1 ring-zinc-700">
+            <dt className="text-sm font-semibold uppercase tracking-wide text-slate-300">Buying power</dt>
+            <dd className="font-mono text-xl font-bold tabular-nums text-white">{money(mode.account.buyingPower)}</dd>
+          </div>
+        </dl>
+      ) : null}
+      {mode.kind === "checking" ? <p className="text-base text-slate-300">Reading the live account from Alpaca…</p> : null}
+      {mode.kind === "unavailable" ? (
+        <p role="alert" className="rounded-xl border-2 border-red-500 bg-red-950/50 p-4 text-base font-semibold text-red-200">
+          Live data unavailable: {mode.reason} No balances are shown until Alpaca can be read.
+        </p>
+      ) : null}
+      <span className="text-sm text-slate-400">
+        Read from your Alpaca live account every 5 seconds. The simulated accounts are not used while live is on.
+      </span>
+    </section>
+  );
+}
 
 /**
  * Account switcher. Choosing an account only changes WHICH profile is active
@@ -45,12 +103,15 @@ export default function AccountSelector({
     getServerAccountsOverview,
   );
   const [error, setError] = useState<string | null>(null);
+  const { mode } = useLiveMode();
 
   const summaries = ACCOUNTS.map((def) => ({
     def,
     account: computeAccount(overview[def.id], marks, def.initialBalance),
   }));
   const active = summaries.find((s) => s.def.id === activeId) ?? summaries[0];
+
+  if (mode.kind !== "sim") return <LiveAccountCard mode={mode} />;
 
   function onChange(e: ChangeEvent<HTMLSelectElement>) {
     const next = e.target.value;

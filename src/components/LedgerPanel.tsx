@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import LiveLedgerPanel from "@/components/LiveLedgerPanel";
+import { useLiveMode } from "@/components/LiveModeProvider";
 import {
   clearLedger,
   closeActivePosition,
@@ -51,6 +53,8 @@ export default function LedgerPanel({ current }: { current: CurrentMark | null }
   );
   const [closing, setClosing] = useState<Closing | null>(null);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const { mode } = useLiveMode();
+  if (mode.kind !== "sim") return <LiveLedgerPanel mode={mode} />;
 
   const marks: Record<string, number> = current ? { [current.ticker]: current.close } : {};
   const accountDef = getAccountDef(ledger.accountId);
