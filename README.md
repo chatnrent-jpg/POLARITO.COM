@@ -47,6 +47,18 @@ Underneath, two plain protections remain: it never buys more than the account's 
 - **Risk.** Same risk guard as the sim, with the daily loss/profit boundary taken from the broker's equity vs. last close. Entries across tickers in one cycle are tracked so they cannot oversubscribe the account. Closes are never blocked.
 - **Known limits.** Losing-streak scale-down is not applied on the server (it needs closed-trade history). A flip closes first and re-enters at the next session once the broker confirms flat. Positions in tickers outside the watchlist count toward exposure but are never managed.
 
+### Options mode (paper)
+
+Set `POLARITO_PAPER_INSTRUMENT=options` to run `src/lib/optionsRunner.ts` instead of the stock cycle. Per ticker, at most one option at a time:
+
+- **+1 Drive** buys a call, **-1 Reverse** buys a put, **0 / unready / stale data** holds nothing. The executor re-checks this from the contract's own OCC symbol, so no other entry can be sent.
+- Entries use the nearest expiry at least 365 days out and the strike closest to the last close, as a DAY limit order at the ask (rounded up to the 5-cent tick). Entries are refused when the quote is missing, stale or crossed, when the bid/ask gap is over 15% of the price, when one position would cost over 10% of equity, when the premium exceeds available cash, or after a 2% daily loss.
+- Exits are sell-to-close: on Neutral, on a flip (the new option is bought next session once flat is confirmed), or when the option is within 60 days of expiry. They use a limit at the bid, or a market order when no usable quote exists. Closes are never blocked by risk limits.
+- The loss on a bought option is limited to the premium. `POLARITO_OPTIONS_CONTRACTS` sets contracts per entry (default 1, max 10).
+- Contracts come live from Alpaca's contract list; quotes use Alpaca's indicative option feed. The paper account must have options trading enabled.
+- The runner only checks once per weekday after the close, so exits happen at that check, not intraday.
+- Plain stock positions are never touched in this mode. Close any leftover stock orders or positions in the watchlist first.
+
 Safety properties: hard-coded paper host; orders need `POLARITO_PAPER_TRADING_ENABLED=1` and an off kill switch; deterministic client order ids make retries idempotent; positions are reconciled against the broker before any order; closes flatten the broker's actual quantity; every error path returns a result instead of throwing, and credentials never appear in errors.
 
 ## Audit log (server only)

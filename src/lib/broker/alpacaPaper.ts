@@ -5,8 +5,15 @@
  * pointed at the live endpoint by an env var or a caller. Going live would be
  * a separate, deliberate code change. Credentials never appear in errors/logs.
  */
+import {
+  parseOccSymbol,
+  type ContractQuery,
+  type OptionContract,
+  type OptionOrderRequest,
+  type OptionQuote,
+  type OptionsBroker,
+} from "@/lib/broker/options";
 import type {
-  Broker,
   BrokerAccount,
   BrokerErrorCode,
   BrokerOrder,
@@ -16,6 +23,9 @@ import type {
 } from "@/lib/broker/types";
 
 export const ALPACA_PAPER_BASE_URL = "https://paper-api.alpaca.markets";
+/** Read-only market data host, also fixed. Used only for option quotes. */
+export const ALPACA_DATA_BASE_URL = "https://data.alpaca.markets";
+const CONTRACT_PAGES_MAX = 5;
 export const DEFAULT_TIMEOUT_MS = 8_000;
 
 export type FetchResponseLike = {
@@ -86,7 +96,27 @@ function parsePosition(v: unknown): BrokerPosition | null {
   return { ticker: v.symbol, side, quantity: Math.abs(qty), avgEntryPrice: avg };
 }
 
-export class AlpacaPaperBroker implements Broker {
+/** An item is trusted only if every field agrees with its OCC symbol. */
+function parseContract(v: unknown): OptionContract | null {
+  if (!isRecord(v)) return null;
+  const occ = parseOccSymbol(v.symbol);
+  const strike = num(v.strike_price);
+  if (
+    !occ ||
+    strike === null ||
+    typeof v.symbol !== "string" ||
+    typeof v.expiration_date !== "string" ||
+    v.expiration_date !== occ.expiration ||
+    v.type !== occ.type ||
+    typeof v.tradable !== "boolean" ||
+    Math.abs(strike - occ.strike) > 1e-6
+  ) {
+    return null;
+  }
+  return { symbol: v.symbol, underlying: occ.underlying, type: occ.type, strike, expiration: occ.expiration, tradable: v.tradable };
+}
+
+export class AlpacaPaperBroker implements OptionsBroker {
   private readonly keyId: string;
   private readonly secretKey: string;
   private readonly fetchImpl: FetchLike;
@@ -107,11 +137,12 @@ export class AlpacaPaperBroker implements Broker {
     method: "GET" | "POST",
     path: string,
     body?: unknown,
+    baseUrl: string = ALPACA_PAPER_BASE_URL,
   ): Promise<Result<{ status: number; data: unknown }, BrokerErrorCode>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const res = await this.fetchImpl(`${ALPACA_PAPER_BASE_URL}${path}`, {
+      const res = await this.fetchImpl(`${baseUrl}${path}`, {
         method,
         headers: {
           "APCA-API-KEY-ID": this.keyId,
@@ -219,6 +250,86 @@ export class AlpacaPaperBroker implements Broker {
       type: "market",
       time_in_force: req.timeInForce,
       client_order_id: req.clientOrderId,
+    });
+    if (!res.ok) return res;
+    const order = parseOrder(res.value.data);
+    return order ? { ok: true, value: order } : fail("MALFORMED", "Order response failed validation.");
+  }
+
+  async listContracts(q: ContractQuery): Promise<Result<OptionContract[], BrokerErrorCode>> {
+    const out: OptionContract[] = [];
+    let pageToken: string | null = null;
+    for (let page = 0; page < CONTRACT_PAGES_MAX; page++) {
+      const params = new URLSearchParams({
+        underlying_symbols: q.underlying,
+        type: q.type,
+        status: "active",
+        expiration_date_gte: q.expiresFrom,
+        expiration_date_lte: q.expiresTo,
+        strike_price_gte: String(q.strikeLow),
+        strike_price_lte: String(q.strikeHigh),
+        limit: "1000",
+      });
+      if (pageToken) params.set("page_token", pageToken);
+      const res = await this.request("GET", `/v2/options/contracts?${params.toString()}`);
+      if (!res.ok) return res;
+      const d = res.value.data;
+      if (res.value.status !== 200 || !isRecord(d) || !Array.isArray(d.option_contracts)) {
+        return fail("MALFORMED", "Unexpected option contracts response.");
+      }
+      for (const item of d.option_contracts) {
+        const c = parseContract(item);
+        if (c) out.push(c);
+      }
+      pageToken = typeof d.next_page_token === "string" && d.next_page_token ? d.next_page_token : null;
+      if (!pageToken) break;
+    }
+    return { ok: true, value: out };
+  }
+
+  async getOptionQuote(symbol: string): Promise<Result<OptionQuote | null, BrokerErrorCode>> {
+    if (!parseOccSymbol(symbol)) return fail("REJECTED", "Not a valid option symbol.");
+    const res = await this.request(
+      "GET",
+      `/v1beta1/options/snapshots?symbols=${encodeURIComponent(symbol)}&feed=indicative`,
+      undefined,
+      ALPACA_DATA_BASE_URL,
+    );
+    if (!res.ok) return res;
+    if (res.value.status === 404) return { ok: true, value: null };
+    const d = res.value.data;
+    if (res.value.status !== 200 || !isRecord(d) || !isRecord(d.snapshots)) {
+      return fail("MALFORMED", "Unexpected option snapshot response.");
+    }
+    const snap = d.snapshots[symbol];
+    if (snap === undefined || snap === null) return { ok: true, value: null };
+    if (!isRecord(snap) || !isRecord(snap.latestQuote)) return { ok: true, value: null };
+    const bid = num(snap.latestQuote.bp);
+    const ask = num(snap.latestQuote.ap);
+    const at = snap.latestQuote.t;
+    if (bid === null || ask === null || typeof at !== "string") {
+      return fail("MALFORMED", "Option quote failed validation.");
+    }
+    return { ok: true, value: { symbol, bid, ask, at } };
+  }
+
+  async submitOptionOrder(req: OptionOrderRequest): Promise<Result<BrokerOrder, BrokerErrorCode>> {
+    if (!parseOccSymbol(req.symbol)) return fail("REJECTED", "Not a valid option symbol.");
+    if (!Number.isSafeInteger(req.quantity) || req.quantity < 1) {
+      return fail("REJECTED", "Option quantity must be a whole number of contracts.");
+    }
+    if (req.type === "limit" && !(typeof req.limitPrice === "number" && req.limitPrice > 0)) {
+      return fail("REJECTED", "A limit order needs a positive limit price.");
+    }
+    const res = await this.request("POST", "/v2/orders", {
+      symbol: req.symbol,
+      qty: String(req.quantity),
+      side: req.side,
+      type: req.type,
+      time_in_force: "day",
+      position_intent: req.positionIntent,
+      client_order_id: req.clientOrderId,
+      ...(req.type === "limit" ? { limit_price: (req.limitPrice as number).toFixed(2) } : {}),
     });
     if (!res.ok) return res;
     const order = parseOrder(res.value.data);
