@@ -4,6 +4,7 @@ import { AlpacaPaperBroker } from "@/lib/broker/alpacaPaper";
 import { paperBrokerConfig, paperCredentials } from "@/lib/broker/config";
 import { cronAuthorized } from "@/lib/cronAuth";
 import { runLossCheck } from "@/lib/optionsLossCheck";
+import { optionsDailyLossLimit } from "@/lib/optionsLossLimit";
 import { paperRunnerSettings } from "@/lib/paperRunner";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -15,7 +16,7 @@ export const maxDuration = 60;
  *
  * Called every ~30 minutes during the regular session by an outside timer
  * (.github/workflows/loss-check.yml). Options mode only. It reads no signal and
- * buys nothing: if the account is down 2% on the day it sells every option and
+ * buys nothing: if the account is down 1% (POLARITO_OPTIONS_DAILY_LOSS_PCT) on the day it sells every option and
  * stands aside until the next session. Authenticates like the paper runner:
  * `Authorization: Bearer $CRON_SECRET`; no secret => nobody gets in.
  */
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
     }
     const report = await runLossCheck(
       { broker: new AlpacaPaperBroker(creds), config: paperBrokerConfig(process.env), audit: logAudit },
-      { watchlist: settings.settings.watchlist },
+      { watchlist: settings.settings.watchlist, dailyLossLimit: optionsDailyLossLimit(process.env) },
       { dryRun: request.nextUrl.searchParams.get("dry") === "1" },
     );
     return Response.json(report, { status: report.ok ? 200 : 502, headers: NO_STORE });
