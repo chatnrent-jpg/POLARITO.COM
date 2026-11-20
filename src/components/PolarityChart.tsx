@@ -7,10 +7,11 @@ import {
   metaFor,
   TIMEFRAMES,
   windowFor,
+  type Bar,
   type DayResult,
   type Timeframe,
 } from "@/lib/polarity";
-import { BUCKET_MODE, bucketsFor, sentimentForBucket } from "@/lib/chartBuckets";
+import { BUCKET_MODE, bucketsFor, periodBucketsFor, sentimentForBucket } from "@/lib/chartBuckets";
 import {
   hasLiveSentiment,
   sentimentMeta,
@@ -52,10 +53,13 @@ function compact(n: number): string {
  */
 export default function PolarityChart({
   results,
+  bars,
   sentiment,
   initialTimeframe = DEFAULT_TIMEFRAME,
 }: {
   results: readonly DayResult[];
+  /** The real daily bars behind `results`; the current week / month / quarter / year bar is built from them. */
+  bars: readonly Bar[];
   /** Live news sentiment, by date. Missing or unavailable days plot as 0 (Neutral). */
   sentiment?: SentimentByDate;
   initialTimeframe?: Timeframe;
@@ -66,10 +70,15 @@ export default function PolarityChart({
 
   const [hover, setHover] = useState<number | null>(null);
 
-  const view = useMemo(() => windowFor(results, timeframe), [results, timeframe]);
-  // 1D/1W/1M: one bar per day. 3M: weekly bars. 1Y: monthly bars.
-  const buckets = useMemo(() => bucketsFor(view, timeframe), [view, timeframe]);
   const barUnit = BUCKET_MODE[timeframe];
+  // 1D: the latest session. 1W / 1M / 3M / 1Y: ONE bar for the current week / month / quarter / year.
+  const buckets = useMemo(
+    () =>
+      barUnit === "day"
+        ? bucketsFor(windowFor(results, "1D"))
+        : periodBucketsFor(bars, results, timeframe),
+    [barUnit, results, bars, timeframe],
+  );
   const liveSentiment = useMemo(() => hasLiveSentiment(sentiment), [sentiment]);
 
   const geometry = useMemo(() => {
@@ -148,7 +157,7 @@ export default function PolarityChart({
   const hovered = hover !== null && hover < buckets.length ? buckets[hover] : null;
   const hoveredSent = hovered ? sentimentForBucket(hovered, sentiment) : null;
 
-  const last = view[view.length - 1];
+  const last = results[results.length - 1];
   const lastMeta = last ? metaFor(last.polarity) : metaFor(0);
 
   function select(next: string) {
@@ -166,7 +175,7 @@ export default function PolarityChart({
           Net Volume · {timeframe}
           {barUnit !== "day" && (
             <span className="ml-2 text-sm font-semibold normal-case tracking-normal text-slate-300">
-              ({barUnit === "week" ? "weekly" : "monthly"} bars)
+              (this {barUnit})
             </span>
           )}
         </h2>
@@ -398,7 +407,7 @@ export default function PolarityChart({
           </span>
           <span>
             <strong className="font-bold text-white">Bars</strong> ={" "}
-            {barUnit === "day" ? "daily" : barUnit === "week" ? "weekly" : "monthly"} Net Volume
+            {barUnit === "day" ? "daily Net Volume" : `Net Volume for this ${barUnit}`}
           </span>
         </li>
         <li className="flex items-center gap-3">
@@ -412,7 +421,7 @@ export default function PolarityChart({
             )}
             <span className="block text-base text-slate-300">
               10% of the 20-day average volume
-              {barUnit === "day" ? "" : `, added up over each ${barUnit}`}. Bars outside the lines
+              {barUnit === "day" ? "" : `, added up over this ${barUnit}`}. Bars outside the lines
               are Drive or Reverse.
             </span>
           </span>

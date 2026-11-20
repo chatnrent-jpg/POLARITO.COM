@@ -45,6 +45,7 @@ import {
   metaFor,
   NOISE_FLOOR_RATIO,
   VOLUME_MA_WINDOW,
+  type Bar,
   type DayResult,
 } from "@/lib/polarity";
 import {
@@ -75,7 +76,7 @@ type View =
   | { status: "idle" }
   | { status: "loading"; ticker: string }
   | { status: "error"; message: string }
-  | { status: "ready"; ticker: string; results: DayResult[]; sentiment: SentimentByDate };
+  | { status: "ready"; ticker: string; bars: Bar[]; results: DayResult[]; sentiment: SentimentByDate };
 
 const fmt = (n: number) =>
   Math.round(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -137,7 +138,7 @@ export default function PolarityDashboard() {
       const { ticker, bars, sentiment } = await loadBars(raw, controller.signal);
       const results = computePolaritySeries(bars);
       if (controller.signal.aborted) return;
-      setView({ status: "ready", ticker, results, sentiment });
+      setView({ status: "ready", ticker, bars, results, sentiment });
       setUpdatedAt(Date.now());
       setRefreshFailed(false);
     } catch (err) {
@@ -416,7 +417,11 @@ export default function PolarityDashboard() {
             </section>
           </PremiumGate>
 
-          <PolarityChart results={view.results} sentiment={view.sentiment} />
+          <PolarityChart
+            results={view.results}
+            bars={view.bars}
+            sentiment={view.sentiment}
+          />
         </>
       )}
 
