@@ -1,0 +1,35 @@
+name: Options loss check
+
+# Every 30 minutes on weekdays, 13:00-21:30 UTC. That covers the whole US
+# session (9:30-16:00 New York) in both EST and EDT. The endpoint itself ignores
+# calls outside the session, so extra runs are harmless. It reads no signal and
+# buys nothing: if the paper account is down 2% on the day it sells the options.
+# Needs one repository secret: POLARITO_CRON_SECRET (the same value as CRON_SECRET in Vercel).
+on:
+  schedule:
+    - cron: "0,30 13-21 * * 1-5"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: loss-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call the loss check
+        env:
+          POLARITO_CRON_SECRET: ${{ secrets.POLARITO_CRON_SECRET }}
+        run: |
+          if [ -z "$POLARITO_CRON_SECRET" ]; then
+            echo "POLARITO_CRON_SECRET is not set in this repository's secrets." >&2
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -H "Authorization: Bearer $POLARITO_CRON_SECRET" \
+            "https://www.polarito.com/api/cron/loss-check"
+          echo

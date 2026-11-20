@@ -23,6 +23,7 @@ import type {
   BrokerPosition,
   MarketOrderRequest,
 } from "../src/lib/broker/types";
+import { inSession, runLossCheck, type LossCheckDeps } from "../src/lib/optionsLossCheck";
 import { optionsRunnerSettings, runOptionsCycle, type OptionsRunnerDeps, type OptionsSettings } from "../src/lib/optionsRunner";
 import type { Bar } from "../src/lib/polarity";
 
@@ -616,5 +617,113 @@ describe("Alpaca paper adapter: option calls", () => {
       assert.equal((await none.broker.submitOptionOrder(req)).ok, false);
     }
     assert.equal(none.calls.length, 0);
+  });
+});
+
+describe("intraday loss check", () => {
+  // Thursday 2026-11-19, 15:00 New York (session open).
+  const MID_SESSION = new Date("2026-11-19T20:00:00Z");
+  const down = { ...ACCOUNT, equity: 97_000 };
+
+  function check(broker: OptionsBroker, over: Partial<LossCheckDeps> = {}, dryRun = false, now = MID_SESSION) {
+    const audit: AuditRecord[] = [];
+    const d: LossCheckDeps = { broker, config: ON, audit: (r) => void audit.push(r), now: () => now, ...over };
+    return { audit, run: () => runLossCheck(d, { watchlist: ["NVDA", "AAPL"] }, { dryRun }) };
+  }
+
+  it("knows the regular session in New York time", () => {
+    assert.equal(inSession(new Date("2026-11-19T14:29:00Z")), false); // 09:29
+    assert.equal(inSession(new Date("2026-11-19T14:30:00Z")), true); // 09:30
+    assert.equal(inSession(new Date("2026-11-19T20:59:00Z")), true); // 15:59
+    assert.equal(inSession(new Date("2026-11-19T21:00:00Z")), false); // 16:00
+    assert.equal(inSession(new Date("2026-11-21T17:00:00Z")), false); // Saturday
+    assert.equal(inSession(new Date("2026-07-15T13:30:00Z")), true); // 09:30 EDT
+  });
+
+  it("does nothing outside the session or while the loss is under 2%", async () => {
+    const closedMarket = new FakeOptionsBroker([held(CALL)], down);
+    const a = check(closedMarket, {}, false, AFTER_CLOSE);
+    const ra = await a.run();
+    assert.equal(ra.ok && ra.action, "none");
+    const small = new FakeOptionsBroker([held(CALL)], { ...ACCOUNT, equity: 98_500 });
+    const rb = await check(small).run();
+    assert.equal(rb.ok && rb.action, "none");
+    assert.equal(closedMarket.orders.length + small.orders.length, 0);
+  });
+
+  it("sells every option at the bid once the account is down 2%, and never buys", async () => {
+    const aaplCall = "AAPL271217C00350000";
+    const broker = new FakeOptionsBroker([held(CALL, 2), held(aaplCall)], down);
+    const c = check(broker);
+    const r = await c.run();
+    assert.equal(r.ok && r.action, "closed");
+    assert.equal(broker.orders.length, 2);
+    for (const o of broker.orders) {
+      assert.equal(o.side, "sell");
+      assert.equal(o.positionIntent, "sell_to_close");
+      assert.equal(o.type, "limit");
+    }
+    assert.equal(broker.orders[0].quantity, 2);
+    assert.deepEqual(c.audit.map((a) => a.outcome), ["closed", "closed"]);
+    assert.equal(broker.orders[0].clientOrderId, optionClientOrderId("close", "NVDA", "call", "2026-11-19"));
+
+    const flat = new FakeOptionsBroker([], down);
+    await check(flat).run();
+    assert.equal(flat.orders.length, 0);
+  });
+
+  it("is idempotent across repeated calls", async () => {
+    const broker = new FakeOptionsBroker([held(CALL)], down);
+    await check(broker).run();
+    const again = check(broker);
+    await again.run();
+    assert.equal(broker.orders.length, 1);
+    assert.equal(again.audit[0].outcome, "held");
+  });
+
+  it("closes at market when no usable quote exists", async () => {
+    const broker = new FakeOptionsBroker([held(CALL)], down, [], null);
+    await check(broker).run();
+    assert.equal(broker.orders[0].type, "market");
+  });
+
+  it("observes when trading is off or on a dry run; refuses when killed or unconfigured", async () => {
+    for (const [config, dryRun] of [
+      [{ enabled: false, killed: false, configured: true }, false],
+      [ON, true],
+    ] as const) {
+      const broker = new FakeOptionsBroker([held(CALL)], down);
+      const c = check(broker, { config }, dryRun);
+      const r = await c.run();
+      assert.equal(r.ok && r.action, "observed");
+      assert.equal(broker.orders.length, 0);
+      assert.equal(c.audit[0].outcome, "dry-run");
+    }
+    for (const config of [
+      { enabled: true, killed: true, configured: true },
+      { enabled: true, killed: false, configured: false },
+    ]) {
+      const broker = new FakeOptionsBroker([held(CALL)], down);
+      const r = await check(broker, { config }).run();
+      assert.equal(r.ok, false);
+      assert.equal(broker.orders.length, 0);
+    }
+  });
+
+  it("evening run stands aside after the loss check closed an option today", async () => {
+    const broker = new FakeOptionsBroker([], ACCOUNT);
+    broker.byClient.set(optionClientOrderId("close", "NVDA", "put", "2026-11-19"), {
+      id: "x",
+      clientOrderId: "x",
+      status: "accepted",
+      ticker: PUT,
+      side: "sell",
+      quantity: 1,
+    });
+    const { d, audit } = deps(broker, async () => bars("2026-11-19", "reverse"));
+    await runOptionsCycle(d, settings(), { dryRun: false });
+    assert.equal(broker.orders.length, 0);
+    assert.equal(audit[0].outcome, "blocked");
+    assert.match(audit[0].reason, /closed today/);
   });
 });
