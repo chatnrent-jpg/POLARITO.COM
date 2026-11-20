@@ -31,9 +31,15 @@ export async function GET(request: NextRequest) {
   const dryRun = request.nextUrl.searchParams.get("dry") === "1";
   try {
     const instrument = (process.env.POLARITO_PAPER_INSTRUMENT ?? "stock").trim().toLowerCase();
+    if (instrument === "mirror") {
+      return Response.json(
+        { ok: true, action: "none", reason: "Mirror mode is on. /api/cron/mirror-run handles trading; the daily run does nothing." },
+        { headers: NO_STORE },
+      );
+    }
     if (instrument !== "stock" && instrument !== "options") {
       return Response.json(
-        { ok: false, code: "CONFIG", error: 'POLARITO_PAPER_INSTRUMENT must be "stock" or "options".' },
+        { ok: false, code: "CONFIG", error: 'POLARITO_PAPER_INSTRUMENT must be "stock", "options" or "mirror".' },
         { status: 500, headers: NO_STORE },
       );
     }

@@ -72,4 +72,9 @@ export type OrderIntent = {
   /** Session date (YYYY-MM-DD) of the signal bar. Part of the idempotency key. */
   signalDate: string;
   timeInForce?: "day" | "opg";
+  /**
+   * Optional explicit client order id (1-48 of A-Z a-z 0-9 _ . -). The default id is one per
+   * signal date; callers that can trade several times a day must supply a unique one.
+   */
+  clientOrderId?: string;
 };

@@ -60,6 +60,17 @@ Set `POLARITO_PAPER_INSTRUMENT=options` to run `src/lib/optionsRunner.ts` instea
 - Polarity is read once per weekday after the close, so polarity exits and entries happen at that check. Only the 2% loss stop runs during the session.
 - Plain stock positions are never touched in this mode. Close any leftover stock orders or positions in the watchlist first.
 
+### Live mirror mode (paper)
+
+Set `POLARITO_PAPER_INSTRUMENT=mirror` to make the Alpaca paper account move in lockstep with POLARITO's SPY signal. This is the same idea as the dashboard's Auto sim, run on the server because the sim itself lives in the browser's localStorage.
+
+- **Same code, no extras.** `src/lib/mirrorRunner.ts` imports `computePolaritySeries`, `buildAutoSimInput` and `decideAuto` and runs them exactly as the dashboard does: live bars including today's forming bar, `signal-close`, fixed shares. It adds no delay, confirmation, hold or filter. A flip closes and enters the other side in the same tick; Neutral closes; an aligned position is left alone.
+- **Instrument.** Only plain SPY shares. Option positions are never touched. Options mode is still available (`POLARITO_PAPER_INSTRUMENT=options`) and is off while mirror is on; the daily after-close run does nothing in mirror mode.
+- **Size and rails.** `POLARITO_MIRROR_QTY` shares (default 10, like the dashboard), never above `POLARITO_MIRROR_MAX_SHARES` (default 100). The shared risk caps from `risk.ts` still apply. If the account is down `POLARITO_MIRROR_DAILY_LOSS_PCT` (default 2%) on the day, SPY is flattened and the mirror stands aside until the next session. Orders are sent only 09:30-16:00 New York, never on a bar that is not today's, and never while an SPY order is still working. `POLARITO_PAPER_TRADING_ENABLED=1` and the kill switch work as before; until enabled, every tick only observes and audits. The loss check counts the whole paper account, so leftover option positions can trip it.
+- **Ticks.** `GET /api/cron/mirror-run` (Bearer `CRON_SECRET`) runs one tick; `?ticks=N` (max 12) runs N ticks 5s apart, the dashboard's refresh rate. `?dry=1` decides and audits without sending orders.
+- **Trigger.** Vercel Hobby only allows daily crons, and a per-minute entry in `vercel.json` would fail a Hobby deploy, so none is added. Vercel Pro can run a cron every minute. Here `.github/workflows/mirror-run.yml` starts before the open and loops inside the job, calling the endpoint every 10s until just after the close (it reads the New York clock, so daylight saving needs no change). It stops after 5.5h and starts the next run itself, because a job is limited to 6h; a concurrency group keeps runs from overlapping. Add the repository secret `POLARITO_CRON_SECRET` (same value as `CRON_SECRET` in Vercel) and, optionally, the repository variable `POLARITO_BASE_URL` (default `https://www.polarito.com`). Start it by hand from the Actions tab (Run workflow).
+- **Cost.** Free on a public repository. On a private one it uses about 400 Actions minutes per trading day (about 8,400 a month) against 2,000 (Free) or 3,000 (Pro) included, roughly $50-65 a month at $0.008/min.
+
 Safety properties: hard-coded paper host; orders need `POLARITO_PAPER_TRADING_ENABLED=1` and an off kill switch; deterministic client order ids make retries idempotent; positions are reconciled against the broker before any order; closes flatten the broker's actual quantity; every error path returns a result instead of throwing, and credentials never appear in errors.
 
 ## Audit log (server only)
