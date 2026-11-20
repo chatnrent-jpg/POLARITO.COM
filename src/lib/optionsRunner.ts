@@ -13,8 +13,10 @@
  * Virtues:
  *   Wisdom     - Neutral / unready / stale data => no option held.
  *   Courage    - a valid decision is sent with no human step in the path.
- *   Temperance - premium is the whole risk; per-position and cash caps and the
- *                daily loss halt are checked BEFORE the order; closes are never blocked.
+ *   Temperance - premium is the whole risk; per-position and cash caps are
+ *                checked BEFORE the order. A 2% daily account loss closes every
+ *                option and blocks new entries until the next session. Closes are
+ *                never blocked.
  *   Justice    - stale or malformed bars, contracts or quotes mean NO order;
  *                every outcome is audited truthfully.
  */
@@ -196,7 +198,9 @@ export async function runOptionsCycle(
         // Close first: neutral, flipped, or about to expire. Re-entry waits for the next session.
         let closeWhy: string | null = null;
         if (heldOcc && held.length === 1) {
-          if (wanted === null) {
+          if (lossHalted) {
+            closeWhy = `Daily loss limit (${DEFAULT_RISK_CONFIG.dailyLossLimitPct * 100}%) reached. Closing the option; trading resumes next session.`;
+          } else if (wanted === null) {
             closeWhy = input.signal.ready
               ? "Polarity went to 0 (Neutral). Closing the option."
               : "Not enough history yet. Closing the option.";

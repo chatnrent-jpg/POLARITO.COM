@@ -52,7 +52,8 @@ Underneath, two plain protections remain: it never buys more than the account's 
 Set `POLARITO_PAPER_INSTRUMENT=options` to run `src/lib/optionsRunner.ts` instead of the stock cycle. Per ticker, at most one option at a time:
 
 - **+1 Drive** buys a call, **-1 Reverse** buys a put, **0 / unready / stale data** holds nothing. The executor re-checks this from the contract's own OCC symbol, so no other entry can be sent.
-- Entries use the nearest expiry at least 365 days out and the strike closest to the last close, as a DAY limit order at the ask (rounded up to the 5-cent tick). Entries are refused when the quote is missing, stale or crossed, when the bid/ask gap is over 15% of the price, when one position would cost over 10% of equity, when the premium exceeds available cash, or after a 2% daily loss.
+- Entries use the nearest expiry at least 365 days out and the strike closest to the last close, as a DAY limit order at the ask (rounded up to the 5-cent tick). Entries are refused when the quote is missing, stale or crossed, when the bid/ask gap is over 15% of the price, when one position would cost over 10% of equity, or when the premium exceeds available cash.
+- **Daily loss stop.** If the account is down 2% or more on the day at the check, every option is sold to close and nothing is bought. The next session starts fresh.
 - Exits are sell-to-close: on Neutral, on a flip (the new option is bought next session once flat is confirmed), or when the option is within 60 days of expiry. They use a limit at the bid, or a market order when no usable quote exists. Closes are never blocked by risk limits.
 - The loss on a bought option is limited to the premium. `POLARITO_OPTIONS_CONTRACTS` sets contracts per entry (default 1, max 10).
 - Contracts come live from Alpaca's contract list; quotes use Alpaca's indicative option feed. The paper account must have options trading enabled.
