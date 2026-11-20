@@ -116,7 +116,7 @@ export type LiveManualBuyArgs = {
 };
 
 /**
- * A hand-placed long (the live panel's Buy button). Same executor, account, position and duplicate-id
+ * A hand-placed long (the order ticket in live mode). Same executor, account, position and duplicate-id
  * checks as an automatic entry, filed under the manual id pol-{date}-m{NN}-{TICKER}. A manual buy is
  * long by definition, so the executor's polarity alignment check is satisfied with +1 and no signal is consulted.
  */

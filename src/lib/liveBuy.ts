@@ -1,10 +1,11 @@
 /**
- * Manual BUY for the live account, server side. The live panel's Buy button calls this through
+ * Manual BUY for the live account, server side. The order ticket (live mode) calls this through
  * POST /api/broker/live/buy.
  *
  * Long only, real stocks only, watchlist only. Sizing is the SAME risk engine the pick runner uses
  * (sizeLiveEntry: 50% per-position cap, 100% total exposure, cash and buying power, daily-loss halt),
- * so a manual buy is reduced or refused, never larger than what Auto could take.
+ * so a manual buy is reduced or refused, never larger than what Auto could take. The order ticket
+ * (OrderModule) sends `requireDrive`, so the server also refuses a long that is not aligned with the gear.
  *
  * Every check reads Alpaca fresh and fails closed: anything unreadable, stale or doubtful refuses.
  * The answer says "accepted" only after Alpaca returned the order, and `filled: true` only after the
@@ -72,7 +73,20 @@ export const companyKey = (ticker: string): string => COMPANY_GROUPS.find((g) =>
 
 const refusal = (code: string, error: string, clientOrderId?: string): LiveBuyOutcome => ({ ok: false, code, error, clientOrderId });
 
-export async function buyLivePosition(deps: LiveBuyDeps, tickerInput: unknown, quantityInput: unknown): Promise<LiveBuyOutcome> {
+export type LiveBuyOptions = {
+  /**
+   * The order ticket's gear gate, re-checked on the server: refuse unless the engine's latest reading for the
+   * stock is ready and Drive (+1). The ticket always sets it; a bare API call may leave it off (a hand buy).
+   */
+  requireDrive?: boolean;
+};
+
+export async function buyLivePosition(
+  deps: LiveBuyDeps,
+  tickerInput: unknown,
+  quantityInput: unknown,
+  options: LiveBuyOptions = {},
+): Promise<LiveBuyOutcome> {
   const now = (deps.now ?? (() => new Date()))();
   const sleep = deps.sleep ?? defaultSleep;
   const ticker = normalizeTicker(tickerInput);
@@ -207,6 +221,10 @@ export async function buyLivePosition(deps: LiveBuyDeps, tickerInput: unknown, q
       const reading = toReading(ticker, bars, series);
       if (reading.barDate !== today) {
         return refusal("STALE", `The latest ${ticker} bar (${reading.barDate}) is not today's (${today}). No trade on stale prices. No order was sent.`);
+      }
+
+      if (options.requireDrive && !(reading.ready && reading.polarity === 1)) {
+        return refusal("GEAR", `The engine does not read ${ticker} as Drive (+1) right now (${reading.ready ? `polarity ${reading.polarity}` : "not enough history"}), so a long is not aligned. No order was sent.`);
       }
 
       const reserved = positionsRes.value.reduce((s, p) => s + p.quantity * p.avgEntryPrice, 0);

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { NextRequest } from "next/server";
 import { POST as buyPost } from "../src/app/api/broker/live/buy/route.node";
@@ -41,7 +42,11 @@ function setup(o: Setup = {}) {
     now: t.deps.now,
     sleep: async () => {},
   };
-  return { ...t, buy: (ticker: unknown, qty: unknown) => buyLivePosition(deps, ticker, qty), buyDeps: deps };
+  return {
+    ...t,
+    buy: (ticker: unknown, qty: unknown, options?: { requireDrive?: boolean }) => buyLivePosition(deps, ticker, qty, options),
+    buyDeps: deps,
+  };
 }
 
 const lastAudit = (audit: AuditRecord[]) => audit[audit.length - 1];
@@ -98,6 +103,28 @@ describe("manual buy: success and sizing", () => {
     assert.match(r.message, /Not filled yet/);
     assert.doesNotMatch(r.message, /position is shown/);
     assert.equal(r.orderStatus, "accepted");
+  });
+});
+
+describe("manual buy with the ticket's gear gate (requireDrive)", () => {
+  it("sends a long for a Drive reading and refuses Reverse, Neutral and not-ready readings, sending nothing", async () => {
+    const ok = setup();
+    assert.equal((await ok.buy("NVDA", 1, { requireDrive: true })).ok, true);
+    for (const kind of ["reverse", "neutral"] as const) {
+      const s = setup({ specs: { ...SPECS(), NVDA: { kind, mult: 12, price: 130 } } });
+      const r = await s.buy("NVDA", 1, { requireDrive: true });
+      assert.deepEqual([r.ok, !r.ok && r.code], [false, "GEAR"], kind);
+      assert.deepEqual(s.broker.submitted, []);
+      assert.equal(lastAudit(s.audit).outcome, "blocked");
+    }
+    const young = setup({ specs: { ...SPECS(), NVDA: { kind: "drive", mult: 12, price: 130, count: 10 } } });
+    const y = await young.buy("NVDA", 1, { requireDrive: true });
+    assert.deepEqual([y.ok, !y.ok && y.code], [false, "GEAR"]);
+  });
+
+  it("without the flag a hand buy does not consult the gear", async () => {
+    const s = setup({ specs: { ...SPECS(), NVDA: { kind: "reverse", mult: 12, price: 130 } } });
+    assert.equal((await s.buy("NVDA", 1)).ok, true);
   });
 });
 
@@ -465,6 +492,7 @@ describe("the buy route", () => {
     assert.equal((await buyPost(post({ ticker: "NVDA" }))).status, 400);
     assert.equal((await buyPost(post({ ticker: 5, quantity: 1 }))).status, 400);
     assert.equal((await buyPost(post({ ticker: "NVDA", quantity: "1" }))).status, 400);
+    assert.equal((await buyPost(post({ ticker: "NVDA", quantity: 1, requireDrive: "yes" }))).status, 400);
     assert.deepEqual(seen, []);
   });
 
@@ -502,5 +530,46 @@ describe("the buy route", () => {
     assert.equal(res.status, 400);
     assert.equal((await res.json()).code, "NOT_WATCHLIST");
     assert.deepEqual(seen, []);
+  });
+});
+
+describe("the order ticket is the live order path", () => {
+  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  const ticket = read("src/components/OrderModule.tsx");
+  const panel = read("src/components/LiveAccountPanel.tsx");
+  const dashboard = read("src/components/PolarityDashboard.tsx");
+
+  it("keeps the ticket's own fields, gear gate and review flow", () => {
+    for (const text of ["Stock Ticker", "Order Type", "Quantity (shares)", "Review Order", "evaluateGuard", "validateQuantity", "Confirm simulated order", "addLedgerEntry"]) {
+      assert.ok(ticket.includes(text), text);
+    }
+    assert.match(dashboard, /<OrderModule key=\{accountId\} analysis=\{analysis\} \/>/);
+  });
+
+  it("shows the mode on the header and only goes live on the server's say-so, never the other way", () => {
+    assert.match(ticket, /MODE: LIVE REAL CASH/);
+    assert.match(ticket, /MODE: SIMULATED/);
+    assert.match(ticket, /bg-amber-400/);
+    assert.match(ticket, /const live = feed\.liveOrders;/);
+    const hook = read("src/components/useLiveStatus.ts");
+    assert.match(hook, /status\?\.live === true && status\.tradingAllowed === true && status\.ok === true/);
+  });
+
+  it("live confirm posts to /api/broker/live/buy with the gear gate and writes nothing to the sim ledger", () => {
+    assert.match(ticket, /\/api\/broker\/live\/buy/);
+    assert.match(ticket, /requireDrive: true/);
+    const live = ticket.slice(ticket.indexOf("if (live) {\n      setReview(null);\n      void submitLive"));
+    assert.ok(live.indexOf("submitLive") < live.indexOf("addLedgerEntry"));
+    assert.match(ticket, /Short is not supported in LIVE mode/);
+  });
+
+  it("puts the live account inside the ticket card and no floating panel remains", () => {
+    assert.match(ticket, /<LiveAccountPanel feed=\{feed\} \/>/);
+    assert.doesNotMatch(panel, /\bfixed\b|\babsolute\b/);
+    assert.match(panel, /status\?\.live !== true\) return null/);
+    for (const text of ["Confirm Auto ON", "Close all positions first", "Confirm close"]) assert.ok(panel.includes(text), text);
+    assert.doesNotMatch(read("src/app/page.tsx"), /LiveBroker/);
+    assert.throws(() => read("src/components/LiveBrokerPanel.tsx"));
+    assert.throws(() => read("src/components/LiveBrokerGate.tsx"));
   });
 });

@@ -16,7 +16,7 @@ const statusFor = (code: string): number => {
 };
 
 /**
- * POST /api/broker/live/buy   body: { "ticker": "NVDA", "quantity": 1 }
+ * POST /api/broker/live/buy   body: { "ticker": "NVDA", "quantity": 1, "requireDrive": true }   (requireDrive: the order ticket's gear gate, optional)
  *
  * Manual long entry for the live account, behind the Polarito session gate (src/proxy.ts) like the
  * close and auto routes, same-origin only, never under /api/cron/. Needs POLARITO_LIVE_ACCOUNT=1 AND
@@ -41,6 +41,9 @@ export async function POST(request: NextRequest) {
     if (!fields || typeof fields.ticker !== "string" || typeof fields.quantity !== "number") {
       return Response.json({ ok: false, code: "INVALID", error: 'Body must be { "ticker": "SYMBOL", "quantity": 1 }.' }, { status: 400, headers: NO_STORE });
     }
+    if (fields.requireDrive !== undefined && typeof fields.requireDrive !== "boolean") {
+      return Response.json({ ok: false, code: "INVALID", error: "requireDrive must be true or false." }, { status: 400, headers: NO_STORE });
+    }
     const settings = liveSettings(process.env);
     if (!settings.ok) {
       return Response.json({ ok: false, code: "CONFIG", error: settings.error }, { status: 500, headers: NO_STORE });
@@ -61,6 +64,7 @@ export async function POST(request: NextRequest) {
       },
       fields.ticker,
       fields.quantity,
+      { requireDrive: fields.requireDrive === true },
     );
     if (result.ok) return Response.json(result, { headers: NO_STORE });
     return Response.json(result, { status: statusFor(result.code), headers: NO_STORE });
