@@ -86,7 +86,7 @@ function parseOrder(v: unknown): BrokerOrder | null {
   ) {
     return null;
   }
-  return {
+  const order: BrokerOrder = {
     id: v.id,
     clientOrderId: v.client_order_id,
     status: v.status,
@@ -94,6 +94,16 @@ function parseOrder(v: unknown): BrokerOrder | null {
     side: v.side,
     quantity: qty,
   };
+  const filledQty = num(v.filled_qty);
+  if (filledQty !== null && filledQty >= 0) order.filledQuantity = filledQty;
+  const filledAvg = num(v.filled_avg_price);
+  if (filledAvg !== null && filledAvg > 0) order.filledAvgPrice = filledAvg;
+  const stamp = (x: unknown): string | undefined => (typeof x === "string" && Number.isFinite(Date.parse(x)) ? x : undefined);
+  const submittedAt = stamp(v.submitted_at) ?? stamp(v.created_at);
+  if (submittedAt) order.submittedAt = submittedAt;
+  const filledAt = stamp(v.filled_at);
+  if (filledAt) order.filledAt = filledAt;
+  return order;
 }
 
 function parsePosition(v: unknown): BrokerPosition | null {
@@ -102,7 +112,14 @@ function parsePosition(v: unknown): BrokerPosition | null {
   const avg = num(v.avg_entry_price);
   if (typeof v.symbol !== "string" || qty === null || avg === null || qty === 0) return null;
   const side = v.side === "short" || v.side === "long" ? v.side : qty < 0 ? "short" : "long";
-  return { ticker: v.symbol, side, quantity: Math.abs(qty), avgEntryPrice: avg };
+  const pos: BrokerPosition = { ticker: v.symbol, side, quantity: Math.abs(qty), avgEntryPrice: avg };
+  const price = num(v.current_price);
+  if (price !== null && price > 0) pos.currentPrice = price;
+  const value = num(v.market_value);
+  if (value !== null) pos.marketValue = Math.abs(value);
+  const pnl = num(v.unrealized_pl);
+  if (pnl !== null) pos.unrealizedPnl = pnl;
+  return pos;
 }
 
 /** An item is trusted only if every field agrees with its OCC symbol. */

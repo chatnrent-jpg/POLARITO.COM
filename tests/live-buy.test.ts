@@ -550,9 +550,9 @@ describe("the order ticket is the live order path", () => {
     assert.match(ticket, /MODE: LIVE REAL CASH/);
     assert.match(ticket, /MODE: SIMULATED/);
     assert.match(ticket, /bg-amber-400/);
-    assert.match(ticket, /const live = feed\.liveOrders;/);
-    const hook = read("src/components/useLiveStatus.ts");
-    assert.match(hook, /status\?\.live === true && status\.tradingAllowed === true && status\.ok === true/);
+    assert.match(ticket, /const live = mode\.kind === "live" && mode\.ordersAllowed;/);
+    const lib = read("src/lib/liveMode.ts");
+    assert.match(lib, /const ordersAllowed = status\.tradingAllowed === true;/);
   });
 
   it("live confirm posts to /api/broker/live/buy with the gear gate and writes nothing to the sim ledger", () => {
@@ -566,7 +566,7 @@ describe("the order ticket is the live order path", () => {
   it("puts the live account inside the ticket card and no floating panel remains", () => {
     assert.match(ticket, /<LiveAccountPanel feed=\{feed\} \/>/);
     assert.doesNotMatch(panel, /\bfixed\b|\babsolute\b/);
-    assert.match(panel, /status\?\.live !== true\) return null/);
+    assert.match(panel, /mode\.kind === "sim"\) return null/);
     for (const text of ["Confirm Auto ON", "Close all positions first", "Confirm close"]) assert.ok(panel.includes(text), text);
     assert.doesNotMatch(read("src/app/page.tsx"), /LiveBroker/);
     assert.throws(() => read("src/components/LiveBrokerPanel.tsx"));

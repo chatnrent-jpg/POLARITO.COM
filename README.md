@@ -147,7 +147,7 @@ The main page's order ticket (Stock Ticker from the analyzed selection, Order Ty
 
 | | Simulated (default) | LIVE |
 | --- | --- | --- |
-| When | Always, unless the server says live orders are possible | `POLARITO_LIVE_ACCOUNT=1` **and** `POLARITO_LIVE_TRADING_ENABLED=1`, kill switch off, live keys present (decided server-side by `GET /api/broker/live/status` `tradingAllowed`; while that is loading, unreadable or off the ticket stays simulated) |
+| When | Always, unless the server says live orders are possible | `POLARITO_LIVE_ACCOUNT=1` **and** `POLARITO_LIVE_TRADING_ENABLED=1`, kill switch off, live keys present (decided server-side by `GET /api/broker/live/status` `tradingAllowed`). With `POLARITO_LIVE_ACCOUNT` off the ticket is simulated; with it on but orders off, loading or unreadable the ticket is **locked** (see "Everything reflects live" below), never simulated |
 | Header | "Order · Simulated · {account}" | "Order · LIVE · Real cash" |
 | Confirm | Writes a simulated entry to the browser ledger | Sends a real market buy through `POST /api/broker/live/buy`; nothing is written to the simulated ledger |
 | Order Type | Long or Short | **Long only.** Short is refused with "Short is not supported in LIVE mode" (real cash, no shorting) |
@@ -159,7 +159,35 @@ The main page's order ticket (Stock Ticker from the analyzed selection, Order Ty
 | Review dialog | "Confirm simulated order" (green) | "Confirm LIVE order (real cash)" (amber), with the REAL ORDER warning |
 | Result | "Simulated LONG recorded ..." | The server's exact answer: "Alpaca accepted BUY n TICKER ..." (amber until the position shows at Alpaca, then green), or the reason it was refused |
 
-With `POLARITO_LIVE_ACCOUNT=1` the same card also holds a **LIVE account (real cash)** block (`src/components/LiveAccountPanel.tsx`): equity, today, cash, Live Auto ON/OFF with the "Confirm Auto ON" step and the OFF guard messages, today's stock, the stock positions and **Close** with "Confirm close". With live off the block is not rendered and the card is exactly what it was. If the live account is on but live orders are not (observe only, kill switch, missing keys), the ticket stays simulated and says why. The old floating corner panel is gone. The ticket has no sells, so there is no live sell path in it: closing is the Close button in the live block. The browser sim logic (`autoSim*.ts`, `autoDecision.ts`, `polarity.ts`, the ledger, `PageRefresher`, the default `marketApi.ts` fetch, mirror and Daily behavior) is untouched.
+With `POLARITO_LIVE_ACCOUNT=1` the same card also holds a **LIVE account (real cash)** block (`src/components/LiveAccountPanel.tsx`): equity, today, cash, Live Auto ON/OFF with the "Confirm Auto ON" step and the OFF guard messages, today's stock, the stock positions and **Close** with "Confirm close". With live off the block is not rendered and the card is exactly what it was. If the live account is on but live orders are not (observe only, kill switch, missing keys), the ticket is locked and says why. The old floating corner panel is gone. The ticket has no sells, so there is no live sell path in it: closing is the Close button in the live block. The browser sim logic (`autoSim*.ts`, `autoDecision.ts`, `polarity.ts`, the ledger, `PageRefresher`, the default `marketApi.ts` fetch, mirror and Daily behavior) is untouched.
+
+### Everything reflects live (`POLARITO_LIVE_ACCOUNT=1`)
+
+Once live is on the page no longer shows simulated account data. `src/app/page.tsx` reads `POLARITO_LIVE_ACCOUNT` on the server and passes it to `LiveModeProvider`, which polls `GET /api/broker/live/status` every 5 s and turns the answer into one mode (`src/lib/liveMode.ts`, `deriveLiveMode`). Every display picks exactly one branch, so simulated and live numbers are never on screen together, and with the variable off nothing live is fetched and the page is exactly the simulated page.
+
+| Mode | When | What the displays show |
+| --- | --- | --- |
+| Simulated | `POLARITO_LIVE_ACCOUNT` is not 1 | Today's simulated accounts, labeled Simulated, unchanged |
+| Checking | Live is on, first answer pending | "Reading the live account from Alpaca...", no numbers |
+| Live data unavailable | Live is on and the status read failed (route unreachable, Alpaca error, unusable balances/positions). A failed poll after a good one also lands here | A red "Live data unavailable: reason" in each display; no balances, positions or orders, no stale or zero values, no simulated fallback; order ticket locked |
+| Live | Live is on and Alpaca answered | Alpaca's own equity, cash, buying power, today's P&L (equity vs last close), positions with mark and unrealized P&L, real orders and fills; labeled LIVE / real cash. Orders are allowed only when `tradingAllowed` (live trading enabled, kill switch off, keys); otherwise the ticket is locked with the reason |
+
+**Audit: every place that showed or computed simulated account data**
+
+| Where | Simulated mode | Live mode |
+| --- | --- | --- |
+| Account card (`AccountSelector.tsx`): "Active Account - Simulated", TOTAL EQUITY, account switcher (Conservative Swing, Aggressive Leverage, Tactical Capital) | Unchanged | "Active Account - LIVE - Real cash", Alpaca equity, cash, today's P&L, buying power; no account switcher |
+| Ledger (`LedgerPanel.tsx`): cash, equity, realized/unrealized P&L, exposure, positions, order history | Unchanged | `LiveLedgerPanel.tsx`: equity, cash, buying power, today's P&L, stock exposure and the live risk limits, Alpaca positions, real order history (`GET /api/broker/live/orders`: last 7 days, newest first, max 50, with fill quantity and average price). Read only; Close stays in the live block of the order ticket card |
+| Order ticket (`OrderModule.tsx`): header "Order - Simulated - {account}", cash-available check, open-position check, "Simulated" confirm and result text | Unchanged | LIVE header and live cash, or locked (header "Order - LIVE - Locked") when orders are off, loading or unreadable. It never records to the simulated ledger in live mode |
+| Auto panel (`AutoSimControls.tsx`) and the browser Auto sim effect (`PolarityDashboard.tsx`) | Unchanged | Panel says "Simulation paused"; the effect that writes simulated entries does not run, so nothing is written to the simulated ledger. Live Auto is the switch in the live block |
+| Daily P&L and daily-loss readout | Simulated ledger | Today's P&L from Alpaca, plus the daily stop shown in the live ledger |
+| Risk / exposure readouts | Simulated exposure | Alpaca stock exposure as a share of equity, with the live per-position cap |
+
+**Left alone, on purpose.** `polarity.ts`, `autoDecision.ts`, `autoSim*.ts`, `PageRefresher.tsx`, the default `marketApi.ts` fetch and the mirroring calculation are untouched. `AuditTrail.tsx` is not mounted on the page. `PremiumGate.tsx` ("Simulated checkout") is billing, not account data. The page title text in `layout.tsx` is not account data.
+
+**Daily / mirror features and the simulated account.** The server-side runners (`paperRunner` daily after-close run, `mirrorRunner` SPY mirror, `optionsLossLimit`) trade the Alpaca **paper** account and read that paper account, not the browser's simulated ledger, so they behave the same in live mode (the live pick runner and Live Auto are separate and unchanged). The only feature that depends on the simulated account is the browser Auto sim (the on-page version of the mirror): it follows the polarity of the analyzed stock and writes to the browser ledger, so in live mode it is paused (no calculation or market-data change) and the panel says so. That is the one behavior change to decide on: if you want the paper-mirror's numbers on screen in live mode, it needs its own paper-account view.
+
+New read-only route: `GET /api/broker/live/orders` (behind the login gate; `{live:false}` without `POLARITO_LIVE_ACCOUNT=1`; a failed Alpaca read is a 502, never an empty list; no credentials in the response; no order is placed or cancelled). The status route also returns the live risk limits (`limits`). No new order path, no new environment variable, no new dependency.
 
 ### Live buy route rules (`POST /api/broker/live/buy`)
 

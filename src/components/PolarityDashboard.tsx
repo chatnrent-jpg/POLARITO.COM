@@ -11,6 +11,7 @@ import {
 import AccountSelector from "@/components/AccountSelector";
 import AutoSimControls from "@/components/AutoSimControls";
 import LedgerPanel, { type CurrentMark } from "@/components/LedgerPanel";
+import { useLiveMode } from "@/components/LiveModeProvider";
 import LogoutButton from "@/components/LogoutButton";
 import PageRefresher from "@/components/PageRefresher";
 import OrderModule, { type OrderAnalysis } from "@/components/OrderModule";
@@ -119,6 +120,8 @@ export default function PolarityDashboard() {
     () => ({ ...storedAutoPrefs, sizingMode: "fixed", fillMode: "signal-close" }),
     [storedAutoPrefs],
   );
+  // While live is on the browser simulation must not write to the simulated ledger.
+  const simMode = useLiveMode().mode.kind === "sim";
   const [autoNotice, setAutoNotice] = useState<string | null>(null);
   // Skip duplicate auto ticks for the same account/ticker/bar/gear/size.
   const lastAutoKey = useRef<string>("");
@@ -217,7 +220,7 @@ export default function PolarityDashboard() {
   );
 
   useEffect(() => {
-    if (!autoPrefs.enabled) {
+    if (!autoPrefs.enabled || !simMode) {
       lastAutoKey.current = "";
       return;
     }
@@ -247,7 +250,7 @@ export default function PolarityDashboard() {
       }
     }, 0);
     return () => window.clearTimeout(t);
-  }, [autoInput, autoPrefs, accountId]);
+  }, [autoInput, autoPrefs, accountId, simMode]);
 
   return (
     <div className="flex w-full flex-1 flex-col items-center justify-center gap-10 px-4 py-10">
