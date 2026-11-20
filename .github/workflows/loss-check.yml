@@ -1,13 +1,20 @@
 name: Options loss check
 
-# Every 30 minutes on weekdays, 13:00-21:30 UTC. That covers the whole US
+# Four checks an hour on weekdays, 13:00-21:59 UTC. That covers the whole US
 # session (9:30-16:00 New York) in both EST and EDT. The endpoint itself ignores
-# calls outside the session, so extra runs are harmless. It reads no signal and
-# buys nothing: if the paper account is down 2% on the day it sells the options.
+# calls outside the session, so extra runs are harmless, and a repeat close is
+# impossible (the close order id is fixed per ticker per day). It reads no signal
+# and buys nothing: if the paper account is down by the options daily loss limit
+# (1% by default) it sells the options.
+#
+# The minutes are deliberately odd. GitHub delays or drops scheduled runs at the
+# busy :00 and :30 marks, and two staggered schedules give a second chance.
+# GitHub does not guarantee scheduled runs; use "Run workflow" for an on-demand check.
 # Needs one repository secret: POLARITO_CRON_SECRET (the same value as CRON_SECRET in Vercel).
 on:
   schedule:
-    - cron: "0,30 13-21 * * 1-5"
+    - cron: "7,37 13-21 * * 1-5"
+    - cron: "22,52 13-21 * * 1-5"
   workflow_dispatch:
 
 permissions: {}
