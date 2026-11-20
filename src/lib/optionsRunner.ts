@@ -263,6 +263,21 @@ export async function runOptionsCycle(
           record({ ...base, outcome: "blocked", reason: "Daily loss limit reached. No new entries today.", notes });
           continue;
         }
+        // A close already sent today (for example by the intraday loss stop) means stand aside until the next session.
+        let closedToday = false;
+        for (const type of ["call", "put"] as const) {
+          const prior = await deps.broker.getOrderByClientId(optionClientOrderId("close", ticker, type, today));
+          if (!prior.ok) {
+            record({ ...base, outcome: "error", reason: `Could not check today's orders: ${prior.error}`, notes });
+            closedToday = true;
+            break;
+          }
+          if (prior.value) closedToday = true;
+        }
+        if (closedToday) {
+          record({ ...base, outcome: "blocked", reason: "An option in this ticker was already closed today. Standing aside until the next session.", notes });
+          continue;
+        }
         const spot = input.fill.price;
         const listed = await deps.broker.listContracts({
           underlying: ticker,
