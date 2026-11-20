@@ -440,7 +440,7 @@ describe("options cycle", () => {
     assert.deepEqual(audit.map((a) => a.outcome), ["entered", "entered", "blocked"]);
   });
 
-  it("a 2% daily loss halts new entries but never a close", async () => {
+  it("a 2% daily loss closes an aligned option and blocks new entries until the next session", async () => {
     const down = { ...ACCOUNT, equity: 97_000 };
     const noEntry = new FakeOptionsBroker([], down);
     const a = deps(noEntry, async () => bars("2026-11-19", "drive"));
@@ -449,9 +449,18 @@ describe("options cycle", () => {
     assert.equal(a.audit[0].outcome, "blocked");
 
     const closing = new FakeOptionsBroker([held(CALL)], down);
-    const b = deps(closing, async () => bars("2026-11-19", "neutral"));
+    const b = deps(closing, async () => bars("2026-11-19", "drive"));
     await runOptionsCycle(b.d, settings(), { dryRun: false });
     assert.equal(closing.orders.length, 1);
+    assert.equal(closing.orders[0].side, "sell");
+    assert.equal(b.audit[0].outcome, "closed");
+    assert.match(b.audit[0].reason, /Daily loss limit \(2%\) reached/);
+
+    const fine = new FakeOptionsBroker([held(CALL)], { ...ACCOUNT, equity: 98_500 });
+    const c = deps(fine, async () => bars("2026-11-19", "drive"));
+    await runOptionsCycle(c.d, settings(), { dryRun: false });
+    assert.equal(fine.orders.length, 0);
+    assert.equal(c.audit[0].outcome, "held");
   });
 
   it("never trades on stale or malformed bars", async () => {
