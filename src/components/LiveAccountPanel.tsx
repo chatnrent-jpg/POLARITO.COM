@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { LiveFeed } from "@/components/useLiveStatus";
+import type { LiveFeed } from "@/components/LiveModeProvider";
+import { liveDay } from "@/lib/liveMode";
 
 type Notice = { kind: "ok" | "wait" | "error"; text: string };
 
@@ -17,7 +18,7 @@ const money = (n: number) => n.toLocaleString("en-US", { style: "currency", curr
  * Buying is not here: the ticket above sends real buys through /api/broker/live/buy.
  */
 export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
-  const { status, loadError, reload } = feed;
+  const { mode, reload } = feed;
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -83,15 +84,29 @@ export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
     }
   }
 
-  if (status?.live !== true) return null;
-
-  const positions = status.positions ?? [];
+  if (mode.kind === "sim") return null;
+  if (mode.kind !== "live") {
+    return (
+      <div aria-label="Live account" className="rounded-xl border-2 border-amber-500/70 bg-zinc-950/50 p-4">
+        <h3 className="text-base font-bold uppercase tracking-wider text-amber-300">LIVE account (real cash)</h3>
+        {mode.kind === "checking" ? (
+          <p className="mt-2 text-base text-slate-300">Reading the live account from Alpaca…</p>
+        ) : (
+          <p role="alert" className="mt-2 text-base font-semibold text-red-300">
+            Live data unavailable: {mode.reason} No balances or positions are shown until Alpaca can be read.
+          </p>
+        )}
+      </div>
+    );
+  }
+  const status = mode.status;
+  const positions = mode.positions;
   const auto = status.auto;
   const openPositions = auto?.openPositions ?? 0;
   const openOrders = auto?.openOrders ?? 0;
   const offBlocked = Boolean(auto?.on && (openPositions > 0 || openOrders > 0));
-  const account = status.account;
-  const dayPnl = account ? account.equity - account.lastEquity : 0;
+  const account = mode.account;
+  const dayPnl = liveDay(account).pnl;
   const tone = { ok: "text-green-300", wait: "text-amber-300", error: "text-red-300" } as const;
 
   return (
@@ -102,7 +117,6 @@ export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
           {status.killed ? "kill switch on" : status.enabled ? "orders on" : "observe only"}
         </span>
       </h3>
-      {loadError ? <p className="text-base font-semibold text-red-300">{loadError}</p> : null}
       {account ? (
         <dl className="grid grid-cols-3 gap-x-4 gap-y-1 text-lg">
           <div>

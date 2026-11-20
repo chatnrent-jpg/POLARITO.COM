@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useSyncExternalStore, type FormEvent } from "react";
+import { useLiveMode } from "@/components/LiveModeProvider";
 import {
   getAutoSimPrefs,
   getServerAutoSimPrefs,
@@ -28,6 +29,7 @@ export default function AutoSimControls({ lastAction }: { lastAction: string | n
   const [qtyEdit, setQtyEdit] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const qtyDraft = qtyEdit ?? String(prefs.quantity);
+  const { mode } = useLiveMode();
 
   function report(result: AutoSimPrefsResult): boolean {
     setError(result.ok ? null : result.error);
@@ -42,6 +44,21 @@ export default function AutoSimControls({ lastAction }: { lastAction: string | n
   function onQtySubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     commitQty(qtyDraft);
+  }
+
+  if (mode.kind !== "sim") {
+    return (
+      <section
+        aria-label="Auto simulation (paused)"
+        className="flex w-full max-w-5xl flex-col gap-1 rounded-2xl border border-zinc-700 bg-zinc-900/60 p-5 sm:p-6"
+      >
+        <h2 className="text-lg font-bold uppercase tracking-wider text-white">Auto · Simulation paused</h2>
+        <p className="text-sm text-slate-400">
+          The live account is on, so the browser simulation does not run and nothing is written to the simulated
+          ledger. Live Auto is the switch in the LIVE account block of the order ticket card.
+        </p>
+      </section>
+    );
   }
 
   return (

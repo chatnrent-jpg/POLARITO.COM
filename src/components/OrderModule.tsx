@@ -2,7 +2,7 @@
 
 import { useState, useSyncExternalStore, type FormEvent } from "react";
 import LiveAccountPanel from "@/components/LiveAccountPanel";
-import { useLiveStatus } from "@/components/useLiveStatus";
+import { useLiveMode } from "@/components/LiveModeProvider";
 import {
   addLedgerEntry,
   canOpen,
@@ -49,12 +49,14 @@ const fieldCls =
  * The guard is re-run at confirm time against the current props, so a review
  * opened under one state can never be confirmed under another.
  *
- * Mode. By default the confirm step records a SIMULATED ledger entry. When the server says live
+ * Mode. With POLARITO_LIVE_ACCOUNT off the confirm step records a SIMULATED ledger entry. When the server says live
  * orders are possible (POLARITO_LIVE_ACCOUNT=1 and POLARITO_LIVE_TRADING_ENABLED=1, kill switch off,
- * keys present: useLiveStatus().liveOrders) the same ticket sends a REAL long market buy through
+ * keys present) the same ticket sends a REAL long market buy through
  * POST /api/broker/live/buy instead, and nothing is written to the simulated ledger. Long only: a
  * Short is refused in live mode. The server applies the real risk rules (watchlist, 50% cap, cash,
- * stop-out lockout, market hours, one stock at a time) and may send fewer shares than asked.
+ * stop-out lockout, market hours, one stock at a time) and may send fewer shares than asked. When live is on but
+ * orders are off, or the live account cannot be read, the ticket is locked with the reason (it never falls back to
+ * the simulated ledger).
  */
 export default function OrderModule({ analysis }: { analysis: OrderAnalysis | null }) {
   const [side, setSide] = useState<OrderSide | "">("");
@@ -62,11 +64,21 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
   const [review, setReview] = useState<{ key: string; entry: LedgerEntry } | null>(null);
   const [notice, setNotice] = useState<{ kind: "ok" | "wait" | "error"; text: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const feed = useLiveStatus();
-  const live = feed.liveOrders;
-  const liveStatus = feed.status;
-  const liveWatchlist = liveStatus?.manual?.watchlist ?? [];
-  const liveCash = liveStatus?.account ? Math.max(0, Math.min(liveStatus.account.cash, liveStatus.account.buyingPower)) : 0;
+  const feed = useLiveMode();
+  const mode = feed.mode;
+  const live = mode.kind === "live" && mode.ordersAllowed;
+  // Anything but the simulated mode and a live-and-orders-on account locks the ticket: it never falls back to
+  // the simulated ledger once live is on, and never trades on an account it could not read.
+  const lockReason: string | null =
+    mode.kind === "sim" || live
+      ? null
+      : mode.kind === "live"
+        ? `Live orders are off: ${mode.ordersReason}`
+        : mode.kind === "checking"
+          ? "Checking the live account. Orders unlock when Alpaca answers."
+          : `Live data unavailable: ${mode.reason} Orders are locked.`;
+  const liveWatchlist = mode.kind === "live" ? (mode.status.manual?.watchlist ?? []) : [];
+  const liveCash = mode.kind === "live" ? Math.max(0, Math.min(mode.account.cash, mode.account.buyingPower)) : 0;
 
   const ledger = useSyncExternalStore(
     subscribeLedger,
@@ -80,16 +92,16 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
   const notional = qty.ok ? qty.qty * price : 0;
   const accountDef = getAccountDef(ledger.accountId);
   const account = computeAccount(ledger, {}, accountDef.initialBalance);
-  const cashLimit = live ? liveCash : account.cashAvailable;
+  const cashLimit = mode.kind === "sim" ? account.cashAvailable : liveCash;
   const hasFunds = qty.ok && notional <= cashLimit;
   // No simultaneous long and short on one ticker (simulated ledger only; the live account is checked by the server).
   const openCheck =
-    !live && analysis && isOrderSide(side) ? canOpen(ledger, analysis.ticker, side) : { ok: true as const };
+    mode.kind === "sim" && analysis && isOrderSide(side) ? canOpen(ledger, analysis.ticker, side) : { ok: true as const };
   // Live orders are long only and watchlist only (the server re-checks both).
   const liveShort = live && side === "short";
   const offWatchlist = live && analysis !== null && liveWatchlist.length > 0 && !liveWatchlist.includes(analysis.ticker);
 
-  const canReview = guard.canSubmit && openCheck.ok && qty.ok && hasFunds && price > 0 && !liveShort && !offWatchlist && !submitting;
+  const canReview = guard.canSubmit && openCheck.ok && qty.ok && hasFunds && price > 0 && !liveShort && !offWatchlist && !submitting && lockReason === null;
 
   // A review only counts while every input it was built from is unchanged.
   const key = `${live ? "live" : "sim"}|${ledger.accountId}|${analysis?.ticker}|${analysis?.polarity}|${analysis?.asOf}|${side}|${qtyRaw.trim()}`;
@@ -99,7 +111,7 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
 
   function buildEntry(): LedgerEntry | null {
     // Re-validate from scratch; never trust that the button state was honest.
-    if (!analysis || !isOrderSide(side)) return null;
+    if (!analysis || !isOrderSide(side) || lockReason !== null) return null;
     const g = evaluateGuard(analysis, side);
     const q = validateQuantity(qtyRaw);
     if (!g.canSubmit || !q.ok || analysis.close <= 0) return null;
@@ -194,19 +206,25 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
     <section
       aria-label="Order module"
       className={`flex w-full flex-col gap-5 rounded-2xl border bg-zinc-900/60 p-5 sm:p-6 ${
-        live ? "border-2 border-amber-500" : "border-zinc-700"
+        live || lockReason ? "border-2 border-amber-500" : "border-zinc-700"
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex flex-wrap items-center gap-3 text-lg font-bold uppercase tracking-wider text-white">
-          {live ? <span className="text-amber-300">Order · LIVE · Real cash</span> : <span>Order · Simulated · {accountDef.name}</span>}
+          {live ? (
+            <span className="text-amber-300">Order · LIVE · Real cash</span>
+          ) : lockReason ? (
+            <span className="text-amber-300">Order · LIVE · Locked</span>
+          ) : (
+            <span>Order · Simulated · {accountDef.name}</span>
+          )}
           <span
             data-testid="order-mode"
             className={`rounded-md px-2 py-1 text-xs font-black tracking-widest ${
-              live ? "bg-amber-400 text-zinc-950" : "bg-zinc-700 text-slate-200"
+              live ? "bg-amber-400 text-zinc-950" : lockReason ? "bg-zinc-700 text-amber-200" : "bg-zinc-700 text-slate-200"
             }`}
           >
-            {live ? "MODE: LIVE REAL CASH" : "MODE: SIMULATED"}
+            {live ? "MODE: LIVE REAL CASH" : lockReason ? "MODE: LIVE · ORDERS LOCKED" : "MODE: SIMULATED"}
           </span>
         </h2>
         {gearMeta ? (
@@ -218,10 +236,9 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
         )}
       </div>
 
-      {!live && liveStatus?.live === true ? (
-        <p role="status" className="rounded-xl border border-amber-500/60 bg-zinc-950/60 p-3 text-sm font-medium text-amber-200">
-          The live account is connected but live orders are off
-          {liveStatus.blockedReason ? `: ${liveStatus.blockedReason}` : "."} This ticket stays simulated.
+      {lockReason ? (
+        <p role="alert" className="rounded-xl border-2 border-amber-500 bg-zinc-950/60 p-3 text-sm font-semibold text-amber-200">
+          {lockReason} Nothing is written to the simulated ledger while live is on.
         </p>
       ) : null}
       {live ? (
@@ -336,7 +353,7 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
 
         {guard.canSubmit && liveShort && (
           <p role="alert" className="rounded-xl border-2 border-orange-400 bg-orange-950/60 p-4 text-lg font-bold text-orange-200">
-            Short is not supported in LIVE mode: the live account is long only (real cash, no shorting). Choose Long, or run with live orders off to simulate a short.
+            Short is not supported in LIVE mode: the live account is long only (real cash, no shorting). Choose Long.
           </p>
         )}
         {guard.canSubmit && offWatchlist && (
@@ -359,7 +376,7 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
             {qty.error}
           </p>
         )}
-        {guard.canSubmit && qty.ok && !hasFunds && (
+        {guard.canSubmit && lockReason === null && qty.ok && !hasFunds && (
           <p role="alert" className="text-base font-semibold text-red-300">
             Order of {money(notional)} exceeds {live ? "live account" : accountDef.name} cash available ({money(cashLimit)}).
           </p>

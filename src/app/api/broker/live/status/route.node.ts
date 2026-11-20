@@ -62,6 +62,7 @@ export async function GET() {
         manual: settings.ok
           ? { watchlist: settings.settings.watchlist, defaultQuantity: settings.settings.quantity }
           : { watchlist: [] as string[], defaultQuantity: 1, error: settings.error },
+        limits: settings.ok ? { maxPositionPct: settings.settings.maxPositionPct, dailyLossPct: settings.settings.dailyLossPct } : undefined,
         day: {
           date: state.date,
           entries: state.entryCount,
