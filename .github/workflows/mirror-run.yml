@@ -49,24 +49,40 @@ jobs:
         shell: bash
         run: |
           set -u
-          BASE="${POLARITO_BASE_URL:-https://www.polarito.com}"
+
+          # Settings -> Secrets and variables -> Actions values often arrive with a stray space,
+          # newline or quote from copy-paste. Strip them instead of letting curl choke on them.
+          RAW_BASE="${POLARITO_BASE_URL:-https://www.polarito.com}"
+          BASE="$(printf '%s' "$RAW_BASE" | tr -d '[:space:]"'"'"'')"
           BASE="${BASE%/}"
-          case "$BASE" in
-            https://*) ;;
-            *) echo "POLARITO_BASE_URL must start with https://" >&2; exit 1 ;;
-          esac
-          if [ -z "${POLARITO_CRON_SECRET:-}" ]; then
+          if [ "$BASE" != "$RAW_BASE" ] && [ "$BASE" != "${RAW_BASE%/}" ]; then
+            echo "Note: POLARITO_BASE_URL had stray whitespace or quotes; using the cleaned value."
+          fi
+          if ! printf '%s' "$BASE" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$'; then
+            echo "POLARITO_BASE_URL must be just https://host (no path), for example https://www.polarito.com. Got: $BASE" >&2
+            exit 1
+          fi
+          POLARITO_CRON_SECRET="$(printf '%s' "${POLARITO_CRON_SECRET:-}" | tr -d '[:space:]')"
+          if [ -z "$POLARITO_CRON_SECRET" ]; then
             echo "POLARITO_CRON_SECRET is not set in this repository's secrets." >&2
             exit 1
           fi
+          HOST="${BASE#https://}"
+          HOST="${HOST%%:*}"
+          URL="$BASE/api/cron/mirror-run?ticks=1"
+          echo "Mirror target: $BASE (host $HOST)"
 
           INTERVAL=10            # seconds between calls
           MAX_SECONDS=19800      # 5h30m per job, under the 6h job limit
+          CONNECT_TIMEOUT=10
+          MAX_TIME=45            # a tick makes several Alpaca calls; the route allows 60s
           OPEN_MIN=$((9 * 60 + 20))    # start 10 minutes before the 09:30 open
           CLOSE_MIN=$((16 * 60 + 2))   # stop just after the 16:00 close
           HOLIDAY_AFTER=$((10 * 60))   # after 10:00 ET, repeated "bar is not today" means a holiday
           HOLIDAY_STREAK=30
           OUT="${RUNNER_TEMP:-/tmp}/mirror-out.json"
+          ERRF="${RUNNER_TEMP:-/tmp}/mirror-curl.err"
+          WRITE_OUT='%{http_code} ip=%{remote_ip} dns=%{time_namelookup}s connect=%{time_connect}s tls=%{time_appconnect}s first_byte=%{time_starttransfer}s total=%{time_total}s'
 
           et_now() { TZ=America/New_York date '+%u %H:%M:%S'; }
           in_window() {
@@ -82,14 +98,54 @@ jobs:
             echo $((10#${hms:0:2} * 60 + 10#${hms:3:2}))
           }
 
+          # One call. Sets: rc (curl exit code), code (HTTP status or 000), meta (timings), err (curl's own message).
+          call() {
+            : > "$ERRF"; : > "$OUT"
+            meta=$(curl --silent --show-error --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" \
+              --output "$OUT" --write-out "$WRITE_OUT" "$@" 2>"$ERRF") && rc=0 || rc=$?
+            code="${meta%% *}"
+            [ -n "$code" ] || code=000
+            err="$(tr '\n' ' ' < "$ERRF" | cut -c1-200)"
+          }
+
+          diagnose() {
+            echo "--- network diagnostics (no secrets) ---"
+            curl --version | head -1
+            getent hosts "$HOST" || echo "DNS: $HOST did not resolve"
+            curl --silent --show-error --verbose --connect-timeout "$CONNECT_TIMEOUT" --max-time 20 \
+              --output /dev/null "$BASE/login" 2>&1 | grep -E '^(\* (Connected|SSL|TLSv|ALPN|Could not|Failed|Operation|Connection|Recv|Send))|^< HTTP|^curl:' | head -15
+            echo "--- end diagnostics ---"
+          }
+
           if ! in_window; then
             echo "Outside the US session window (weekday 09:20-16:02 New York). Nothing to do."
             exit 0
           fi
 
+          # Preflight, no secret sent: the route must answer 401 (it is deployed, reachable, and
+          # asking for credentials). Anything else tells us what is wrong before the loop starts.
+          for attempt in 1 2 3; do
+            call "$URL"
+            if [ "$rc" -eq 0 ] && [ "$code" = "401" ]; then
+              echo "Preflight OK: $BASE answered 401 without credentials, as expected ($meta)."
+              break
+            fi
+            echo "Preflight attempt $attempt: curl_exit=$rc http=$code curl_error=[${err:-none}] ($meta)"
+            if [ "$rc" -eq 0 ] && [ "$code" != "401" ]; then
+              echo "The route did not answer 401. Body: $(head -c 200 "$OUT")"
+            fi
+            [ "$attempt" -lt 3 ] && sleep 3
+          done
+          if [ "$rc" -ne 0 ] || [ "$code" != "401" ]; then
+            diagnose
+            echo "Preflight failed. Fix the cause above (see the workflow comments), then run again." >&2
+            exit 1
+          fi
+
           START=$SECONDS
           stale=0
           failures=0
+          diagnosed=0
           while in_window; do
             if [ $((SECONDS - START)) -ge "$MAX_SECONDS" ]; then
               echo "Reached the 5h30m job limit with the market still open. Starting the next run."
@@ -98,14 +154,16 @@ jobs:
               exit 0
             fi
             tick=$SECONDS
-            code=$(curl --silent --show-error --max-time 25 --output "$OUT" --write-out '%{http_code}' \
-              -H "Authorization: Bearer $POLARITO_CRON_SECRET" \
-              "$BASE/api/cron/mirror-run?ticks=1" 2>/dev/null) || code=000
+            call -H "Authorization: Bearer $POLARITO_CRON_SECRET" "$URL"
             summary=$(jq -r 'if .action == "none" then .reason
                              else [.reports[]?.results[]? | "\(.outcome): \(.reason[0:110])"] | join(" | ") end' "$OUT" 2>/dev/null || true)
-            echo "$(TZ=America/New_York date '+%H:%M:%S') ET http=$code ${summary:-no body}"
+            if [ "$rc" -eq 0 ]; then
+              echo "$(TZ=America/New_York date '+%H:%M:%S') ET http=$code total=${meta##*total=} ${summary:-$(head -c 120 "$OUT")}"
+            else
+              echo "$(TZ=America/New_York date '+%H:%M:%S') ET http=$code curl_exit=$rc curl_error=[${err:-none}] ($meta)"
+            fi
 
-            if [ "$code" = "401" ]; then
+            if [ "$code" = "401" ] && [ "$rc" -eq 0 ]; then
               echo "Unauthorized: POLARITO_CRON_SECRET does not match CRON_SECRET in Vercel." >&2
               exit 1
             fi
@@ -113,9 +171,17 @@ jobs:
               echo "The site is not in mirror mode (POLARITO_PAPER_INSTRUMENT=mirror). Stopping."
               exit 0
             fi
-            if [ "$code" = "200" ]; then failures=0; else failures=$((failures + 1)); fi
-            if [ "$failures" -ge 60 ]; then
-              echo "60 failed calls in a row. Stopping so the failure is visible." >&2
+            if [ "$rc" -eq 0 ] && [ "$code" = "200" ]; then
+              failures=0
+            else
+              failures=$((failures + 1))
+              if [ "$failures" -ge 5 ] && [ "$diagnosed" -eq 0 ]; then
+                diagnose
+                diagnosed=1
+              fi
+            fi
+            if [ "$failures" -ge 180 ]; then
+              echo "180 failed calls in a row (about 30 minutes). Stopping so the failure is visible." >&2
               exit 1
             fi
             if jq -e '[.reports[]?.results[]? | select(.reason | test("is not today"))] | length > 0' "$OUT" >/dev/null 2>&1 \
