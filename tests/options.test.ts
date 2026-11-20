@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import type { AuditRecord } from "../src/lib/audit";
 import { AlpacaPaperBroker, type FetchLike } from "../src/lib/broker/alpacaPaper";
@@ -23,6 +25,9 @@ import type {
   BrokerPosition,
   MarketOrderRequest,
 } from "../src/lib/broker/types";
+import { DEFAULT_MIRROR_DAILY_LOSS_PCT } from "../src/lib/mirrorRunner";
+import { DEFAULT_OPTIONS_DAILY_LOSS_PCT, lossPctText, optionsDailyLossLimit } from "../src/lib/optionsLossLimit";
+import { DEFAULT_RISK_CONFIG } from "../src/lib/risk";
 import { inSession, runLossCheck, type LossCheckDeps } from "../src/lib/optionsLossCheck";
 import { optionsRunnerSettings, runOptionsCycle, type OptionsRunnerDeps, type OptionsSettings } from "../src/lib/optionsRunner";
 import type { Bar } from "../src/lib/polarity";
@@ -441,8 +446,8 @@ describe("options cycle", () => {
     assert.deepEqual(audit.map((a) => a.outcome), ["entered", "entered", "blocked"]);
   });
 
-  it("a 2% daily loss closes an aligned option and blocks new entries until the next session", async () => {
-    const down = { ...ACCOUNT, equity: 97_000 };
+  it("a 1% daily loss closes an aligned option and blocks new entries until the next session", async () => {
+    const down = { ...ACCOUNT, equity: 99_000 };
     const noEntry = new FakeOptionsBroker([], down);
     const a = deps(noEntry, async () => bars("2026-11-19", "drive"));
     await runOptionsCycle(a.d, settings(), { dryRun: false });
@@ -455,9 +460,9 @@ describe("options cycle", () => {
     assert.equal(closing.orders.length, 1);
     assert.equal(closing.orders[0].side, "sell");
     assert.equal(b.audit[0].outcome, "closed");
-    assert.match(b.audit[0].reason, /Daily loss limit \(2%\) reached/);
+    assert.match(b.audit[0].reason, /Daily loss limit \(1%\) reached/);
 
-    const fine = new FakeOptionsBroker([held(CALL)], { ...ACCOUNT, equity: 98_500 });
+    const fine = new FakeOptionsBroker([held(CALL)], { ...ACCOUNT, equity: 99_100 });
     const c = deps(fine, async () => bars("2026-11-19", "drive"));
     await runOptionsCycle(c.d, settings(), { dryRun: false });
     assert.equal(fine.orders.length, 0);
@@ -623,7 +628,7 @@ describe("Alpaca paper adapter: option calls", () => {
 describe("intraday loss check", () => {
   // Thursday 2026-11-19, 15:00 New York (session open).
   const MID_SESSION = new Date("2026-11-19T20:00:00Z");
-  const down = { ...ACCOUNT, equity: 97_000 };
+  const down = { ...ACCOUNT, equity: 99_000 };
 
   function check(broker: OptionsBroker, over: Partial<LossCheckDeps> = {}, dryRun = false, now = MID_SESSION) {
     const audit: AuditRecord[] = [];
@@ -640,18 +645,18 @@ describe("intraday loss check", () => {
     assert.equal(inSession(new Date("2026-07-15T13:30:00Z")), true); // 09:30 EDT
   });
 
-  it("does nothing outside the session or while the loss is under 2%", async () => {
+  it("does nothing outside the session or while the loss is under 1%", async () => {
     const closedMarket = new FakeOptionsBroker([held(CALL)], down);
     const a = check(closedMarket, {}, false, AFTER_CLOSE);
     const ra = await a.run();
     assert.equal(ra.ok && ra.action, "none");
-    const small = new FakeOptionsBroker([held(CALL)], { ...ACCOUNT, equity: 98_500 });
+    const small = new FakeOptionsBroker([held(CALL)], { ...ACCOUNT, equity: 99_100 });
     const rb = await check(small).run();
     assert.equal(rb.ok && rb.action, "none");
     assert.equal(closedMarket.orders.length + small.orders.length, 0);
   });
 
-  it("sells every option at the bid once the account is down 2%, and never buys", async () => {
+  it("sells every option at the bid once the account is down 1%, and never buys", async () => {
     const aaplCall = "AAPL271217C00350000";
     const broker = new FakeOptionsBroker([held(CALL, 2), held(aaplCall)], down);
     const c = check(broker);
@@ -725,5 +730,84 @@ describe("intraday loss check", () => {
     assert.equal(broker.orders.length, 0);
     assert.equal(audit[0].outcome, "blocked");
     assert.match(audit[0].reason, /closed today/);
+  });
+});
+
+describe("options loss stop is 1% and independent of the shared 2%", () => {
+  const MID_SESSION = new Date("2026-11-19T20:00:00Z");
+  const at = (equity: number) => ({ ...ACCOUNT, equity }); // last close equity is 100_000
+
+  async function runCheck(equity: number, dailyLossLimit?: number) {
+    const broker = new FakeOptionsBroker([held(CALL)], at(equity));
+    const audit: AuditRecord[] = [];
+    const r = await runLossCheck(
+      { broker, config: ON, audit: (a) => void audit.push(a), now: () => MID_SESSION },
+      { watchlist: ["NVDA"], ...(dailyLossLimit === undefined ? {} : { dailyLossLimit }) },
+      { dryRun: false },
+    );
+    return { r, broker, audit };
+  }
+
+  it("default is 1%, from its own named constant", () => {
+    assert.equal(DEFAULT_OPTIONS_DAILY_LOSS_PCT, 1);
+    assert.equal(optionsDailyLossLimit({}), 0.01);
+    assert.equal(optionsDailyLossLimit(), 0.01);
+    assert.equal(lossPctText(0.01), "1");
+    assert.equal(lossPctText(0.0025), "0.25");
+  });
+
+  it("intraday check: -0.99% does nothing, exactly -1.00% closes, -2% closes", async () => {
+    const small = await runCheck(99_010);
+    assert.equal(small.r.ok && small.r.action, "none");
+    assert.match(small.r.ok ? small.r.reason : "", /Above the -1% limit/);
+    assert.equal(small.broker.orders.length, 0);
+
+    const edge = await runCheck(99_000);
+    assert.equal(edge.r.ok && edge.r.action, "closed");
+    assert.equal(edge.broker.orders.length, 1);
+    assert.match(edge.audit[0].reason, /limit 1%/);
+
+    const big = await runCheck(98_000);
+    assert.equal(big.r.ok && big.r.action, "closed");
+  });
+
+  it("evening runner: -0.99% keeps the option, exactly -1.00% closes it", async () => {
+    for (const [equity, orders] of [
+      [99_010, 0],
+      [99_000, 1],
+      [98_000, 1],
+    ] as const) {
+      const broker = new FakeOptionsBroker([held(CALL)], at(equity));
+      const { d, audit } = deps(broker, async () => bars("2026-11-19", "drive"));
+      await runOptionsCycle(d, settings(), { dryRun: false });
+      assert.equal(broker.orders.length, orders, String(equity));
+      if (orders) assert.match(audit[0].reason, /Daily loss limit \(1%\) reached/);
+    }
+  });
+
+  it("POLARITO_OPTIONS_DAILY_LOSS_PCT overrides it; bad values fall back to 1% (a stop is never switched off)", async () => {
+    assert.equal(optionsDailyLossLimit({ POLARITO_OPTIONS_DAILY_LOSS_PCT: "2" }), 0.02);
+    assert.equal(optionsDailyLossLimit({ POLARITO_OPTIONS_DAILY_LOSS_PCT: "0.5" }), 0.005);
+    for (const bad of ["0", "-1", "abc", "11", "0.1", "NaN", "Infinity"]) {
+      assert.equal(optionsDailyLossLimit({ POLARITO_OPTIONS_DAILY_LOSS_PCT: bad }), 0.01, bad);
+    }
+    const parsed = optionsRunnerSettings({ POLARITO_PAPER_WATCHLIST: "SPY", POLARITO_OPTIONS_DAILY_LOSS_PCT: "2" });
+    assert.equal(parsed.ok && parsed.settings.dailyLossLimit, 0.02);
+    const dflt = optionsRunnerSettings({ POLARITO_PAPER_WATCHLIST: "SPY" });
+    assert.equal(dflt.ok && dflt.settings.dailyLossLimit, 0.01);
+
+    const loose = await runCheck(98_500, 0.02); // 1.5% down is fine under a 2% setting
+    assert.equal(loose.r.ok && loose.r.action, "none");
+    assert.match(loose.r.ok ? loose.r.reason : "", /Above the -2% limit/);
+  });
+
+  it("the loss-check route passes the env-resolved options limit", () => {
+    const route = readFileSync(join(__dirname, "..", "src/app/api/cron/loss-check/route.node.ts"), "utf8");
+    assert.match(route, /dailyLossLimit: optionsDailyLossLimit\(process\.env\)/);
+  });
+
+  it("the shared 2% and the mirror's own 2% are untouched", () => {
+    assert.equal(DEFAULT_RISK_CONFIG.dailyLossLimitPct, 0.02);
+    assert.equal(DEFAULT_MIRROR_DAILY_LOSS_PCT, 2);
   });
 });

@@ -1,8 +1,8 @@
 /**
  * Intraday loss stop for options mode. Called every ~30 minutes during the
  * regular session by an outside timer. It never reads a signal and never buys:
- * its only job is to flatten the options when the account is down 2% or more
- * on the day, so the system stands aside until the next session.
+ * its only job is to flatten the options when the account is down 1% (the
+ * options loss stop, optionsLossLimit.ts) or more on the day, so the system stands aside until the next session.
  *
  * Idempotent: the close order id is fixed per ticker per day, so repeated
  * calls (or the evening runner) can never sell the same option twice.
@@ -16,7 +16,7 @@ import { tradingGate, type PaperBrokerConfig } from "@/lib/broker/config";
 import { checkQuote, describeContract, parseOccSymbol, sellLimit, type OptionsBroker } from "@/lib/broker/options";
 import { optionClientOrderId, optionPositionsFor, placeOptionIntent } from "@/lib/broker/optionsExecute";
 import { newYorkClock } from "@/lib/paperRunner";
-import { DEFAULT_RISK_CONFIG } from "@/lib/risk";
+import { lossPctText, optionsDailyLossLimit } from "@/lib/optionsLossLimit";
 
 /** Regular session, New York time. */
 export const SESSION_OPEN_MINUTES = 9 * 60 + 30;
@@ -42,7 +42,7 @@ export function inSession(now: Date): boolean {
 
 export async function runLossCheck(
   deps: LossCheckDeps,
-  settings: { watchlist: readonly string[] },
+  settings: { watchlist: readonly string[]; dailyLossLimit?: number },
   options: { dryRun: boolean },
 ): Promise<LossCheckReport> {
   const now = (deps.now ?? (() => new Date()))();
@@ -77,15 +77,15 @@ export async function runLossCheck(
     if (!(account.equity > 0) || !(account.lastEquity > 0)) return fail("Broker equity is not usable.");
 
     const dayLoss = (account.equity - account.lastEquity) / account.lastEquity;
-    const limit = DEFAULT_RISK_CONFIG.dailyLossLimitPct;
+    const limit = settings.dailyLossLimit ?? optionsDailyLossLimit();
     if (dayLoss > -limit) {
-      return { ok: true, action: "none", reason: `Day change ${(dayLoss * 100).toFixed(2)}%. Above the -${limit * 100}% limit.`, ranAt };
+      return { ok: true, action: "none", reason: `Day change ${(dayLoss * 100).toFixed(2)}%. Above the -${lossPctText(limit)}% limit.`, ranAt };
     }
 
     const positionsRes = await deps.broker.getPositions();
     if (!positionsRes.ok) return fail(`Cannot read broker positions: ${positionsRes.error}`);
     const today = newYorkClock(now).date;
-    const why = `Account is down ${(-dayLoss * 100).toFixed(2)}% today (limit ${limit * 100}%). Closing the option; trading resumes next session.`;
+    const why = `Account is down ${(-dayLoss * 100).toFixed(2)}% today (limit ${lossPctText(limit)}%). Closing the option; trading resumes next session.`;
     let closed = 0;
 
     for (const ticker of settings.watchlist) {

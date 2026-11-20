@@ -14,7 +14,7 @@
  *   Wisdom     - Neutral / unready / stale data => no option held.
  *   Courage    - a valid decision is sent with no human step in the path.
  *   Temperance - premium is the whole risk; per-position and cash caps are
- *                checked BEFORE the order. A 2% daily account loss closes every
+ *                checked BEFORE the order. A 1% daily account loss closes every
  *                option and blocks new entries until the next session. Closes are
  *                never blocked.
  *   Justice    - stale or malformed bars, contracts or quotes mean NO order;
@@ -44,7 +44,7 @@ import {
 import { optionClientOrderId, optionPositionsFor, placeOptionIntent } from "@/lib/broker/optionsExecute";
 import { completedBars, newYorkClock, paperRunnerSettings, type RunReport, type TickerReport } from "@/lib/paperRunner";
 import { computePolaritySeries, type Bar } from "@/lib/polarity";
-import { DEFAULT_RISK_CONFIG } from "@/lib/risk";
+import { lossPctText, optionsDailyLossLimit } from "@/lib/optionsLossLimit";
 
 /** Strike search window around the underlying price. */
 const STRIKE_WINDOW = 0.1;
@@ -53,7 +53,8 @@ const EXPIRY_WINDOW_DAYS = 400;
 /** One option position may cost at most this share of equity. */
 export const MAX_PREMIUM_PCT_OF_EQUITY = 0.1;
 
-export type OptionsSettings = { watchlist: string[]; contracts: number };
+/** `dailyLossLimit` is a fraction of last-close equity; omitted means the 1% options default. */
+export type OptionsSettings = { watchlist: string[]; contracts: number; dailyLossLimit?: number };
 
 export function optionsRunnerSettings(
   env: Readonly<Record<string, string | undefined>>,
@@ -64,7 +65,10 @@ export function optionsRunnerSettings(
   if (!Number.isSafeInteger(contracts) || contracts < 1 || contracts > MAX_OPTION_CONTRACTS) {
     return { ok: false, error: `POLARITO_OPTIONS_CONTRACTS must be a whole number from 1 to ${MAX_OPTION_CONTRACTS}.` };
   }
-  return { ok: true, settings: { watchlist: base.settings.watchlist, contracts } };
+  return {
+    ok: true,
+    settings: { watchlist: base.settings.watchlist, contracts, dailyLossLimit: optionsDailyLossLimit(env) },
+  };
 }
 
 export type OptionsRunnerDeps = {
@@ -134,7 +138,8 @@ export async function runOptionsCycle(
     const positions = positionsRes.value;
 
     const dayLoss = (account.equity - account.lastEquity) / account.lastEquity;
-    const lossHalted = dayLoss <= -DEFAULT_RISK_CONFIG.dailyLossLimitPct;
+    const lossLimit = settings.dailyLossLimit ?? optionsDailyLossLimit();
+    const lossHalted = dayLoss <= -lossLimit;
     let pendingPremium = 0;
 
     for (const ticker of settings.watchlist) {
@@ -199,7 +204,7 @@ export async function runOptionsCycle(
         let closeWhy: string | null = null;
         if (heldOcc && held.length === 1) {
           if (lossHalted) {
-            closeWhy = `Daily loss limit (${DEFAULT_RISK_CONFIG.dailyLossLimitPct * 100}%) reached. Closing the option; trading resumes next session.`;
+            closeWhy = `Daily loss limit (${lossPctText(lossLimit)}%) reached. Closing the option; trading resumes next session.`;
           } else if (wanted === null) {
             closeWhy = input.signal.ready
               ? "Polarity went to 0 (Neutral). Closing the option."
@@ -258,7 +263,7 @@ export async function runOptionsCycle(
           continue;
         }
 
-        // Entry. Temperance: no new premium after a 2% daily loss.
+        // Entry. Temperance: no new premium after the daily loss stop (1% by default).
         if (lossHalted) {
           record({ ...base, outcome: "blocked", reason: "Daily loss limit reached. No new entries today.", notes });
           continue;
