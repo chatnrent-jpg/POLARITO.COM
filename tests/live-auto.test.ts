@@ -6,6 +6,7 @@ import { proxy } from "../src/proxy";
 import { closeLivePosition } from "../src/lib/liveClose";
 import { runPickTick } from "../src/lib/pickRunner";
 import { autoStoreCredentials, createAutoStore, LIVE_AUTO_KEY, readAutoState } from "../src/lib/liveAutoStore";
+import { requireIdle } from "../src/lib/liveAutoGuard";
 import { AUDIT_SOURCES } from "../src/lib/audit";
 import { pickSetup, type BarSpec, type FakeLiveBroker } from "./helpers/liveFake";
 
@@ -178,6 +179,18 @@ describe("Auto gates the live runner's signal-driven orders", () => {
   });
 });
 
+describe("requireIdle", () => {
+  it("treats a broker that throws as unreadable (not idle)", async () => {
+    const boom = async () => {
+      throw new Error("x");
+    };
+    const a = await requireIdle({ getPositions: boom, listOpenOrders: async () => ({ ok: true, value: [] }) } as never);
+    assert.ok(!a.ok && a.code === "POSITIONS_UNREADABLE");
+    const b = await requireIdle({ getPositions: async () => ({ ok: true, value: [] }), listOpenOrders: boom } as never);
+    assert.ok(!b.ok && b.code === "ORDERS_UNREADABLE");
+  });
+});
+
 describe("POST /api/broker/live/auto", () => {
   const BASE = "https://www.polarito.com";
   const ENV_KEYS = ["POLARITO_LIVE_ACCOUNT", "ALPACA_LIVE_KEY_ID", "ALPACA_LIVE_SECRET_KEY", "KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"];
@@ -201,7 +214,7 @@ describe("POST /api/broker/live/auto", () => {
       headers: { "content-type": "application/json", ...headers },
       body: typeof body === "string" ? body : JSON.stringify(body),
     }) as unknown as NextRequest;
-  const alpaca = { positions: [] as unknown[], positionsFail: false, calls: [] as Array<{ url: string; method?: string }> };
+  const alpaca = { positions: [] as unknown[], orders: [] as unknown[], positionsFail: false, ordersFail: false, calls: [] as Array<{ url: string; method?: string }> };
   const withKv = (initial?: string | null) => {
     process.env.POLARITO_LIVE_ACCOUNT = "1";
     process.env.ALPACA_LIVE_KEY_ID = "LIVEID";
@@ -210,18 +223,25 @@ describe("POST /api/broker/live/auto", () => {
     process.env.KV_REST_API_TOKEN = KV.KV_REST_API_TOKEN;
     alpaca.positions = [];
     alpaca.positionsFail = false;
+    alpaca.orders = [];
+    alpaca.ordersFail = false;
     alpaca.calls = [];
     const kv = memoryKv(initial);
     globalThis.fetch = (async (input: unknown, init?: { method?: string }) => {
       const url = String(input);
       if (url.startsWith(KV.KV_REST_API_URL)) return (kv.fetchImpl as unknown as (u: string, i?: unknown) => Promise<Reply>)(url, init);
       alpaca.calls.push({ url, method: init?.method });
-      if (alpaca.positionsFail) return { ok: false, status: 500, json: async () => ({ message: "down" }) };
-      const data = url.endsWith("/v2/positions") ? alpaca.positions : [];
+      const isOrders = url.includes("/v2/orders");
+      if ((isOrders ? alpaca.ordersFail : alpaca.positionsFail) || (!isOrders && !url.endsWith("/v2/positions"))) {
+        return { ok: false, status: 500, json: async () => ({ message: "down" }) };
+      }
+      const data = isOrders ? alpaca.orders : alpaca.positions;
       return { ok: true, status: 200, json: async () => data };
     }) as unknown as typeof fetch;
     return kv;
   };
+  const working = (n = 1) =>
+    Array.from({ length: n }, (_, i) => ({ id: `o${i}`, client_order_id: `pol-20261120-e0${i + 1}-NVDA`, status: "new", symbol: "NVDA", side: "buy", qty: "1" }));
   const heldNvda = () => [{ symbol: "NVDA", qty: "1", avg_entry_price: "100", side: "long" }];
 
   it("is in the audit sources", () => {
@@ -319,20 +339,64 @@ describe("POST /api/broker/live/auto", () => {
     assert.equal(JSON.parse(kv.state.value!).auto, true);
   });
 
-  it("allows OFF when flat, and only unfilled orders do not block or get cancelled", async () => {
+  it("refuses OFF while a working order exists (ORDERS_OPEN), cancels nothing, Auto stays ON", async () => {
+    const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
+    alpaca.orders = working(2);
+    const res = await autoPost(post({ auto: false }));
+    assert.equal(res.status, 409);
+    const body = await res.json();
+    assert.equal(body.code, "ORDERS_OPEN");
+    assert.match(body.error, /Cancel or let working orders finish first \(2 working orders open\)/);
+    assert.equal(JSON.parse(kv.state.value!).auto, true);
+    assert.ok(!kv.state.calls.some((c) => c.args[0] === "SET"));
+    assert.ok(alpaca.calls.every((c) => c.method === "GET"), "nothing is cancelled or sent");
+  });
+
+  it("with a position and a working order the answer names both, with counts", async () => {
+    withKv(JSON.stringify({ auto: true, at: "x" }));
+    alpaca.positions = heldNvda();
+    alpaca.orders = working(1);
+    const res = await autoPost(post({ auto: false }));
+    assert.equal(res.status, 409);
+    const body = await res.json();
+    assert.equal(body.code, "POSITIONS_OPEN");
+    assert.match(body.error, /1 position open/);
+    assert.match(body.error, /1 working order also open/);
+  });
+
+  it("fails closed when orders cannot be read: OFF refused, Auto unchanged", async () => {
+    const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
+    alpaca.ordersFail = true;
+    const res = await autoPost(post({ auto: false }));
+    assert.equal(res.status, 502);
+    assert.equal((await res.json()).code, "ORDERS_UNREADABLE");
+    assert.equal(JSON.parse(kv.state.value!).auto, true);
+    assert.ok(!kv.state.calls.some((c) => c.args[0] === "SET"));
+  });
+
+  it("a malformed order list also fails closed", async () => {
+    const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
+    alpaca.orders = [{ nonsense: true }];
+    assert.equal((await autoPost(post({ auto: false }))).status, 502);
+    assert.equal(JSON.parse(kv.state.value!).auto, true);
+  });
+
+  it("allows OFF only when flat with no working orders, and sends no cancel", async () => {
     const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
     const res = await autoPost(post({ auto: false }));
     assert.equal(res.status, 200);
     assert.equal(JSON.parse(kv.state.value!).auto, false);
     assert.ok(alpaca.calls.every((c) => c.method === "GET"), "no order is cancelled or sent");
-    assert.ok(alpaca.calls.every((c) => !c.url.includes("/v2/orders")), "working orders are not even looked at");
   });
 
-  it("drill: refused with a position open, closed, then OFF works", async () => {
+  it("drill: refused with a position or order open, closed or filled/cancelled, then OFF works", async () => {
     const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
     alpaca.positions = heldNvda();
     assert.equal((await autoPost(post({ auto: false }))).status, 409);
     alpaca.positions = [];
+    alpaca.orders = working(1);
+    assert.equal((await autoPost(post({ auto: false }))).status, 409);
+    alpaca.orders = [];
     assert.equal((await autoPost(post({ auto: false }))).status, 200);
     assert.equal(JSON.parse(kv.state.value!).auto, false);
   });
@@ -343,6 +407,25 @@ describe("POST /api/broker/live/auto", () => {
     const res = await autoPost(post({ auto: true }));
     assert.equal(res.status, 200);
     assert.equal(alpaca.calls.length, 0);
+  });
+
+  it("restores ON when a working order appears between the check and the write", async () => {
+    const kv = withKv(JSON.stringify({ auto: true, at: "x" }));
+    let reads = 0;
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown, init?: { method?: string }) => {
+      if (String(input).includes("/v2/orders")) {
+        reads += 1;
+        if (reads === 2) return { ok: true, status: 200, json: async () => working(1) };
+      }
+      return (inner as unknown as (i: unknown, n?: unknown) => Promise<unknown>)(input, init);
+    }) as unknown as typeof fetch;
+    const res = await autoPost(post({ auto: false }));
+    assert.equal(res.status, 409);
+    const body = await res.json();
+    assert.equal(body.code, "ORDERS_OPEN");
+    assert.match(body.error, /kept ON/);
+    assert.equal(JSON.parse(kv.state.value!).auto, true);
   });
 
   it("restores ON when a position appears between the check and the write", async () => {

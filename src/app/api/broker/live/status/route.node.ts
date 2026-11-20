@@ -37,17 +37,18 @@ export async function GET() {
 
   try {
     const now = new Date();
-    const [account, positions, orders] = await Promise.all([
+    const [account, positions, orders, openOrders] = await Promise.all([
       broker.getAccount(),
       broker.getPositions(),
       broker.listOrdersSince(new Date(now.getTime() - ORDER_LOOKBACK_MS).toISOString()),
+      broker.listOpenOrders(),
     ]);
-    for (const r of [account, positions, orders]) {
+    for (const r of [account, positions, orders, openOrders]) {
       if (!r.ok) {
         return Response.json({ ok: false, ...base, code: r.code, error: r.error }, { status: 502, headers: NO_STORE });
       }
     }
-    if (!account.ok || !positions.ok || !orders.ok) throw new Error("unreachable");
+    if (!account.ok || !positions.ok || !orders.ok || !openOrders.ok) throw new Error("unreachable");
     const state = deriveDayState(orders.value, newYorkClock(now).date);
     const auto = await readAutoState(createAutoStore(process.env));
     return Response.json(
@@ -56,7 +57,7 @@ export async function GET() {
         ...base,
         account: account.value,
         positions: positions.value.filter(isStockPosition),
-        auto: { available: auto.available, on: auto.on, reason: auto.reason, at: auto.at, openPositions: positions.value.length },
+        auto: { available: auto.available, on: auto.on, reason: auto.reason, at: auto.at, openPositions: positions.value.length, openOrders: openOrders.value.length },
         day: {
           date: state.date,
           entries: state.entryCount,

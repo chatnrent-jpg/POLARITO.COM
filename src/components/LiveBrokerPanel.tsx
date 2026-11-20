@@ -15,7 +15,7 @@ type LiveStatus = {
   account?: { equity: number; lastEquity: number; cash: number; buyingPower: number };
   positions?: LivePosition[];
   day?: { date: string; entries: number; lockedTicker: string | null; stoppedToday: boolean };
-  auto?: { available: boolean; on: boolean; reason: string; at: string | null; openPositions: number };
+  auto?: { available: boolean; on: boolean; reason: string; at: string | null; openPositions: number; openOrders: number };
 };
 type Notice = { kind: "ok" | "wait" | "error"; text: string };
 
@@ -117,7 +117,9 @@ export default function LiveBrokerPanel() {
 
   const positions = status?.positions ?? [];
   const auto = status?.auto;
-  const offBlocked = Boolean(auto?.on && (auto.openPositions ?? 0) > 0);
+  const openPositions = auto?.openPositions ?? 0;
+  const openOrders = auto?.openOrders ?? 0;
+  const offBlocked = Boolean(auto?.on && (openPositions > 0 || openOrders > 0));
   const account = status?.account;
   const dayPnl = account ? account.equity - account.lastEquity : 0;
   const tone = { ok: "text-green-400", wait: "text-amber-300", error: "text-red-400" } as const;
@@ -172,12 +174,14 @@ export default function LiveBrokerPanel() {
           </div>
           {offBlocked ? (
             <p className="mt-2 text-xs font-semibold text-amber-300">
-              Close all positions first ({auto.openPositions} open at Alpaca). Auto can only be turned OFF when the account is flat.
+              {openPositions > 0 ? `Close all positions first (${openPositions} open at Alpaca). ` : ""}
+              {openOrders > 0 ? `Cancel or let working orders finish first (${openOrders} working at Alpaca). ` : ""}
+              Auto can only be turned OFF when the account is flat with no working orders. Nothing is cancelled for you.
             </p>
           ) : null}
           <p className="mt-2 text-xs text-zinc-400">
             {auto.on
-              ? "Auto ON: the server may place entries, re-entries and signal-driven closes (only when live orders are on). It can be turned OFF only when the account is flat."
+              ? "Auto ON: the server may place entries, re-entries and signal-driven closes (only when live orders are on). It can be turned OFF only when the account is flat with no working orders."
               : "Auto OFF: no entries, re-entries or signal-driven closes are sent. Still running: the 1% daily stop-out and the end-of-day flatten. Close always works."}
           </p>
           {auto.reason !== "Auto is ON." && auto.reason !== "Auto is OFF." ? (

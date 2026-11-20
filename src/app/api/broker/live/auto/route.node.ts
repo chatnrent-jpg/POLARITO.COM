@@ -1,11 +1,12 @@
 import type { NextRequest } from "next/server";
 import { buildAuditRecord, logAudit } from "@/lib/audit";
 import { createLiveBroker, liveOptedIn } from "@/lib/broker/liveConfig";
-import { requireFlat } from "@/lib/liveAutoGuard";
+import { requireIdle } from "@/lib/liveAutoGuard";
 import { createAutoStore, readAutoState } from "@/lib/liveAutoStore";
 import { sameOriginRequest } from "@/lib/sameOrigin";
 
 const NO_STORE = { "Cache-Control": "no-store" };
+const refusalStatus = (code: string): number => (code === "POSITIONS_OPEN" || code === "ORDERS_OPEN" ? 409 : 502);
 
 /**
  * POST /api/broker/live/auto   body: { "auto": true | false }
@@ -16,11 +17,12 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * POLARITO_LIVE_ACCOUNT=1 it refuses; without an Auto store it refuses (Auto stays OFF).
  * It sends no order: it only decides whether the runner may place signal-driven ones.
  *
- * Turning OFF is refused unless the live account is flat, checked here against Alpaca (not just the UI):
- * any open position refuses (409 POSITIONS_OPEN), positions that cannot be read refuse (502
- * POSITIONS_UNREADABLE), and no live broker refuses (503). Working unfilled orders do not count and
- * are never cancelled. The check runs again after the write; if a position appeared in between, ON is
- * restored. Turning ON needs no Alpaca call.
+ * Turning OFF is refused unless the live account is flat AND has no working order, checked here against
+ * Alpaca (not just the UI): any open position refuses (409 POSITIONS_OPEN), any open unfilled order
+ * refuses (409 ORDERS_OPEN), positions or orders that cannot be read refuse (502 POSITIONS_UNREADABLE /
+ * ORDERS_UNREADABLE), and no live broker refuses (503). Nothing is ever cancelled. The check runs again
+ * after the write; if a position or order appeared in between, ON is restored. Turning ON needs no
+ * Alpaca call.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -50,11 +52,11 @@ export async function POST(request: NextRequest) {
     const broker = wanted ? null : createLiveBroker(process.env);
     if (!wanted) {
       if (!broker) {
-        return Response.json({ ok: false, code: "NO_BROKER", error: "Live credentials are not configured, so the positions cannot be checked. Auto was not turned OFF." }, { status: 503, headers: NO_STORE });
+        return Response.json({ ok: false, code: "NO_BROKER", error: "Live credentials are not configured, so the positions and orders cannot be checked. Auto was not turned OFF." }, { status: 503, headers: NO_STORE });
       }
-      const flat = await requireFlat(broker);
+      const flat = await requireIdle(broker);
       if (!flat.ok) {
-        return Response.json({ ok: false, code: flat.code, error: flat.error }, { status: flat.code === "POSITIONS_OPEN" ? 409 : 502, headers: NO_STORE });
+        return Response.json({ ok: false, code: flat.code, error: flat.error }, { status: refusalStatus(flat.code), headers: NO_STORE });
       }
     }
     const written = await store.write(wanted);
@@ -66,7 +68,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ ok: false, code: "STORE", error: "The Auto store did not keep the change. Check the state shown.", auto: state }, { status: 502, headers: NO_STORE });
     }
     if (!wanted && broker) {
-      const after = await requireFlat(broker);
+      const after = await requireIdle(broker);
       if (!after.ok) {
         const restored = await store.write(true);
         const now = await readAutoState(store);
@@ -74,10 +76,10 @@ export async function POST(request: NextRequest) {
           {
             ok: false,
             code: after.code,
-            error: `${after.error} A position appeared while Auto was being turned OFF, so Auto was ${restored.ok && now.on ? "kept ON" : "NOT confirmed ON: check the state shown"}.`,
+            error: `${after.error} A position or order appeared while Auto was being turned OFF, so Auto was ${restored.ok && now.on ? "kept ON" : "NOT confirmed ON: check the state shown"}.`,
             auto: now,
           },
-          { status: after.code === "POSITIONS_OPEN" ? 409 : 502, headers: NO_STORE },
+          { status: refusalStatus(after.code), headers: NO_STORE },
         );
       }
     }
