@@ -4,6 +4,7 @@ import { AlpacaPaperBroker } from "@/lib/broker/alpacaPaper";
 import { paperBrokerConfig, paperCredentials } from "@/lib/broker/config";
 import { cronAuthorized } from "@/lib/cronAuth";
 import { fetchRealMarketData } from "@/lib/marketApi";
+import { optionsRunnerSettings, runOptionsCycle } from "@/lib/optionsRunner";
 import { paperRunnerSettings, runPaperCycle } from "@/lib/paperRunner";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -29,6 +30,38 @@ export async function GET(request: NextRequest) {
 
   const dryRun = request.nextUrl.searchParams.get("dry") === "1";
   try {
+    const instrument = (process.env.POLARITO_PAPER_INSTRUMENT ?? "stock").trim().toLowerCase();
+    if (instrument !== "stock" && instrument !== "options") {
+      return Response.json(
+        { ok: false, code: "CONFIG", error: 'POLARITO_PAPER_INSTRUMENT must be "stock" or "options".' },
+        { status: 500, headers: NO_STORE },
+      );
+    }
+    if (instrument === "options") {
+      const opts = optionsRunnerSettings(process.env);
+      if (!opts.ok) {
+        return Response.json({ ok: false, code: "CONFIG", error: opts.error }, { status: 500, headers: NO_STORE });
+      }
+      const optConfig = paperBrokerConfig(process.env);
+      const optCreds = paperCredentials(process.env);
+      if (!optCreds) {
+        return Response.json(
+          { ok: false, code: "NOT_CONFIGURED", error: "Paper credentials are not configured." },
+          { status: 503, headers: NO_STORE },
+        );
+      }
+      const optReport = await runOptionsCycle(
+        {
+          broker: new AlpacaPaperBroker(optCreds),
+          config: optConfig,
+          loadBars: (ticker) => fetchRealMarketData(ticker),
+          audit: logAudit,
+        },
+        opts.settings,
+        { dryRun },
+      );
+      return Response.json(optReport, { status: optReport.ok ? 200 : 502, headers: NO_STORE });
+    }
     const settings = paperRunnerSettings(process.env);
     if (!settings.ok) {
       return Response.json(
