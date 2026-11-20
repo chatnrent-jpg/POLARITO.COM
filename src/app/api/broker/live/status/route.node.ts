@@ -22,7 +22,7 @@ export async function GET() {
     return Response.json({ ok: true, live: false }, { headers: NO_STORE });
   }
   const config = liveBrokerConfig(process.env);
-  const gate = tradingGate(config);
+  const gate = tradingGate(config, "live");
   const base = {
     live: true as const,
     mode: "live" as const,

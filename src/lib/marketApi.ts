@@ -229,7 +229,9 @@ export async function fetchRealMarketData(
   if (res.status === 401) {
     throw new MarketApiError(
       "AUTH",
-      "Alpaca rejected the API key ID/secret (missing or invalid). Check .env.local.",
+      process.env.VERCEL
+        ? "Alpaca rejected the market-data API key ID/secret (ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY are missing or invalid). Update them in Vercel → Project → Settings → Environment Variables, then Redeploy."
+        : "Alpaca rejected the API key ID/secret (missing or invalid). Check .env.local.",
       502,
     );
   }

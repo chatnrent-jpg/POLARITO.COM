@@ -38,7 +38,7 @@ const refuse = (code: LiveOrderCode, error: string, clientOrderId?: string): Liv
 const DUPLICATE_ID = /client_order_id|unique|duplicate/i;
 
 function liveGate(config: PaperBrokerConfig): LiveOrderResult | null {
-  const gate = tradingGate(config);
+  const gate = tradingGate(config, "live");
   if (gate.ok) return null;
   if (gate.code === "DISABLED") {
     return refuse("DISABLED", "Live trading is not enabled (set POLARITO_LIVE_TRADING_ENABLED=1). No order was sent.");

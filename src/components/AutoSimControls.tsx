@@ -46,20 +46,8 @@ export default function AutoSimControls({ lastAction }: { lastAction: string | n
     commitQty(qtyDraft);
   }
 
-  if (mode.kind !== "sim") {
-    return (
-      <section
-        aria-label="Auto simulation (paused)"
-        className="flex w-full max-w-5xl flex-col gap-1 rounded-2xl border border-zinc-700 bg-zinc-900/60 p-5 sm:p-6"
-      >
-        <h2 className="text-lg font-bold uppercase tracking-wider text-white">Auto · Simulation paused</h2>
-        <p className="text-sm text-slate-400">
-          The live account is on, so the browser simulation does not run and nothing is written to the simulated
-          ledger. Live Auto is the switch in the LIVE account block of the order ticket card.
-        </p>
-      </section>
-    );
-  }
+  // Live is on: this is the browser simulation's control, so it is not shown (Live Auto is in the live block).
+  if (mode.kind !== "sim") return null;
 
   return (
     <section

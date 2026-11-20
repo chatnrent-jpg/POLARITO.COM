@@ -61,7 +61,7 @@ export async function closeLivePosition(deps: LiveCloseDeps, tickerInput: unknow
   };
 
   try {
-    const gate = tradingGate(deps.config);
+    const gate = tradingGate(deps.config, "live");
     if (!gate.ok && gate.code !== "DISABLED") return { ok: false, code: gate.code, error: gate.error };
 
     const positions = await deps.broker.getPositions();

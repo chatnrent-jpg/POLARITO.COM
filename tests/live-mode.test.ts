@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { AlpacaPaperBroker } from "../src/lib/broker/alpacaPaper";
 import { readLiveOrders } from "../src/lib/liveOrdersView";
+import { tradingGate } from "../src/lib/broker/config";
 import { deriveLiveMode, liveDay, liveExposure, type LiveStatus } from "../src/lib/liveMode";
 
 const GOOD: LiveStatus = {
@@ -220,7 +221,6 @@ describe("the displays follow the live mode (source assertions)", () => {
     assert.match(read("src/components/AutoSimControls.tsx"), /mode\.kind !== "sim"/);
     const t = read("src/components/OrderModule.tsx");
     assert.match(t, /Live data unavailable/);
-    assert.match(t, /Nothing is written to the simulated ledger while live is on/);
   });
 
   it("the browser simulation effect does not run, so nothing is written to the ledger, in live mode", () => {
@@ -234,5 +234,51 @@ describe("the displays follow the live mode (source assertions)", () => {
     assert.match(read("src/app/api/broker/live/orders/route.node.ts"), /export async function GET\(\)/);
     assert.doesNotMatch(read("src/app/api/broker/live/orders/route.node.ts"), /export async function (POST|PUT|DELETE|PATCH)/);
     assert.doesNotMatch(l, /method:\s*"POST"|live\/buy|live\/close/);
+  });
+});
+
+describe("live mode has no paper wording or paper calls", () => {
+  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  const live = { enabled: false, killed: false, configured: true };
+
+  it("the live gate names the live switch, never the paper one", () => {
+    const off = tradingGate(live, "live");
+    assert.ok(!off.ok);
+    if (off.ok) return;
+    assert.equal(off.code, "DISABLED");
+    assert.match(off.error, /POLARITO_LIVE_TRADING_ENABLED=1/);
+    assert.doesNotMatch(off.error, /paper/i);
+    const keys = tradingGate({ enabled: true, killed: false, configured: false }, "live");
+    assert.ok(!keys.ok);
+    if (!keys.ok) assert.doesNotMatch(keys.error, /paper/i);
+  });
+
+  it("the paper wording is unchanged when no target is given", () => {
+    const off = tradingGate(live);
+    assert.ok(!off.ok);
+    if (!off.ok) assert.match(off.error, /POLARITO_PAPER_TRADING_ENABLED=1/);
+  });
+
+  it("live routes and executors use the live wording", () => {
+    for (const f of ["src/app/api/broker/live/status/route.node.ts", "src/lib/liveClose.ts", "src/lib/broker/liveExecute.ts"]) {
+      assert.match(read(f), /tradingGate\([^)]*"live"\)/, f);
+    }
+  });
+
+  it("no page component calls the paper broker routes", () => {
+    for (const f of ["PolarityDashboard", "OrderModule", "LiveAccountPanel", "LiveLedgerPanel", "LiveModeProvider", "AccountSelector", "LedgerPanel", "AutoSimControls"]) {
+      assert.doesNotMatch(read(`src/components/${f}.tsx`), /broker\/paper|paper\/status/, f);
+    }
+  });
+
+  it("simulation-only panels and notes are not rendered in live mode", () => {
+    assert.match(read("src/components/AutoSimControls.tsx"), /if \(mode\.kind !== "sim"\) return null;/);
+    assert.doesNotMatch(read("src/components/AccountSelector.tsx"), /simulated accounts are not used/);
+    assert.doesNotMatch(read("src/components/OrderModule.tsx"), /Nothing is written to the simulated ledger while live is on/);
+  });
+
+  it("the market-data auth error does not send a deployed page to .env.local", () => {
+    const api = read("src/lib/marketApi.ts");
+    assert.match(api, /process\.env\.VERCEL\s*\?\s*"Alpaca rejected the market-data API key/);
   });
 });

@@ -238,7 +238,7 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
 
       {lockReason ? (
         <p role="alert" className="rounded-xl border-2 border-amber-500 bg-zinc-950/60 p-3 text-sm font-semibold text-amber-200">
-          {lockReason} Nothing is written to the simulated ledger while live is on.
+          {lockReason}
         </p>
       ) : null}
       {live ? (
