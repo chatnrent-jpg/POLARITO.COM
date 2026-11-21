@@ -27,14 +27,33 @@ Fail-closed: if any of the three are missing, sign-in is refused and everything 
 
 ## SPY desk (`/spy`)
 
-Off unless the server has `POLARITO_SPY_DESK=1`. It shows the four period-to-date readings (monthly, quarterly, 6-month, yearly), the decision on the chosen timeframe, the contract the engine would pick (nearest listed expiry of at least 365 days, primary delta 0.80, floor 0.60, then the cheapest at or above the floor), a **manual dry-run ticket** (any reading, labelled MANUAL), a manual Close and the **Auto practice trader** (below). Manual and automatic actions change only the saved dry-run record, and every trade record says AUTO or MANUAL.
+Off unless the server has `POLARITO_SPY_DESK=1`. It shows the four period-to-date readings (monthly, quarterly, 6-month, yearly), the decision on the chosen timeframe, the contract the engine would pick (nearest listed expiry of at least 365 days, primary delta 0.80, floor 0.60, then the cheapest at or above the floor), a **manual dry-run ticket** (labelled MANUAL, guarded by the gear: see "Analyze and the gear" below), a manual Close and the **Auto practice trader** (below). Manual and automatic actions change only the saved dry-run record, and every trade record says AUTO or MANUAL.
 
 | Piece | Where |
 | --- | --- |
-| Page and routes | `src/app/spy/page.tsx`, `src/app/api/spy/{desk,ticket,close,auto,auto-run}` (POST routes are same-origin only; `auto-run` is the only cookie-free path and needs the `CRON_SECRET` bearer) |
+| Page and routes | `src/app/spy/page.tsx`, `src/app/api/spy/{desk,live,analyze,ticket,close,auto,auto-run}` (`live` and `analyze` are GET-only reads; POST routes are same-origin only; `auto-run` is the only cookie-free path and needs the `CRON_SECRET` bearer) |
 | Engine, chain, desk logic | `src/lib/spy*.ts`, `src/lib/optionsSelect.ts`, `src/lib/longPolarity.ts`, `src/lib/polarity.ts` |
 | Read-only Alpaca client | `src/lib/alpacaReadOnly.ts` (GET allowlist: account, option contracts, latest trade, option snapshots, bars) |
 | Dry-run record | Redis-over-HTTPS (Upstash / Vercel KV): `KV_REST_API_URL`, `KV_REST_API_TOKEN`. Without it the readings show and the manual actions say they are off. `SPY_DESK_STORE=memory` is for local development only and is refused in production. |
+
+### Live refresh (every 5 s) and Analyze
+
+The page keeps itself current with GET requests only; a refresh never submits anything and never resets what you chose (Call/Put, contract row, ticked boxes, an open Close box all stay).
+
+- **Light refresh, every 5 s** (`GET /api/spy/live`): saved position and its live P&L (the held contract's bid against the entry ask), Auto switch and audit log, journal, the four readings and the decision, the SPY price. It reads the saved record, one daily-bars call (cached 15 s on the server), the SPY price (cached 2 s) and at most the one held contract (cached 2 s). It cannot read the option chain.
+- **Full refresh, every 45 s or on demand** (`GET /api/spy/desk`, the Refresh button, or once when the reading/position changes): the option chain (125+ quotes) behind the contract preview and the ticket lists. Alpaca's free plan is rate limited, so the chain is never polled at 5 s.
+- Guards: one request per channel at a time, nothing while the tab is hidden (an immediate refresh when you come back), exponential backoff after errors (light 10, 20, 40, then 60 s at most; full 90 s, then 120 s at most), at most 20 requests per minute from one page (about 13 in normal use), a 15 s timeout per request, and answers started before one of your own actions are thrown away.
+- The page shows `updated HH:MM:SS`. If a refresh fails, or the data on screen is older than 15 s, it says so in red and dims the data (STALE); a malformed, too-old, future-dated or out-of-order answer is rejected, never shown as fresh.
+- Code: `src/lib/spyPoller.ts` (timing, pure), `src/lib/spyDeskData.ts` (checks and merge), `src/lib/spyDeskClient.ts` (GET helper), `src/lib/spyLive.ts`, `src/lib/spyTtlCache.ts`; tests `tests/spy-poller.test.ts` and `tests/spy-refresh.test.ts` use a fake clock.
+
+### Analyze and the gear
+
+The manual ticket has a read-only Ticker (SPY) and an **Analyze** button: it loads the daily bars and the monthly gear (`GET /api/spy/analyze?ticker=SPY`) and shows Drive, Neutral or Reverse with the monthly net volume and the as-of time. The ticket stays disabled until Analyze has succeeded.
+
+- Drive allows only a Call (Put blocked), Reverse allows only a Put (Call blocked), Neutral allows both. The check shows the moment Call or Put is toggled.
+- The server checks again in `POST /api/spy/ticket`: it recomputes the gear itself and refuses a counter-polarity ticket (`COUNTER_POLARITY`), a gear that moved since Analyze (`GEAR_CHANGED`), and stale or missing bars (`DATA_UNAVAILABLE`), before it reads the chain. Nothing is trusted from the browser.
+- If the gear changes under the 5 s refresh the page warns, blocks the ticket, clears the acknowledgement, loads the gear again once and re-checks the selected side. Close is never gated by the gear.
+- Code: `src/lib/spyGear.ts` (the rule, shared), `src/lib/spyAnalysis.ts`, `src/lib/spyAnalyzer.ts`; tests `tests/spy-gear.test.ts`.
 
 ### Auto practice trader (default OFF)
 

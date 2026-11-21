@@ -179,6 +179,11 @@ const gear = (p: number | null): string => (p === 1 ? "Drive" : p === -1 ? "Reve
 /** The raw signed net volume, in full, so it can be compared with the chart. */
 const rawNet = (n: number | null): string => (n === null ? "n/a" : `${n > 0 ? "+" : ""}${Math.round(n).toLocaleString("en-US")}`);
 
+/** The plain-language why of a decision (shared by the engine and the desk's light refresh, so both say the same words). */
+export function describeDecision(primary: LongReading, timeframe: LongTimeframe): string {
+  return `${LONG_TIMEFRAME_NAMES[timeframe]} since ${primary.periodStart}: candle ${primary.kind}, net volume ${rawNet(primary.netVolume)}${primary.netFlag ? ` [${primary.netFlag.toUpperCase()} NET VOLUME: Neutral, no sign guessed]` : ""}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`;
+}
+
 function readingData(r: LongReading): Record<string, unknown> {
   return {
     timeframe: r.timeframe,
@@ -252,7 +257,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
       action,
       timeframe: config.timeframe,
       traderDecides: action === "STAND_ASIDE",
-      reason: `${LONG_TIMEFRAME_NAMES[config.timeframe]} since ${primary.periodStart}: candle ${primary.kind}, net volume ${rawNet(primary.netVolume)}${primary.netFlag ? ` [${primary.netFlag.toUpperCase()} NET VOLUME: Neutral, no sign guessed]` : ""}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`,
+      reason: describeDecision(primary, config.timeframe),
     };
     emit("decision", `Decision: ${action.replace("_", " ")}. ${decision.reason}.`, { action, ...readingData(primary) });
 

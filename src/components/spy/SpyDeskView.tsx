@@ -1,9 +1,12 @@
 import type { ReactNode } from "react";
 import type { OptionType } from "@/lib/broker/options";
 import type { CandidateList, ContractView, DeskSnapshot, ReadingView } from "@/lib/spyDesk";
-import { MANUAL_BELOW_TARGET_LABEL, entryMode, readingRelation, sourceMode } from "@/lib/spyDesk";
+import { MANUAL_BELOW_TARGET_LABEL, entryMode, sourceMode } from "@/lib/spyDesk";
 import type { AutoLogEntry } from "@/lib/spyAutoTypes";
-import { dateTimeText, decisionHeadline, money, netFlagText, netVolumeText, percent, price, signedDelta } from "@/lib/spyDeskFormat";
+import type { Freshness } from "@/lib/spyDeskData";
+import { gearPermit, type AnalyzerState } from "@/lib/spyAnalyzer";
+import { GEAR_NAMES, TICKER, checkSide } from "@/lib/spyGear";
+import { clockText, dateTimeText, decisionHeadline, money, netFlagText, netVolumeText, percent, price, signedDelta } from "@/lib/spyDeskFormat";
 
 /**
  * Pure rendering of the SPY desk. No fetching, no decisions, no storage: it draws exactly what it is given and calls the
@@ -23,6 +26,11 @@ export type DeskViewProps = {
   ticket: TicketUi;
   close: CloseUi;
   autoUi: AutoUi;
+  /** How fresh the data on screen is (the refresh machinery lives in the container; this only draws it). */
+  fresh: Freshness;
+  /** The Analyze (gear) state for the ticket; the logic lives in spyAnalyzer.ts. */
+  analyzer: AnalyzerState;
+  onAnalyze(): void;
   onRefresh(): void;
   onAutoChange(next: Partial<AutoUi>): void;
   onSubmitAuto(on: boolean): void;
@@ -161,7 +169,7 @@ function PositionCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapsho
         <div><dt className="text-xs text-zinc-500">Strike / expiry</dt><dd>{pos.strike} / {pos.expiration}</dd></div>
         <div><dt className="text-xs text-zinc-500">Entry (ask) / delta</dt><dd>{price(pos.entryAsk)} / {signedDelta(pos.entryDelta)}</dd></div>
         <div><dt className="text-xs text-zinc-500">Entry cost / max loss</dt><dd>{money(pos.costUsd)}</dd></div>
-        <div><dt className="text-xs text-zinc-500">Now (bid / ask)</dt><dd>{pos.quote ? `${price(pos.quote.bid)} / ${price(pos.quote.ask)}` : "no usable quote right now"}</dd></div>
+        <div><dt className="text-xs text-zinc-500">Now (bid / ask)</dt><dd>{pos.quote ? `${price(pos.quote.bid)} / ${price(pos.quote.ask)}` : "no usable quote right now"}{pos.quote ? <span className="block text-xs text-zinc-500" data-testid="quote-time">quote made {dateTimeText(pos.quote.quoteAt)}</span> : null}</dd></div>
         <div><dt className="text-xs text-zinc-500">Result if closed at the bid</dt><dd className={pos.quote ? (pos.quote.pnlUsd >= 0 ? "text-emerald-300" : "text-red-300") : "text-zinc-500"}>{pos.quote ? money(pos.quote.pnlUsd) : "unknown"}</dd></div>
       </dl>
       {close.stage === "idle" ? (
@@ -225,6 +233,54 @@ function CandidateTable({ list, selected, onSelect, disabled, primary }: { list:
   );
 }
 
+function GearCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
+  const { analyzer } = props;
+  const a = analyzer.analysis;
+  const permit = gearPermit({ analyzer, liveAction: snap.decision.action, liveFreshness: props.fresh.state });
+  return (
+    <div className="space-y-2 rounded-md border border-zinc-700 bg-zinc-950/60 p-3" data-testid="analyze-card">
+      <p className="text-xs text-zinc-400">Analyze loads the daily bars and the gear for this ticker, and the order below uses it.</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="text-sm text-zinc-300">
+          <span className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Ticker</span>
+          <input type="text" value={TICKER} readOnly aria-readonly="true" className="w-24 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 font-mono text-zinc-200" data-testid="ticker-input" />
+        </label>
+        <button type="button" className={`${btn} bg-sky-600 text-white hover:bg-sky-500`} disabled={props.busy || analyzer.status === "loading"} onClick={props.onAnalyze} data-testid="analyze-button">
+          {analyzer.status === "loading" ? "Analyzing..." : "Analyze"}
+        </button>
+      </div>
+      {a ? (
+        <div className="text-sm" data-testid="gear-card" data-gear={a.gear}>
+          <div>
+            Gear: <strong data-testid="gear-name">{GEAR_NAMES[a.gear]}</strong> <Badge tone={a.gear === "DRIVE" ? "green" : a.gear === "REVERSE" ? "red" : "amber"}>{a.gear === "DRIVE" ? "CALL only" : a.gear === "REVERSE" ? "PUT only" : "trader decides"}</Badge>
+          </div>
+          <div className="text-zinc-300" data-testid="gear-netvol">
+            {a.timeframeName} net volume {netVolumeText(a.reading.netVolume)} shares (raw), {a.bars} daily bars
+          </div>
+          <div className="text-xs text-zinc-500" data-testid="gear-asof">
+            as of {dateTimeText(a.reading.asOf)}, analyzed {clockText(a.generatedAt)}
+          </div>
+        </div>
+      ) : null}
+      {analyzer.gearChange ? (
+        <p className="text-sm text-amber-300" role="alert" data-testid="gear-warning">
+          WARNING: the gear changed from {GEAR_NAMES[analyzer.gearChange.from]} to {GEAR_NAMES[analyzer.gearChange.to]} at {clockText(analyzer.gearChange.at)}. The gear was loaded again and the side is checked again. The acknowledgement was cleared.
+        </p>
+      ) : null}
+      {analyzer.status === "error" ? (
+        <p className="text-sm text-rose-300" role="alert" data-testid="gear-error">
+          {analyzer.error}
+        </p>
+      ) : null}
+      {!permit.ready ? (
+        <p className="text-sm text-zinc-300" data-testid="ticket-disabled">
+          {permit.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function TicketCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
   const t = snap.ticket;
   const { ticket } = props;
@@ -235,40 +291,46 @@ function TicketCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot 
       </p>
     );
   }
-  const list = ticket.type === "call" ? t.calls : t.puts;
+  const input = { analyzer: props.analyzer, liveAction: snap.decision.action, liveFreshness: props.fresh.state };
+  const permit = gearPermit(input);
+  const check = permit.ready ? checkSide(permit.gear, ticket.type) : null;
+  const usable = permit.ready && check !== null && check.allowed;
+  const list = usable ? (ticket.type === "call" ? t.calls : t.puts) : null;
   const chosen = list?.shown.find((c) => c.symbol === ticket.symbol) ?? null;
   return (
     <div className="space-y-3" data-testid="ticket-open">
+      <GearCard props={props} snap={snap} />
       <p className="text-sm text-amber-200" data-testid="ticket-intro">
-        {snap.decision.action === "STAND_ASIDE" ? "NEUTRAL: TRADER DECIDES. " : `The reading says ${snap.decision.action}; you may still go either way. `}
-        Choose a call or a put and one contract from the rules-filtered chain. This records a MANUAL dry-run position only, labelled MANUAL.
+        Select Call or Put. It will be checked against the active gear immediately. Then choose one contract from the rules-filtered chain. This records a MANUAL dry-run position only, labelled MANUAL.
       </p>
       <div className="flex gap-2" role="group" aria-label="Call or put">
         {(["call", "put"] as const).map((ty) => (
-          <button key={ty} type="button" disabled={props.busy} aria-pressed={ticket.type === ty} onClick={() => props.onTicketChange({ type: ty, symbol: null })} className={`${btn} ${ticket.type === ty ? (ty === "call" ? "bg-emerald-600 text-white" : "bg-red-600 text-white") : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`} data-testid={`ticket-type-${ty}`}>
+          <button key={ty} type="button" disabled={props.busy || !permit.ready} aria-pressed={ticket.type === ty} onClick={() => props.onTicketChange({ type: ty, symbol: null })} className={`${btn} ${ticket.type === ty ? (ty === "call" ? "bg-emerald-600 text-white" : "bg-red-600 text-white") : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`} data-testid={`ticket-type-${ty}`}>
             {ty === "call" ? "Call" : "Put"}
           </button>
         ))}
       </div>
+      {check ? (
+        <p className={`text-sm ${check.allowed ? "text-emerald-300" : "text-rose-300"}`} role={check.allowed ? undefined : "alert"} data-testid={check.allowed ? "side-ok" : "side-blocked"}>
+          {check.message}
+        </p>
+      ) : null}
       {list ? <CandidateTable list={list} selected={ticket.symbol} onSelect={(symbol) => props.onTicketChange({ symbol })} disabled={props.busy} primary={snap.rules.primary} /> : null}
       {chosen ? (
         <div className="rounded-md border border-zinc-700 bg-zinc-950/60 p-3 text-sm" data-testid="ticket-summary">
           <div className="mb-1 font-semibold">MANUAL, DRY RUN: would buy 1 {chosen.type.toUpperCase()} {chosen.symbol} at the ask {price(chosen.ask)}, cost {money(chosen.costAtAsk)} (max loss = premium).</div>
-          {snap.decision.action !== "STAND_ASIDE" && (snap.decision.action === "CALL") !== (chosen.type === "call") ? (
-            <div className="text-amber-300" data-testid="ticket-against">{readingRelation(snap.decision.action as "CALL" | "PUT", chosen.type)}. It is recorded as MANUAL, so Auto will not manage it.</div>
-          ) : null}
           {chosen.belowTarget ? <div className="text-amber-300">{MANUAL_BELOW_TARGET_LABEL}: delta {signedDelta(chosen.delta)} is below the {snap.rules.primary.toFixed(2)} target.</div> : null}
           <label className="mt-2 flex items-start gap-2 text-zinc-200">
             <input type="checkbox" checked={ticket.ack} onChange={(e) => props.onTicketChange({ ack: e.target.checked })} className="mt-1" data-testid="ticket-ack" />
             <span>I understand this only records a dry-run position. No order is sent to any broker.</span>
           </label>
-          <button type="button" className={`${btn} mt-3 bg-amber-600 text-black hover:bg-amber-500`} disabled={props.busy || !ticket.ack} onClick={props.onSubmitTicket} data-testid="ticket-submit">
+          <button type="button" className={`${btn} mt-3 bg-amber-600 text-black hover:bg-amber-500`} disabled={props.busy || !ticket.ack || !usable} onClick={props.onSubmitTicket} data-testid="ticket-submit">
             Record dry-run buy
           </button>
         </div>
-      ) : (
+      ) : usable ? (
         <p className="text-xs text-zinc-500">Pick a contract to continue.</p>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -404,6 +466,37 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
   );
 }
 
+function FreshnessBar({ fresh, hasData }: { fresh: Freshness; hasData: boolean }) {
+  if (!hasData) return null;
+  const stamp = clockText(fresh.updatedAt);
+  return (
+    <div className="space-y-1" data-testid="freshness" data-state={fresh.state}>
+      {fresh.state === "stale" ? (
+        <div className="rounded-lg border border-rose-500/50 bg-rose-500/10 p-3 text-sm text-rose-200" role="alert" data-testid="refresh-error">
+          <strong>Refresh problem, NOT current.</strong> {fresh.lightError ?? "The last update is too old."} The numbers below are from {stamp} and may have changed.
+          {fresh.retryInMs !== null ? ` Trying again in about ${Math.max(1, Math.round(fresh.retryInMs / 1000))} s.` : " Trying again."}
+        </div>
+      ) : fresh.state === "paused" ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-sm text-amber-200" data-testid="refresh-paused">
+          Paused while this tab is hidden. Last update {stamp}. It refreshes again as soon as you come back.
+        </div>
+      ) : (
+        <p className="flex flex-wrap items-center gap-2 text-sm text-emerald-300" data-testid="refresh-live">
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" aria-hidden="true" />
+          Live: updated {stamp}
+          <span className="text-xs text-zinc-500">(position, Auto, journal and readings every 5 s; the option chain every 45 s, last read {clockText(fresh.chainAt)})</span>
+        </p>
+      )}
+      {fresh.throttled ? <p className="text-xs text-amber-300" data-testid="refresh-throttled">Waiting: the refresh limit per minute is reached, the next update comes shortly.</p> : null}
+      {fresh.heavyError ? (
+        <p className="text-xs text-amber-300" data-testid="chain-error">Option chain refresh failed ({fresh.heavyError}). The contract list and preview are from {clockText(fresh.chainAt)}.</p>
+      ) : fresh.chainUpdating ? (
+        <p className="text-xs text-zinc-400" data-testid="chain-updating">Contract preview and ticket list are updating.</p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function SpyDeskView(props: DeskViewProps) {
   const { load } = props;
   return (
@@ -434,7 +527,10 @@ export default function SpyDeskView(props: DeskViewProps) {
       {load.status === "ready" ? (
         <>
           <p className="text-xs text-zinc-500">Data as of {dateTimeText(load.snapshot.generatedAt)}{load.snapshot.spot ? `; SPY last trade ${price(load.snapshot.spot.price)} at ${dateTimeText(load.snapshot.spot.at)} (${load.snapshot.spot.feed})` : "; SPY price unavailable"}.</p>
-          <Ready props={props} snap={load.snapshot} />
+          <FreshnessBar fresh={props.fresh} hasData />
+          <div className={props.fresh.state === "stale" ? "space-y-4 opacity-60" : "space-y-4"} data-testid="desk-body">
+            <Ready props={props} snap={load.snapshot} />
+          </div>
         </>
       ) : null}
     </div>

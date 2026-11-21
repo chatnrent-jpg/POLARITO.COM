@@ -3,6 +3,9 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import SpyDeskView, { type CloseUi, type DeskViewProps, type TicketUi } from "../src/components/spy/SpyDeskView";
+import { NO_ANALYSIS, type AnalyzerState } from "../src/lib/spyAnalyzer";
+import { buildAnalysis } from "../src/lib/spyAnalysis";
+import { LOADING_FRESHNESS, type Freshness } from "../src/lib/spyDeskData";
 import { buildDeskSnapshot, type DeskPosition, type DeskState } from "../src/lib/spyDesk";
 import { createMemoryDeskStore } from "../src/lib/spyDeskStore";
 import { AUTO_SWITCH_KEY, buildAutoView, runAutoCycle } from "../src/lib/spyAuto";
@@ -11,12 +14,18 @@ import { DRIVE, NEUTRAL, REVERSE, makeDeps, row } from "./helpers/spyDeskFixture
 
 const CFG = { timeframe: "M" as const, liveBudget: 1000 };
 const noop = () => undefined;
+const LIVE_FRESH: Freshness = { ...LOADING_FRESHNESS, state: "live", updatedAt: "2026-11-03T21:30:05.000Z", chainAt: "2026-11-03T21:30:00.000Z" };
 const IDLE: CloseUi = { stage: "idle", ack: false, offerUnpriced: false };
 const TICKET: TicketUi = { type: "put", symbol: null, ack: false };
 
 function props(over: Partial<DeskViewProps>): DeskViewProps {
-  return { load: { status: "loading" }, busy: false, notice: null, ticket: TICKET, close: IDLE, autoUi: { ack: false }, onRefresh: noop, onAutoChange: noop, onSubmitAuto: noop, onTicketChange: noop, onSubmitTicket: noop, onCloseChange: noop, onSubmitClose: noop, ...over };
+  return { load: { status: "loading" }, busy: false, notice: null, ticket: TICKET, close: IDLE, autoUi: { ack: false }, fresh: LIVE_FRESH, analyzer: NO_ANALYSIS, onAnalyze: noop, onRefresh: noop, onAutoChange: noop, onSubmitAuto: noop, onTicketChange: noop, onSubmitTicket: noop, onCloseChange: noop, onSubmitClose: noop, ...over };
 }
+const gearOf = async (sc: Parameters<typeof makeDeps>[0]): Promise<AnalyzerState> => {
+  const a = await buildAnalysis(makeDeps(sc), CFG);
+  assert.ok(a.ok);
+  return { status: "ok", analysis: a, error: null, gearChange: null };
+};
 const tag = (out: string, id: string): string => out.match(new RegExp(`<[a-z]+[^>]*data-testid="${id}"[^>]*>`))?.[0] ?? "";
 const isDisabled = (t: string): boolean => /\sdisabled=""/.test(t);
 const html = (p: DeskViewProps) => renderToStaticMarkup(createElement(SpyDeskView, p));
@@ -41,7 +50,7 @@ describe("SPY desk view (rendering only)", () => {
     assert.doesNotMatch(out, /Four readings/);
   });
   it("Neutral: four readings with raw net volume, match, reading; decision headline; ticket open with call/put and the chain", async () => {
-    const out = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL) } }));
+    const out = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL) }, analyzer: await gearOf(NEUTRAL) }));
     for (const tf of ["M", "Q", "H", "Y"]) assert.match(out, new RegExp(`data-testid="reading-${tf}"`));
     assert.match(out, /Raw net volume/);
     assert.match(out, /-400/);
@@ -57,19 +66,20 @@ describe("SPY desk view (rendering only)", () => {
   it("a chosen contract shows the dry-run summary, the below-0.80 marking, and the submit button only after the acknowledgement is ticked", async () => {
     const s = await snap(NEUTRAL);
     const sel = { ...TICKET, symbol: "SPY271105P00850000" };
-    const off = html(props({ load: { status: "ready", snapshot: s }, ticket: sel }));
+    const analyzer = await gearOf(NEUTRAL);
+    const off = html(props({ load: { status: "ready", snapshot: s }, ticket: sel, analyzer }));
     assert.match(off, /DRY RUN: would buy 1 PUT SPY271105P00850000/);
     assert.match(off, /BELOW 0\.80 \(chosen by hand, floor 0\.60\)/);
     assert.ok(isDisabled(tag(off, "ticket-submit")));
-    const on = html(props({ load: { status: "ready", snapshot: s }, ticket: { ...sel, ack: true } }));
+    const on = html(props({ load: { status: "ready", snapshot: s }, ticket: { ...sel, ack: true }, analyzer }));
     assert.ok(tag(on, "ticket-submit") !== "" && !isDisabled(tag(on, "ticket-submit")));
   });
-  it("Drive or Reverse: the engine pick is drawn, and the manual ticket is still open (any reading)", async () => {
-    const out = html(props({ load: { status: "ready", snapshot: await snap(DRIVE) } }));
+  it("Drive: the engine pick is drawn, and the manual ticket card is open once Analyze has run", async () => {
+    const out = html(props({ load: { status: "ready", snapshot: await snap(DRIVE) }, analyzer: await gearOf(DRIVE) }));
     assert.match(out, /CALL \(Drive\)/);
     assert.match(out, /data-testid="engine-pick"/);
     assert.match(out, /data-testid="ticket-open"/);
-    assert.match(out, /The reading says CALL; you may still go either way/);
+    assert.match(out, /Select Call or Put\. It will be checked against the active gear immediately\./);
     assert.doesNotMatch(out, /data-testid="ticket-closed"/);
   });
   it("fallback pick carries the FALLBACK DELTA (below 0.80) marking, the actual delta and why", async () => {
@@ -166,10 +176,5 @@ describe("SPY desk view (rendering only)", () => {
     const flat = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL) } }));
     assert.doesNotMatch(flat, /data-testid="neutral-banner"/);
   });
-  it("a manual ticket against the reading says so", async () => {
-    const s = await snap(DRIVE);
-    const out = html(props({ load: { status: "ready", snapshot: s }, ticket: { type: "put", symbol: "SPY271105P00850000", ack: false } }));
-    assert.match(out, /data-testid="ticket-against"/);
-    assert.match(out, /AGAINST THE READING \(Drive\)/);
-  });
 });
+
