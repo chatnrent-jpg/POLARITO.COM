@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type FormEvent,
 } from "react";
 import AccountSelector from "@/components/AccountSelector";
 import AutoSimControls from "@/components/AutoSimControls";
@@ -15,7 +14,7 @@ import LiveSimNotice from "@/components/LiveSimNotice";
 import { useLiveMode } from "@/components/LiveModeProvider";
 import LogoutButton from "@/components/LogoutButton";
 import PageRefresher from "@/components/PageRefresher";
-import OrderModule, { type OrderAnalysis } from "@/components/OrderModule";
+import OrderModule, { type OrderAnalysis, type TickerControl } from "@/components/OrderModule";
 import PolarityChart from "@/components/PolarityChart";
 import PremiumGate from "@/components/PremiumGate";
 import Transmission from "@/components/Transmission";
@@ -58,7 +57,7 @@ import {
 
 /**
  * Data flow (one direction only):
- *   ticker (form) -> loadBars -> /api/bars -> Alpaca daily bars
+ *   Stock Ticker field (in the order box) -> Analyze -> loadBars -> /api/bars -> Alpaca daily bars
  *     -> computePolaritySeries -> DayResult[]
  *       -> latestResult.polarity -> <Transmission/>
  *       -> DayResult[]           -> <PolarityChart/>
@@ -176,8 +175,8 @@ export default function PolarityDashboard() {
     return () => clearTimeout(t);
   }, []);
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  // The single Stock Ticker field lives in the order box; this is what its Analyze button / Enter runs.
+  function analyzeFromField() {
     saveAnalyzed(input.trim().toUpperCase());
     void analyze(input);
   }
@@ -187,6 +186,7 @@ export default function PolarityDashboard() {
   const polarity = latest ? latest.polarity : 0; // anything but a clean result => Neutral
   const meta = metaFor(polarity);
   const loading = view.status === "loading";
+  const tickerControl: TickerControl = { value: input, onChange: saveDraft, onAnalyze: analyzeFromField, loading };
 
   // Latest day's crowd sentiment. Missing => Neutral, flagged as defaulted.
   const sentimentDay: SentimentDay | null =
@@ -269,30 +269,6 @@ export default function PolarityDashboard() {
             <LogoutButton />
           </div>
         </div>
-        <form onSubmit={onSubmit} className="flex w-full max-w-sm gap-2">
-          <label htmlFor="ticker" className="sr-only">
-            Stock ticker
-          </label>
-          <input
-            id="ticker"
-            type="text"
-            value={input}
-            onChange={(e) => saveDraft(e.target.value)}
-            placeholder="Ticker, e.g. NVDA"
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            maxLength={8}
-            className="min-w-0 flex-1 rounded-lg bg-zinc-900 px-3 py-2 font-mono text-sm uppercase text-zinc-100 ring-1 ring-zinc-700 placeholder:normal-case placeholder:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
-          />
-          <button
-            type="submit"
-            disabled={loading || input.trim() === ""}
-            className="rounded-lg bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 transition-opacity hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {loading ? "Loading…" : "Analyze"}
-          </button>
-        </form>
       </header>
 
       {/* Transmission + execution gate, side by side on wide screens */}
@@ -300,12 +276,12 @@ export default function PolarityDashboard() {
         <div className="flex justify-center lg:px-6">
           <Transmission polarity={polarity} />
         </div>
-        <OrderModule key={accountId} analysis={analysis} />
+        <OrderModule key={accountId} analysis={analysis} ticker={tickerControl} />
       </div>
 
       {view.status === "idle" && (
         <p className="text-base text-slate-300">
-          Enter a ticker to load daily bars. Transmission is in Neutral until data arrives.
+          Enter a ticker in the order box below and press Analyze to load daily bars. Transmission is in Neutral until data arrives.
         </p>
       )}
 
