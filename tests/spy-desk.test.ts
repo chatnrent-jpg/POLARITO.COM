@@ -144,10 +144,11 @@ describe("decision matches the engine", () => {
 
 describe("ticket gate", () => {
   const neutral = { action: "STAND_ASIDE" as const, reason: "r" };
-  it("opens only on Neutral, no position, working store", () => {
+  it("opens at ANY reading with good data, no position, working store", () => {
     assert.deepEqual(ticketGate(neutral, "none", true), { open: true, reason: null });
-    assert.equal(ticketGate({ action: "CALL", reason: "r" }, "none", true).open, false);
-    assert.equal(ticketGate({ action: "PUT", reason: "r" }, "none", true).open, false);
+    assert.deepEqual(ticketGate({ action: "CALL", reason: "r" }, "none", true), { open: true, reason: null });
+    assert.deepEqual(ticketGate({ action: "PUT", reason: "r" }, "none", true), { open: true, reason: null });
+    assert.equal(ticketGate({ action: "CALL", reason: "r" }, "held", true).open, false);
     assert.equal(ticketGate({ action: "DATA_UNAVAILABLE", reason: "stale" }, "none", true).open, false);
     assert.match(ticketGate({ action: "DATA_UNAVAILABLE", reason: "stale" }, "none", true).reason ?? "", /Data unavailable \(stale\)/);
     assert.equal(ticketGate(null, "none", true).open, false);
@@ -187,14 +188,30 @@ describe("manual ticket (openManual): dry-run position only", () => {
     assert.equal(s.state.position?.deltaTier, "primary");
     assert.equal(s.state.position?.fallbackReason, null);
   });
-  it("refuses when the reading is Drive or Reverse (the engine decides), and records nothing", async () => {
-    for (const sc of [DRIVE, REVERSE]) {
+  it("works at any reading and says how it relates to the reading: same side or AGAINST THE READING, always MANUAL", async () => {
+    const cases = [
+      [DRIVE, "call", CALL_600, /Drive reading, same side, trader decided/],
+      [DRIVE, "put", PUT_850, /AGAINST THE READING \(Drive\), trader decided/],
+      [REVERSE, "put", PUT_850, /Reverse reading, same side, trader decided/],
+      [REVERSE, "call", CALL_600, /AGAINST THE READING \(Reverse\), trader decided/],
+    ] as const;
+    for (const [sc, type, symbol, note] of cases) {
       const store = createMemoryDeskStore();
-      const res = await openManual(makeDeps(sc), CFG, store, { type: "call", symbol: CALL_600 });
-      assert.ok(!res.ok && res.code === "NOT_NEUTRAL" && res.status === 409);
+      const res = await openManual(makeDeps(sc), CFG, store, { type, symbol });
+      assert.ok(res.ok, res.ok ? "" : res.error);
       const s = await store.read();
-      assert.ok(s.ok && s.state.position === null && s.state.journal.length === 0);
+      assert.ok(s.ok && s.state.position?.source === "manual");
+      assert.equal(s.state.journal[0].kind, "manual-open");
+      assert.match(s.state.journal[0].note, note);
+      assert.match(s.state.journal[0].note, /^MANUAL /);
     }
+  });
+  it("still needs good data and no existing position at any reading (Drive here)", async () => {
+    const stale = await openManual(makeDeps(DRIVE, { dailyFails: true }), CFG, createMemoryDeskStore(), { type: "call", symbol: CALL_600 });
+    assert.ok(!stale.ok && stale.code === "DATA_UNAVAILABLE");
+    const store = createMemoryDeskStore(heldState());
+    const dup = await openManual(makeDeps(DRIVE), CFG, store, { type: "call", symbol: CALL_600 });
+    assert.ok(!dup.ok && dup.code === "POSITION_OPEN" && dup.status === 409);
   });
   it("refuses on data unavailable (bars failing, stale bars) and never reads the chain", async () => {
     const c = calls();
@@ -354,8 +371,7 @@ describe("snapshot (the page's data)", () => {
       assert.equal(snap.enginePick.fallbackLabel, null);
       assert.ok(Math.abs(snap.enginePick.contract.delta) >= DELTA_THRESHOLDS.primary);
     }
-    assert.equal(snap.ticket.open, false);
-    assert.match(snap.ticket.reason ?? "", /not Neutral/);
+    assert.equal(snap.ticket.open, true);
   });
   it("Reverse with no put at 0.80: the engine pick is the CHEAPEST at or above 0.60, marked FALLBACK DELTA (below 0.80) with the reason", async () => {
     const snap = await buildDeskSnapshot(makeDeps(REVERSE, { putStrikes: [690, 800, 850, 900] }), CFG, createMemoryDeskStore());
@@ -538,11 +554,12 @@ describe("HTTP handlers", () => {
     const again = await handleTicket(post("/api/spy/ticket", ticketBody), c);
     assert.equal(again.status, 409);
   });
-  it("ticket on a Drive reading: 409 NOT_NEUTRAL; keys missing: 503 and nothing saved", async () => {
+  it("ticket on a Drive reading is recorded as MANUAL; keys missing: 503 and nothing saved", async () => {
     const c = ctx({ makeLive: live(DRIVE) });
     const res = await handleTicket(post("/api/spy/ticket", ticketBody), c);
-    assert.equal(res.status, 409);
-    assert.equal(((await res.json()) as { code: string }).code, "NOT_NEUTRAL");
+    assert.equal(res.status, 200);
+    const saved = await c.store!.read();
+    assert.ok(saved.ok && saved.state.position?.source === "manual");
     const c2 = ctx({ makeLive: async () => ({ ok: false, code: "NO_KEYS", error: "none" }) });
     assert.equal((await handleTicket(post("/api/spy/ticket", ticketBody), c2)).status, 503);
   });
@@ -564,8 +581,8 @@ describe("HTTP handlers", () => {
 });
 
 describe("no order can be sent from the SPY desk", () => {
-  const logic = ["src/lib/spyDesk.ts", "src/lib/spyDeskFormat.ts", "src/lib/spyDeskLive.ts", "src/lib/spyDeskRoutes.ts", "src/app/api/spy/desk/route.node.ts", "src/app/api/spy/ticket/route.node.ts", "src/app/api/spy/close/route.node.ts", "src/app/spy/page.tsx", "src/components/spy/SpyDeskView.tsx"];
-  const withOwnWrites = ["src/lib/spyDeskStore.ts", "src/components/spy/SpyDesk.tsx"];
+  const logic = ["src/lib/spyDesk.ts", "src/lib/spyDeskFormat.ts", "src/lib/spyDeskLive.ts", "src/lib/spyDeskRoutes.ts", "src/lib/spyAuto.ts", "src/lib/spyAutoTypes.ts", "src/lib/spyAutoRoutes.ts", "src/app/api/spy/auto/route.node.ts", "src/app/api/spy/auto-run/route.node.ts", "src/app/api/spy/desk/route.node.ts", "src/app/api/spy/ticket/route.node.ts", "src/app/api/spy/close/route.node.ts", "src/app/spy/page.tsx", "src/components/spy/SpyDeskView.tsx"];
+  const withOwnWrites = ["src/lib/spyDeskStore.ts", "src/lib/spyKv.ts", "src/components/spy/SpyDesk.tsx"];
   const all = [...logic, ...withOwnWrites];
 
   it("no order endpoint, order function, broker execution module or live-trading switch anywhere in the desk files", () => {
@@ -587,11 +604,11 @@ describe("no order can be sent from the SPY desk", () => {
       }
     }
   });
-  it("no write verb in the logic, data, route or view files; the two files that POST do so only to the KV store and to /api/spy/*", () => {
+  it("no write verb in the logic, data, route or view files; the files that POST do so only to the KV store and to /api/spy/*", () => {
     for (const f of logic) assert.doesNotMatch(fs.readFileSync(f, "utf8"), /method:\s*["'](POST|PUT|PATCH|DELETE)["']/i, f);
     const client = fs.readFileSync("src/components/spy/SpyDesk.tsx", "utf8");
     for (const m of client.matchAll(/fetch\(\s*([^,)]+)/g)) assert.match(m[1].trim(), /^("\/api\/spy\/|path$)/, `unexpected fetch target ${m[1]}`);
-    for (const m of client.matchAll(/post\(\s*"([^"]+)"/g)) assert.match(m[1], /^\/api\/spy\/(ticket|close)$/);
+    for (const m of client.matchAll(/post\(\s*"([^"]+)"/g)) assert.match(m[1], /^\/api\/spy\/(ticket|close|auto)$/);
     const store = fs.readFileSync("src/lib/spyDeskStore.ts", "utf8");
     assert.doesNotMatch(store, /alpaca\.markets/i);
     assert.equal([...store.matchAll(/fetchImpl\(/g)].length, 1);

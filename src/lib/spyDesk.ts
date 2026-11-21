@@ -1,5 +1,6 @@
 /**
- * SPY desk logic: the page's data (snapshot) and the two MANUAL actions (dry-run ticket and Close).
+ * SPY desk logic: the page's data (snapshot) and the two MANUAL actions (dry-run ticket and Close). The AUTOMATIC
+ * actions live in spyAuto.ts and write the same record; every position and journal entry says AUTO or MANUAL.
  * Pure orchestration over injected functions; no rendering, no HTTP, no clock of its own.
  *
  * HARD SAFETY: everything here is DRY RUN. The ticket and Close change one saved "dry-run position" record
@@ -27,6 +28,7 @@ import { etClock } from "@/lib/marketCalendar";
 import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
 import type { Bar } from "@/lib/polarity";
 import type { SideReport, Spot } from "@/lib/spyChain";
+import { AUTO_UNAVAILABLE, isAutoView, type AutoView } from "@/lib/spyAutoTypes";
 import {
   CONTRACT_MULTIPLIER,
   EMPTY_STATE,
@@ -54,12 +56,20 @@ export const MANUAL_BELOW_TARGET_LABEL = `BELOW ${DELTA_THRESHOLDS.primary.toFix
 export type DeskDeps = Pick<EngineDeps, "now" | "loadDaily" | "readSpot" | "readSide" | "readHeld">;
 export type DeskConfig = Pick<EngineConfig, "timeframe" | "liveBudget">;
 
-export type DeskPosition = DryPosition & { source: "manual" };
+export type PositionSource = "manual" | "auto";
+export type DeskPosition = DryPosition & { source: PositionSource };
+
+export type JournalKind = "manual-open" | "manual-close" | "auto-open" | "auto-close";
+const JOURNAL_KINDS: readonly JournalKind[] = ["manual-open", "manual-close", "auto-open", "auto-close"];
+export const isJournalKind = (v: unknown): v is JournalKind => typeof v === "string" && (JOURNAL_KINDS as readonly string[]).includes(v);
+/** The label shown on every trade record. */
+export const entryMode = (kind: JournalKind): "AUTO" | "MANUAL" => (kind.startsWith("auto") ? "AUTO" : "MANUAL");
+export const sourceMode = (source: PositionSource): "AUTO" | "MANUAL" => (source === "auto" ? "AUTO" : "MANUAL");
 
 export type JournalEntry = {
   id: string;
   at: string;
-  kind: "manual-open" | "manual-close";
+  kind: JournalKind;
   symbol: string;
   type: OptionType;
   strike: number;
@@ -89,7 +99,7 @@ export type DeskErrorCode =
   | "POSITION_OPEN"
   | "NO_POSITION"
   | "DATA_UNAVAILABLE"
-  | "NOT_NEUTRAL"
+  | "BUSY"
   | "NO_SPOT"
   | "CHAIN"
   | "NOT_ELIGIBLE"
@@ -100,7 +110,7 @@ export type ActionResult =
   | { ok: false; code: DeskErrorCode; error: string; status: number };
 
 /** Dollars with the sign in front ("-$92.00"), unlike usd() which would print "$-92.00". */
-const signedUsd = (n: number): string => (n < 0 ? `-${usd(-n)}` : usd(n));
+export const signedUsd = (n: number): string => (n < 0 ? `-${usd(-n)}` : usd(n));
 
 const refuse = (code: DeskErrorCode, error: string, status: number): ActionResult => ({ ok: false, code, error, status });
 
@@ -116,7 +126,7 @@ function parseJournalEntry(raw: unknown): JournalEntry | null {
   if (
     typeof id !== "string" ||
     typeof at !== "string" ||
-    (kind !== "manual-open" && kind !== "manual-close") ||
+    !isJournalKind(kind) ||
     typeof symbol !== "string" ||
     !isOptionType(type) ||
     !finite(strike) ||
@@ -148,7 +158,7 @@ function parsePosition(p: unknown): DeskPosition | null {
     !(p.fallbackReason === null || typeof p.fallbackReason === "string") ||
     !isLongTimeframe(p.decisionTimeframe) ||
     !finite(p.maxLossUsd) ||
-    p.source !== "manual"
+    (p.source !== "manual" && p.source !== "auto")
   ) {
     return null;
   }
@@ -166,7 +176,7 @@ function parsePosition(p: unknown): DeskPosition | null {
     fallbackReason: p.fallbackReason as string | null,
     decisionTimeframe: p.decisionTimeframe,
     maxLossUsd: p.maxLossUsd,
-    source: "manual",
+    source: p.source,
   };
 }
 
@@ -233,12 +243,14 @@ export function deskDecision(daily: readonly Bar[], now: Date, timeframe: LongTi
 
 export type TicketGate = { open: boolean; reason: string | null };
 
-/** The ticket is open only on a Neutral reading with good data, no dry-run position, and a store that works. */
+/**
+ * The manual ticket is open at ANY reading (Drive, Reverse or Neutral) as long as the data is good, no dry-run position is
+ * held, and a store works. The trader may go with or against the reading; the record says which.
+ */
 export function ticketGate(decision: Pick<Decision, "action" | "reason"> | null, positionStatus: "none" | "held" | "unknown", storeAvailable: boolean): TicketGate {
   if (!storeAvailable) return { open: false, reason: "No desk store is available, so a dry-run position cannot be saved. The ticket stays off." };
   if (decision === null) return { open: false, reason: "No decision could be made, so the ticket stays off." };
   if (decision.action === "DATA_UNAVAILABLE") return { open: false, reason: `Data unavailable (${decision.reason}). The ticket stays off until the reading can be trusted.` };
-  if (decision.action !== "STAND_ASIDE") return { open: false, reason: `The reading is not Neutral (the engine says ${decision.action}). The manual ticket is only for a Neutral reading.` };
   if (positionStatus === "unknown") return { open: false, reason: "The saved dry-run position could not be read, so the ticket stays off." };
   if (positionStatus === "held") return { open: false, reason: "A dry-run position is already held. Close it first (one position at a time)." };
   return { open: true, reason: null };
@@ -246,7 +258,7 @@ export function ticketGate(decision: Pick<Decision, "action" | "reason"> | null,
 
 /* -------------------------------------------------------- manual actions */
 
-async function readState(store: DeskStore | null): Promise<{ ok: true; state: DeskState } | { ok: false; result: ActionResult }> {
+export async function readState(store: DeskStore | null): Promise<{ ok: true; state: DeskState } | { ok: false; result: ActionResult }> {
   if (!store) return { ok: false, result: refuse("NO_STORE", "No desk store is configured (KV_REST_API_URL / KV_REST_API_TOKEN), so nothing can be saved. Nothing was changed.", 503) };
   try {
     const r = await store.read();
@@ -258,7 +270,7 @@ async function readState(store: DeskStore | null): Promise<{ ok: true; state: De
 }
 
 /** Write, then read back: the answer reflects what the store really holds. */
-async function saveVerified(store: DeskStore, next: DeskState): Promise<{ ok: true; state: DeskState } | { ok: false; error: string }> {
+export async function saveVerified(store: DeskStore, next: DeskState): Promise<{ ok: true; state: DeskState } | { ok: false; error: string }> {
   try {
     const w = await store.write(next);
     if (!w.ok) return { ok: false, error: `${w.error} Nothing was changed.` };
@@ -271,9 +283,17 @@ async function saveVerified(store: DeskStore, next: DeskState): Promise<{ ok: tr
   }
 }
 
-const withJournal = (state: DeskState, entry: JournalEntry): JournalEntry[] => [...state.journal, entry].slice(-JOURNAL_MAX);
+export const withJournal = (state: DeskState, entry: JournalEntry): JournalEntry[] => [...state.journal, entry].slice(-JOURNAL_MAX);
 
-/** Record a MANUAL dry-run buy of a contract from the rules-filtered chain. Only valid on a Neutral reading. Sends no order. */
+/** How a manual trade relates to the reading, in words for the journal. */
+export function readingRelation(action: "CALL" | "PUT" | "STAND_ASIDE", type: OptionType): string {
+  if (action === "STAND_ASIDE") return "Neutral reading, trader decided";
+  const reading = action === "CALL" ? "Drive" : "Reverse";
+  const aligned = (action === "CALL") === (type === "call");
+  return aligned ? `${reading} reading, same side, trader decided` : `AGAINST THE READING (${reading}), trader decided`;
+}
+
+/** Record a MANUAL dry-run buy of a contract from the rules-filtered chain, at any reading with good data. Sends no order. */
 export async function openManual(deps: DeskDeps, config: DeskConfig, store: DeskStore | null, req: TicketRequest): Promise<ActionResult> {
   try {
     const st = await readState(store);
@@ -285,7 +305,6 @@ export async function openManual(deps: DeskDeps, config: DeskConfig, store: Desk
     if (!dailyRes.ok) return refuse("DATA_UNAVAILABLE", `Data unavailable: daily bars could not be read (${dailyRes.error}). Nothing was recorded.`, 409);
     const decision = deskDecision(dailyRes.value, now, config.timeframe);
     if (decision.status === "unavailable") return refuse("DATA_UNAVAILABLE", `Data unavailable for the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading: ${decision.reason}. Nothing was recorded.`, 409);
-    if (decision.action !== "STAND_ASIDE") return refuse("NOT_NEUTRAL", `The ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading is ${decision.action === "CALL" ? "Drive" : "Reverse"}, not Neutral: the engine decides, the manual ticket is closed.`, 409);
 
     const spotRes = await deps.readSpot();
     if (!spotRes.ok) return refuse("NO_SPOT", `The SPY price could not be read (${spotRes.error}). Nothing was recorded.`, 502);
@@ -329,7 +348,7 @@ export async function openManual(deps: DeskDeps, config: DeskConfig, store: Desk
       costUsd: row.costAtAsk,
       exitBid: null,
       pnlUsd: null,
-      note: `MANUAL dry-run buy (Neutral reading, trader decided): 1 ${req.type.toUpperCase()} ${row.symbol}, ask ${usd(row.ask)}, cost ${usd(row.costAtAsk)}, delta ${row.delta.toFixed(3)}${belowTarget ? ` [${MANUAL_BELOW_TARGET_LABEL}]` : ""}. No order sent.`,
+      note: `MANUAL dry-run buy (${readingRelation(decision.action, req.type)}): 1 ${req.type.toUpperCase()} ${row.symbol}, ask ${usd(row.ask)}, cost ${usd(row.costAtAsk)}, delta ${row.delta.toFixed(3)}${belowTarget ? ` [${MANUAL_BELOW_TARGET_LABEL}]` : ""}. No order sent.`,
     };
     const saved = await saveVerified(store as DeskStore, { version: 1, position, journal: withJournal(st.state, entry) });
     if (!saved.ok) return refuse("STORE", saved.error, 502);
@@ -438,7 +457,7 @@ export type PositionView =
       costUsd: number;
       deltaTier: "primary" | "fallback";
       belowTargetLabel: string | null;
-      source: "manual";
+      source: PositionSource;
       quote: { bid: number; ask: number; pnlUsd: number } | null;
     };
 
@@ -458,6 +477,8 @@ export type DeskSnapshot = {
   ticket: { open: boolean; reason: string | null; calls: CandidateList | null; puts: CandidateList | null };
   store: { available: boolean; error: string | null };
   journal: JournalEntry[];
+  /** Auto switch, schedule, audit log and the Neutral-while-holding banner. */
+  auto: AutoView;
   events: Array<{ at: string; kind: string; message: string }>;
   notes: string[];
   rules: { minDays: number; primary: number; floor: number; fallbackLabel: string };
@@ -513,7 +534,7 @@ const rulesView = (): DeskSnapshot["rules"] => ({ minDays: MIN_DAYS_TO_EXPIRY, p
  * Everything the page shows, in one JSON-serialisable object. Reads market data and the saved desk state; writes nothing.
  * Never throws: every failure becomes visible text ("data unavailable", "unknown"), never a made-up value.
  */
-export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, store: DeskStore | null): Promise<DeskSnapshot> {
+export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, store: DeskStore | null, auto: AutoView = AUTO_UNAVAILABLE): Promise<DeskSnapshot> {
   const now = deps.now();
   const notes: string[] = [];
   const base: DeskSnapshot = {
@@ -530,6 +551,7 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
     ticket: { open: false, reason: "not evaluated", calls: null, puts: null },
     store: { available: store !== null, error: null },
     journal: [],
+    auto: { ...auto, banner: null },
     events: [],
     notes,
     rules: rulesView(),
@@ -537,7 +559,7 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
 
   let state: DeskState | null = null;
   if (!store) {
-    base.store = { available: false, error: "No desk store is configured (KV_REST_API_URL / KV_REST_API_TOKEN). The dry-run position cannot be read or saved, so the manual ticket and Close are off." };
+    base.store = { available: false, error: "No desk store is configured (KV_REST_API_URL / KV_REST_API_TOKEN). The dry-run position cannot be read or saved, so the manual ticket, Close and Auto are off." };
     base.position = { status: "unknown", reason: "No desk store is configured." };
   } else {
     try {
@@ -599,7 +621,7 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
     if (action === "DATA_UNAVAILABLE" || action === null) {
       base.enginePick = { status: "not-applicable", reason: "Data unavailable: no decision, so no contract is chosen." };
     } else if (wantType === null) {
-      base.enginePick = { status: "not-applicable", reason: "NEUTRAL: TRADER DECIDES. The engine picks nothing on a Neutral reading; use the manual ticket below." };
+      base.enginePick = { status: "not-applicable", reason: "NEUTRAL: TRADER DECIDES. The engine picks nothing on a Neutral reading; use the manual ticket below (a call or a put, your choice)." };
     } else {
       let side = captured.get(wantType) ?? null;
       if (!side) {
@@ -650,9 +672,17 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
         entryDelta: p.entryDelta,
         costUsd: p.entryAsk * CONTRACT_MULTIPLIER,
         deltaTier: p.deltaTier,
-        belowTargetLabel: p.deltaTier === "fallback" ? MANUAL_BELOW_TARGET_LABEL : null,
+        belowTargetLabel: p.deltaTier !== "fallback" ? null : p.source === "auto" ? FALLBACK_LABEL : MANUAL_BELOW_TARGET_LABEL,
         source: p.source,
         quote,
+      };
+    }
+
+    if (base.position.status === "held" && result.decision?.action === "STAND_ASIDE") {
+      const p = base.position;
+      base.auto = {
+        ...base.auto,
+        banner: `NEUTRAL: TRADER DECIDES. You hold ${p.type.toUpperCase()} ${p.symbol} (${sourceMode(p.source)}). The reading is Neutral, so Auto leaves it alone: close it by hand if you want out.`,
       };
     }
 
@@ -732,6 +762,7 @@ export function parseDeskSnapshot(raw: unknown): { ok: true; snapshot: DeskSnaps
   if (!isRecord(t) || typeof t.open !== "boolean" || !orNull(isStr, t.reason) || !orNull(isCandidateList, t.calls) || !orNull(isCandidateList, t.puts)) return bad("ticket");
   if (!isRecord(raw.store) || typeof raw.store.available !== "boolean") return bad("store");
   if (!Array.isArray(raw.journal) || !raw.journal.every((e) => parseJournalEntry(e) !== null)) return bad("journal");
+  if (!isAutoView(raw.auto)) return bad("auto");
   if (!Array.isArray(raw.events) || !Array.isArray(raw.notes) || !raw.notes.every(isStr)) return bad("log");
   if (!isRecord(raw.rules) || !finite(raw.rules.minDays) || !finite(raw.rules.primary) || !finite(raw.rules.floor)) return bad("rules");
   return { ok: true, snapshot: raw as unknown as DeskSnapshot };

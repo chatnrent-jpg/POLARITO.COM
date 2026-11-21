@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import SpyDeskView, { type CloseUi, type DeskViewProps, type TicketUi } from "../src/components/spy/SpyDeskView";
 import { buildDeskSnapshot, type DeskPosition, type DeskState } from "../src/lib/spyDesk";
 import { createMemoryDeskStore } from "../src/lib/spyDeskStore";
+import { AUTO_SWITCH_KEY, buildAutoView, runAutoCycle } from "../src/lib/spyAuto";
+import { createMemorySpyKv } from "../src/lib/spyKv";
 import { DRIVE, NEUTRAL, REVERSE, makeDeps, row } from "./helpers/spyDeskFixtures";
 
 const CFG = { timeframe: "M" as const, liveBudget: 1000 };
@@ -13,7 +15,7 @@ const IDLE: CloseUi = { stage: "idle", ack: false, offerUnpriced: false };
 const TICKET: TicketUi = { type: "put", symbol: null, ack: false };
 
 function props(over: Partial<DeskViewProps>): DeskViewProps {
-  return { load: { status: "loading" }, busy: false, notice: null, ticket: TICKET, close: IDLE, onRefresh: noop, onTicketChange: noop, onSubmitTicket: noop, onCloseChange: noop, onSubmitClose: noop, ...over };
+  return { load: { status: "loading" }, busy: false, notice: null, ticket: TICKET, close: IDLE, autoUi: { ack: false }, onRefresh: noop, onAutoChange: noop, onSubmitAuto: noop, onTicketChange: noop, onSubmitTicket: noop, onCloseChange: noop, onSubmitClose: noop, ...over };
 }
 const tag = (out: string, id: string): string => out.match(new RegExp(`<[a-z]+[^>]*data-testid="${id}"[^>]*>`))?.[0] ?? "";
 const isDisabled = (t: string): boolean => /\sdisabled=""/.test(t);
@@ -62,13 +64,13 @@ describe("SPY desk view (rendering only)", () => {
     const on = html(props({ load: { status: "ready", snapshot: s }, ticket: { ...sel, ack: true } }));
     assert.ok(tag(on, "ticket-submit") !== "" && !isDisabled(tag(on, "ticket-submit")));
   });
-  it("Drive or Reverse: the engine pick is drawn, the ticket is off with the reason", async () => {
+  it("Drive or Reverse: the engine pick is drawn, and the manual ticket is still open (any reading)", async () => {
     const out = html(props({ load: { status: "ready", snapshot: await snap(DRIVE) } }));
     assert.match(out, /CALL \(Drive\)/);
     assert.match(out, /data-testid="engine-pick"/);
-    assert.match(out, /data-testid="ticket-closed"/);
-    assert.match(out, /not Neutral/);
-    assert.doesNotMatch(out, /data-testid="ticket-open"/);
+    assert.match(out, /data-testid="ticket-open"/);
+    assert.match(out, /The reading says CALL; you may still go either way/);
+    assert.doesNotMatch(out, /data-testid="ticket-closed"/);
   });
   it("fallback pick carries the FALLBACK DELTA (below 0.80) marking, the actual delta and why", async () => {
     const out = html(props({ load: { status: "ready", snapshot: await snap(REVERSE, { putStrikes: [690, 800, 850, 900] }) } }));
@@ -123,5 +125,51 @@ describe("SPY desk view (rendering only)", () => {
     const out = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL) }, busy: true, notice: { kind: "error", text: "Refused: nothing recorded." } }));
     assert.match(out, /Refused: nothing recorded\./);
     assert.ok(isDisabled(tag(out, "refresh")));
+  });
+  it("Auto card: OFF by default with the acknowledgement gate on Turn ON; ON shows Turn OFF; no store says why", async () => {
+    const kv = createMemorySpyKv();
+    const view = await buildAutoView(kv);
+    const s = await buildDeskSnapshot(makeDeps(DRIVE), CFG, createMemoryDeskStore(), view);
+    const off = html(props({ load: { status: "ready", snapshot: s } }));
+    assert.match(off, /data-testid="auto-card"/);
+    assert.match(off, /AUTO OFF/);
+    assert.ok(isDisabled(tag(off, "auto-on")));
+    assert.match(off, /data-testid="auto-log-empty"/);
+    const acked = html(props({ load: { status: "ready", snapshot: s }, autoUi: { ack: true } }));
+    assert.ok(!isDisabled(tag(acked, "auto-on")));
+    const on = html(props({ load: { status: "ready", snapshot: { ...s, auto: { ...s.auto, on: true } } } }));
+    assert.match(on, /AUTO ON/);
+    assert.match(on, /data-testid="auto-off"/);
+    assert.doesNotMatch(on, /data-testid="auto-on"/);
+    const none = html(props({ load: { status: "ready", snapshot: await snap(DRIVE) } }));
+    assert.match(none, /data-testid="auto-unavailable"/);
+  });
+  it("AUTO and MANUAL labels on the position and each journal entry; the audit log lists every decision", async () => {
+    const r = createMemorySpyKv();
+    r.data.set(AUTO_SWITCH_KEY, { value: JSON.stringify({ auto: true, at: "2026-11-01T00:00:00.000Z" }), expiresAt: null });
+    const desk = createMemoryDeskStore();
+    await runAutoCycle(makeDeps(DRIVE), CFG, { desk, kv: r }, {});
+    const s = await buildDeskSnapshot(makeDeps(DRIVE), CFG, desk, await buildAutoView(r));
+    const out = html(props({ load: { status: "ready", snapshot: s } }));
+    assert.match(out, /AUTO, DRY RUN/);
+    assert.match(out, /data-testid="journal"[\s\S]*>AUTO</);
+    assert.match(out, /data-testid="auto-log"/);
+    assert.match(out, /OPENED/);
+    const manual = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL, {}, createMemoryDeskStore(held())) } }));
+    assert.match(manual, /MANUAL, DRY RUN/);
+  });
+  it("Neutral while holding shows the banner for the trader", async () => {
+    const s = await snap(NEUTRAL, {}, createMemoryDeskStore(held()));
+    const out = html(props({ load: { status: "ready", snapshot: s } }));
+    assert.match(out, /data-testid="neutral-banner"/);
+    assert.match(out, /Auto leaves it alone/);
+    const flat = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL) } }));
+    assert.doesNotMatch(flat, /data-testid="neutral-banner"/);
+  });
+  it("a manual ticket against the reading says so", async () => {
+    const s = await snap(DRIVE);
+    const out = html(props({ load: { status: "ready", snapshot: s }, ticket: { type: "put", symbol: "SPY271105P00850000", ack: false } }));
+    assert.match(out, /data-testid="ticket-against"/);
+    assert.match(out, /AGAINST THE READING \(Drive\)/);
   });
 });

@@ -4,10 +4,16 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/sessionAuth";
 /**
  * Gate every app + API request behind a valid Polarito session cookie.
  * Public: /login (and its Server Actions), Next static assets, favicon.
+ * One narrow exception: the scheduler path below carries no cookie (a cron cannot sign in). That route refuses every
+ * request that does not present the CRON_SECRET bearer token, and fails closed when the secret is not set.
  * Fail-closed: missing/invalid cookie => redirect to /login (pages) or 401 (API).
  */
+const SCHEDULER_PATH = "/api/spy/auto-run";
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (pathname === SCHEDULER_PATH) return NextResponse.next();
 
   // Static assets and the login page itself stay reachable without a session.
   if (

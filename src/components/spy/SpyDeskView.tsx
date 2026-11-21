@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import type { OptionType } from "@/lib/broker/options";
 import type { CandidateList, ContractView, DeskSnapshot, ReadingView } from "@/lib/spyDesk";
-import { MANUAL_BELOW_TARGET_LABEL } from "@/lib/spyDesk";
+import { MANUAL_BELOW_TARGET_LABEL, entryMode, readingRelation, sourceMode } from "@/lib/spyDesk";
+import type { AutoLogEntry } from "@/lib/spyAutoTypes";
 import { dateTimeText, decisionHeadline, money, netFlagText, netVolumeText, percent, price, signedDelta } from "@/lib/spyDeskFormat";
 
 /**
@@ -12,6 +13,7 @@ import { dateTimeText, decisionHeadline, money, netFlagText, netVolumeText, perc
 export type DeskLoad = { status: "loading" } | { status: "error"; error: string } | { status: "ready"; snapshot: DeskSnapshot };
 export type TicketUi = { type: OptionType; symbol: string | null; ack: boolean };
 export type CloseUi = { stage: "idle" | "confirm"; ack: boolean; offerUnpriced: boolean };
+export type AutoUi = { ack: boolean };
 export type Notice = { kind: "ok" | "error"; text: string };
 
 export type DeskViewProps = {
@@ -20,7 +22,10 @@ export type DeskViewProps = {
   notice: Notice | null;
   ticket: TicketUi;
   close: CloseUi;
+  autoUi: AutoUi;
   onRefresh(): void;
+  onAutoChange(next: Partial<AutoUi>): void;
+  onSubmitAuto(on: boolean): void;
   onTicketChange(next: Partial<TicketUi>): void;
   onSubmitTicket(): void;
   onCloseChange(next: Partial<CloseUi>): void;
@@ -148,7 +153,7 @@ function PositionCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapsho
     <div className="space-y-3" data-testid="position-held">
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={pos.type === "call" ? "green" : "red"}>{pos.type.toUpperCase()}</Badge>
-        <Badge tone="zinc">MANUAL, DRY RUN</Badge>
+        <Badge tone={pos.source === "auto" ? "green" : "zinc"}>{sourceMode(pos.source)}, DRY RUN</Badge>
         {pos.belowTargetLabel ? <Badge tone="amber">{pos.belowTargetLabel}</Badge> : null}
       </div>
       <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
@@ -234,7 +239,10 @@ function TicketCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot 
   const chosen = list?.shown.find((c) => c.symbol === ticket.symbol) ?? null;
   return (
     <div className="space-y-3" data-testid="ticket-open">
-      <p className="text-sm text-amber-200">NEUTRAL: TRADER DECIDES. Choose a call or a put and one contract from the rules-filtered chain. This records a dry-run position only.</p>
+      <p className="text-sm text-amber-200" data-testid="ticket-intro">
+        {snap.decision.action === "STAND_ASIDE" ? "NEUTRAL: TRADER DECIDES. " : `The reading says ${snap.decision.action}; you may still go either way. `}
+        Choose a call or a put and one contract from the rules-filtered chain. This records a MANUAL dry-run position only, labelled MANUAL.
+      </p>
       <div className="flex gap-2" role="group" aria-label="Call or put">
         {(["call", "put"] as const).map((ty) => (
           <button key={ty} type="button" disabled={props.busy} aria-pressed={ticket.type === ty} onClick={() => props.onTicketChange({ type: ty, symbol: null })} className={`${btn} ${ticket.type === ty ? (ty === "call" ? "bg-emerald-600 text-white" : "bg-red-600 text-white") : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`} data-testid={`ticket-type-${ty}`}>
@@ -245,7 +253,10 @@ function TicketCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot 
       {list ? <CandidateTable list={list} selected={ticket.symbol} onSelect={(symbol) => props.onTicketChange({ symbol })} disabled={props.busy} primary={snap.rules.primary} /> : null}
       {chosen ? (
         <div className="rounded-md border border-zinc-700 bg-zinc-950/60 p-3 text-sm" data-testid="ticket-summary">
-          <div className="mb-1 font-semibold">DRY RUN: would buy 1 {chosen.type.toUpperCase()} {chosen.symbol} at the ask {price(chosen.ask)}, cost {money(chosen.costAtAsk)} (max loss = premium).</div>
+          <div className="mb-1 font-semibold">MANUAL, DRY RUN: would buy 1 {chosen.type.toUpperCase()} {chosen.symbol} at the ask {price(chosen.ask)}, cost {money(chosen.costAtAsk)} (max loss = premium).</div>
+          {snap.decision.action !== "STAND_ASIDE" && (snap.decision.action === "CALL") !== (chosen.type === "call") ? (
+            <div className="text-amber-300" data-testid="ticket-against">{readingRelation(snap.decision.action as "CALL" | "PUT", chosen.type)}. It is recorded as MANUAL, so Auto will not manage it.</div>
+          ) : null}
           {chosen.belowTarget ? <div className="text-amber-300">{MANUAL_BELOW_TARGET_LABEL}: delta {signedDelta(chosen.delta)} is below the {snap.rules.primary.toFixed(2)} target.</div> : null}
           <label className="mt-2 flex items-start gap-2 text-zinc-200">
             <input type="checkbox" checked={ticket.ack} onChange={(e) => props.onTicketChange({ ack: e.target.checked })} className="mt-1" data-testid="ticket-ack" />
@@ -263,11 +274,12 @@ function TicketCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot 
 }
 
 function Journal({ entries }: { entries: DeskSnapshot["journal"] }) {
-  if (entries.length === 0) return <p className="text-sm text-zinc-500">No manual dry-run actions recorded yet.</p>;
+  if (entries.length === 0) return <p className="text-sm text-zinc-500">No dry-run trades recorded yet.</p>;
   return (
     <ul className="space-y-1 text-sm" data-testid="journal">
       {entries.map((e) => (
         <li key={e.id} className="border-t border-zinc-800 pt-1 text-zinc-300">
+          <span className="mr-1"><Badge tone={entryMode(e.kind) === "AUTO" ? "green" : "zinc"}>{entryMode(e.kind)}</Badge></span>
           <span className="text-xs text-zinc-500">{dateTimeText(e.at)}</span> {e.note}
         </li>
       ))}
@@ -275,10 +287,66 @@ function Journal({ entries }: { entries: DeskSnapshot["journal"] }) {
   );
 }
 
+const outcomeTone = (o: AutoLogEntry["outcome"]): "green" | "red" | "amber" | "zinc" | "rose" =>
+  o === "opened" || o === "closed-and-opened" || o === "closed" ? "green" : o === "refused" || o === "error" ? "rose" : o === "neutral" || o === "no-action" || o === "off" ? "amber" : "zinc";
+
+function AutoCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
+  const a = snap.auto;
+  return (
+    <div className="space-y-3" data-testid="auto-card">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={a.on ? "green" : "zinc"}>{a.on ? "AUTO ON" : "AUTO OFF"}</Badge>
+        <span className="text-xs text-zinc-500">{a.reason}{a.at ? ` Last changed ${dateTimeText(a.at)}.` : ""}</span>
+      </div>
+      <p className="text-sm text-zinc-300">
+        When ON, a scheduled run ({a.schedule}) opens a call on Drive or a put on Reverse when no position is held, and when the reading turns opposite to a position Auto opened it closes at the bid and opens the other side. Neutral: no action, you decide. It never touches a MANUAL position. Practice record only; no order is ever sent.
+      </p>
+      {!a.available ? (
+        <p className="text-sm text-amber-300" data-testid="auto-unavailable">Auto cannot be switched: {a.reason}</p>
+      ) : a.on ? (
+        <button type="button" className={`${btn} bg-zinc-700 text-zinc-100 hover:bg-zinc-600`} disabled={props.busy} onClick={() => props.onSubmitAuto(false)} data-testid="auto-off">
+          Turn Auto OFF
+        </button>
+      ) : (
+        <div className="space-y-2 rounded-md border border-zinc-700 bg-zinc-950/60 p-3">
+          <label className="flex items-start gap-2 text-sm text-zinc-200">
+            <input type="checkbox" checked={props.autoUi.ack} onChange={(e) => props.onAutoChange({ ack: e.target.checked })} className="mt-1" data-testid="auto-ack" />
+            <span>I understand Auto only records practice trades by itself. No order is sent to any broker.</span>
+          </label>
+          <button type="button" className={`${btn} bg-amber-600 text-black hover:bg-amber-500`} disabled={props.busy || !props.autoUi.ack} onClick={() => props.onSubmitAuto(true)} data-testid="auto-on">
+            Turn Auto ON
+          </button>
+        </div>
+      )}
+      <div>
+        <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Auto audit log (every decision, newest first)</h3>
+        {a.logError ? <p className="text-sm text-rose-300">The audit log could not be read: {a.logError}</p> : null}
+        {a.log.length === 0 && !a.logError ? (
+          <p className="text-sm text-zinc-500" data-testid="auto-log-empty">No Auto decisions yet.</p>
+        ) : (
+          <ul className="space-y-1 text-sm" data-testid="auto-log">
+            {a.log.map((e) => (
+              <li key={e.id} className="border-t border-zinc-800 pt-1 text-zinc-300">
+                <span className="mr-1"><Badge tone={outcomeTone(e.outcome)}>{e.outcome.toUpperCase()}</Badge></span>
+                <span className="text-xs text-zinc-500">{dateTimeText(e.at)}{e.reading ? `, reading ${e.reading}` : ""}</span> {e.message}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
   const unavailable = snap.decision.action === "DATA_UNAVAILABLE" || snap.decision.action === "UNKNOWN";
   return (
     <>
+      {snap.auto.banner ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" role="status" data-testid="neutral-banner">
+          {snap.auto.banner}
+        </div>
+      ) : null}
       {unavailable ? (
         <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200" role="alert" data-testid="data-unavailable">
           <strong>Data unavailable.</strong> {snap.decision.reason}. No decision is made, no contract is chosen and the ticket stays off. Nothing here is a guess.
@@ -307,12 +375,16 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
         <h2 id="pos-h" className={h2}>Dry-run position</h2>
         <PositionCard props={props} snap={snap} />
       </section>
+      <section className={card} aria-labelledby="auto-h">
+        <h2 id="auto-h" className={h2}>Auto (practice trader)</h2>
+        <AutoCard props={props} snap={snap} />
+      </section>
       <section className={card} aria-labelledby="ticket-h">
         <h2 id="ticket-h" className={h2}>Manual SPY option ticket (dry run)</h2>
         <TicketCard props={props} snap={snap} />
       </section>
       <section className={card} aria-labelledby="journal-h">
-        <h2 id="journal-h" className={h2}>Manual journal</h2>
+        <h2 id="journal-h" className={h2}>Trade journal (AUTO and MANUAL)</h2>
         <Journal entries={snap.journal} />
       </section>
       {snap.notes.length > 0 ? (
@@ -339,7 +411,7 @@ export default function SpyDeskView(props: DeskViewProps) {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">SPY desk</h1>
-          <p className="text-sm text-zinc-400">Long-timeframe SPY options. Read-only market data; manual actions change the dry-run record only.</p>
+          <p className="text-sm text-zinc-400">Long-timeframe SPY options. Read-only market data; Auto and manual actions change the dry-run record only.</p>
         </div>
         <div className="flex items-center gap-3">
           <Badge tone="amber">DRY RUN: no orders can be sent</Badge>
