@@ -10,6 +10,8 @@
  *
  * The simulated and live numbers are never on screen together: each display picks exactly one branch.
  */
+import type { LiveLimitsView } from "@/lib/liveLimits";
+
 export type LivePosition = {
   ticker: string;
   side: "long" | "short";
@@ -32,8 +34,8 @@ export type LiveStatus = {
   account?: { equity: number; lastEquity: number; cash: number; buyingPower: number };
   positions?: LivePosition[];
   manual?: { watchlist: string[]; defaultQuantity: number; error?: string };
-  limits?: { maxPositionPct: number; dailyLossPct: number };
-  day?: { date: string; entries: number; lockedTicker: string | null; stoppedToday: boolean };
+  limits?: LiveLimitsView;
+  day?: { date: string; entries: number; lockedTicker: string | null; enteredTickers?: string[]; stoppedToday: boolean };
   auto?: { available: boolean; on: boolean; reason: string; at: string | null; openPositions: number; openOrders: number };
 };
 

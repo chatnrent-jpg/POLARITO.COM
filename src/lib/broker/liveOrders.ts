@@ -8,6 +8,11 @@
  *   close of entry N, attempt K    pol-{YYYYMMDD}-c{NN}-a{K}-{TICKER}   (auto close and manual close)
  *   stop-out flatten, attempt K    pol-{YYYYMMDD}-s{NN}-a{K}-{TICKER}   (also the "stopped today" marker)
  *
+ * With several stocks held at once the TICKER is part of every id, so ids never collide across tickers. NN is
+ * the day's entry sequence (maxEntry + 1, +2, ... for the entries of one tick), so two entries in the same tick
+ * get distinct ids, and a retry of that tick computes the same ones. A close files under the entry number of
+ * its own ticker (entryNumberFor), so each position has its own close/stop id chain.
+ *
  * A retry or a parallel run computes the same id and is stopped by the broker's
  * uniqueness rule; the sequence only advances once an order with that id exists.
  */
@@ -57,8 +62,10 @@ export type DayState = {
   maxEntry: number;
   /** Entry orders today (automatic and manual) that did not fail (rejected / canceled ones are not counted). Informational only: nothing caps entries. */
   entryCount: number;
-  /** Ticker of the day's first entry (a manual buy counts once it did not fail); later entries are for this stock only. null before the first entry. */
+  /** Ticker of the day's first entry (a manual buy counts once it did not fail). Informational only: with several positions it no longer restricts anything. null before the first entry. */
   lockTicker: string | null;
+  /** Tickers with an entry order today (automatic or manual) that did not fail, in entry order, no duplicates. */
+  enteredTickers: string[];
   /** A stop-out flatten order exists today: no entry for the rest of the day. */
   stoppedToday: boolean;
 };
@@ -78,8 +85,14 @@ export function deriveDayState(orders: readonly BrokerOrder[], date: string): Da
     maxEntry: entries.reduce((m, p) => Math.max(m, p.id.nn), 0),
     entryCount: entries.filter((p) => !isFailedStatus(p.order.status)).length,
     lockTicker: locking.length > 0 ? locking[0].id.ticker : null,
+    enteredTickers: [...new Set(entries.filter((p) => !isFailedStatus(p.order.status)).map((p) => p.id.ticker))],
     stoppedToday: parsed.some((p) => p.id.kind === "s"),
   };
+}
+
+/** Entry orders today (automatic and manual) that did not fail, for the tickers `matches` accepts. */
+export function entriesTodayFor(state: DayState, matches: (ticker: string) => boolean): number {
+  return state.orders.filter((p) => (p.id.kind === "e" || p.id.kind === "m") && matches(p.id.ticker) && !isFailedStatus(p.order.status)).length;
 }
 
 /** Close/stop orders for one ticker and entry number, newest attempt last. */

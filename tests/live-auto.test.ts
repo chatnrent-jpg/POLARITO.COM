@@ -113,7 +113,7 @@ describe("Auto gates the live runner's signal-driven orders", () => {
     assert.match(broken.audit.map((a) => a.reason).join(" "), /Reading Auto failed/);
   });
 
-  it("switching ON takes effect on the next tick, switching OFF stops re-entry", async () => {
+  it("switching ON takes effect on the next tick, switching OFF stops entries", async () => {
     const t = pickSetup({ specs: SPECS(), auto: false });
     await tick(t);
     assert.equal(t.broker.submitted.length, 0);
@@ -128,10 +128,10 @@ describe("Auto gates the live runner's signal-driven orders", () => {
     assert.ok(closed.ok);
     t.autoState.on = false;
     await tick(t);
-    assert.equal(t.broker.positions.length, 0, "no re-entry while Auto is OFF");
+    assert.equal(t.broker.positions.length, 0, "no entry while Auto is OFF");
     t.autoState.on = true;
     await tick(t);
-    assert.equal(t.broker.positions.length, 1, "re-entry resumes on polarity once Auto is ON");
+    assert.deepEqual(t.broker.positions.map((p) => p.ticker), [], "NVDA already used its entry today");
   });
 
   it("OFF: a held stock is not closed or flipped by the signal, only logged", async () => {

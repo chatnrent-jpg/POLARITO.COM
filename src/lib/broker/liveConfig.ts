@@ -14,14 +14,15 @@
 import { AlpacaPaperBroker } from "@/lib/broker/alpacaPaper";
 import { paperBrokerConfig, type BrokerEnv, type PaperBrokerConfig } from "@/lib/broker/config";
 import type { LiveBroker } from "@/lib/broker/types";
+import { LIVE_LIMITS } from "@/lib/liveLimits";
 import { MAX_WATCHLIST } from "@/lib/paperRunner";
 import { normalizeTicker } from "@/lib/ticker";
 
 /** Alpaca allows margin and short selling only from $2,000 of equity. */
 export const LIVE_SHORT_MIN_EQUITY = 2_000;
 export const DEFAULT_LIVE_QTY = 1;
-export const DEFAULT_LIVE_MAX_POSITION_PCT = 50;
-export const DEFAULT_LIVE_DAILY_LOSS_PCT = 1;
+export const DEFAULT_LIVE_MAX_POSITION_PCT = LIVE_LIMITS.perPositionCapPct;
+export const DEFAULT_LIVE_DAILY_LOSS_PCT = LIVE_LIMITS.dailyStopPct;
 export const DEFAULT_LIVE_PICK_START = "10:00";
 export const DEFAULT_LIVE_FLATTEN_AT = "15:55";
 
@@ -31,8 +32,10 @@ export type LiveSettings = {
   watchlist: string[];
   /** Shares per entry, before the position cap and cash reduce it. */
   quantity: number;
-  /** Max notional of one position as a percent of equity (the live cap). */
+  /** Max notional of one position as a percent of equity (the live cap, never above LIVE_LIMITS.perPositionCapPct). */
   maxPositionPct: number;
+  /** Max held positions plus working orders at once (LIVE_LIMITS.maxPositions). */
+  maxPositions: number;
   /** Flatten and stand aside once the account is down this percent on the day. */
   dailyLossPct: number;
   /** Minutes after midnight New York before the first entry of the day may be picked. */
@@ -100,8 +103,8 @@ export function liveSettings(env: BrokerEnv): { ok: true; settings: LiveSettings
     return { ok: false, error: "POLARITO_LIVE_QTY must be a whole number from 1 to 1000." };
   }
   const cap = Number((env.POLARITO_LIVE_MAX_POSITION_PCT ?? String(DEFAULT_LIVE_MAX_POSITION_PCT)).trim());
-  if (!Number.isFinite(cap) || cap < 5 || cap > 100) {
-    return { ok: false, error: "POLARITO_LIVE_MAX_POSITION_PCT must be between 5 and 100." };
+  if (!Number.isFinite(cap) || cap < 5 || cap > LIVE_LIMITS.perPositionCapPct) {
+    return { ok: false, error: `POLARITO_LIVE_MAX_POSITION_PCT must be between 5 and ${LIVE_LIMITS.perPositionCapPct} (it can only lower the ${LIVE_LIMITS.perPositionCapPct}% per-position limit).` };
   }
   // A bad stop value falls back to the strict 1% rather than loosening the stop.
   const lossRaw = Number((env.POLARITO_LIVE_DAILY_LOSS_PCT ?? "").trim());
@@ -136,6 +139,7 @@ export function liveSettings(env: BrokerEnv): { ok: true; settings: LiveSettings
       watchlist,
       quantity,
       maxPositionPct: cap,
+      maxPositions: LIVE_LIMITS.maxPositions,
       dailyLossPct,
       pickStartMinutes: start,
       flattenAtMinutes,

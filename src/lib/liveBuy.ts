@@ -3,8 +3,8 @@
  * POST /api/broker/live/buy.
  *
  * Long only, real stocks only, watchlist only. Sizing is the SAME risk engine the pick runner uses
- * (sizeLiveEntry: 50% per-position cap, 100% total exposure, cash and buying power, daily-loss halt),
- * so a manual buy is reduced or refused, never larger than what Auto could take. The order ticket
+ * (sizeLiveEntry: LIVE_LIMITS per-position cap (33% of equity, whole shares), 100% total exposure, cash and
+ * buying power, daily-loss halt), so a manual buy is reduced or refused, never larger than what Auto could take. The order ticket
  * (OrderModule) sends `requireDrive`, so the server also refuses a long that is not aligned with the gear.
  *
  * Every check reads Alpaca fresh and fails closed: anything unreadable, stale or doubtful refuses.
@@ -12,10 +12,17 @@
  * broker's own position list shows the stock. Every attempt past the route's own gates is audited
  * (source: live-manual-buy).
  *
- * One stock at a time: any position or working order in a DIFFERENT company refuses. GOOGL and GOOG
- * are one company (pickRank COMPANY_GROUPS). With Auto ON the buy is allowed only for the stock the
- * day is already locked to; with Auto ON and no stock locked yet it is refused so the runner and the
- * hand cannot pick two stocks at once.
+ * Up to LIVE_LIMITS.maxPositions (3) stocks at a time: a buy is refused (MAX_POSITIONS) when held positions plus
+ * working orders already fill every slot, counted by company (GOOGL and GOOG are one, pickRank COMPANY_GROUPS).
+ * It never adds to a stock already held (HELD) or stacks on a working order in it (WORKING).
+ *
+ * Auto ON rule (replaces the old one-stock AUTO_LOCK): Auto ON does not restrict WHICH watchlist stock may be
+ * bought by hand, only the same slot and cap rules apply. The runner and the hand cannot double-buy: Auto never
+ * enters a stock that is held, has a working order, or already has an entry today, and before every entry it
+ * re-reads positions and working orders, so a hand buy that lands first simply uses up a slot. Once bought, Auto
+ * manages the position by polarity like any other (it may close it on a Neutral or Reverse reading); with Auto
+ * OFF only the stop-out and the end-of-day flatten act on it. The safer choice is taken in every conflict:
+ * refuse (or send fewer shares) rather than exceed 3 positions or the per-position cap.
  */
 import { buildAuditRecord, type AuditDraft, type AuditRecord } from "@/lib/audit";
 import { tradingGate, type PaperBrokerConfig } from "@/lib/broker/config";
@@ -26,7 +33,8 @@ import type { LiveBroker } from "@/lib/broker/types";
 import type { AutoState } from "@/lib/liveAutoStore";
 import { newYorkClock } from "@/lib/paperRunner";
 import { sessionOpen } from "@/lib/mirrorRunner";
-import { COMPANY_GROUPS, sizeLiveEntry, toReading } from "@/lib/pickRank";
+import { slotUse } from "@/lib/liveLimits";
+import { companyKey as pickCompanyKey, sizeLiveEntry, toReading } from "@/lib/pickRank";
 import { computePolaritySeries, type Bar } from "@/lib/polarity";
 import { MAX_SHARES } from "@/lib/risk";
 import { normalizeTicker } from "@/lib/ticker";
@@ -69,7 +77,7 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 const clock = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 
 /** GOOGL and GOOG share one key; every other ticker is its own company. */
-export const companyKey = (ticker: string): string => COMPANY_GROUPS.find((g) => g.includes(ticker))?.[0] ?? ticker;
+export const companyKey = pickCompanyKey;
 
 const refusal = (code: string, error: string, clientOrderId?: string): LiveBuyOutcome => ({ ok: false, code, error, clientOrderId });
 
@@ -177,14 +185,6 @@ export async function buyLivePosition(
       }
 
       const key = companyKey(ticker);
-      const otherPosition = positionsRes.value.find((p) => companyKey(p.ticker) !== key);
-      if (otherPosition) {
-        return refusal("OTHER_POSITION", `A ${otherPosition.ticker} position is open. One stock at a time: close it first. No order was sent.`);
-      }
-      const otherOrder = openRes.value.find((o) => companyKey(o.ticker) !== key);
-      if (otherOrder) {
-        return refusal("OTHER_ORDER", `A ${otherOrder.ticker} order (${otherOrder.clientOrderId}) is still working. One stock at a time: let it finish first. No order was sent.`);
-      }
       const held = positionsRes.value.find((p) => companyKey(p.ticker) === key);
       if (held) {
         return refusal("HELD", `Already holding ${held.side} ${held.quantity} ${held.ticker}. A manual buy does not add to a position. No order was sent.`);
@@ -193,14 +193,12 @@ export async function buyLivePosition(
       if (working) {
         return refusal("WORKING", `A ${working.ticker} order (${working.clientOrderId}) is still working. Wait for it to finish. No order was sent.`);
       }
-
-      if (auto.on) {
-        if (state.lockTicker === null) {
-          return refusal("AUTO_LOCK", "Live Auto is ON and has not picked today's stock yet. Wait for its first entry, or turn Auto OFF (account is flat) to buy by hand. No order was sent.");
-        }
-        if (companyKey(state.lockTicker) !== key) {
-          return refusal("AUTO_LOCK", `Live Auto is ON and today's stock is ${state.lockTicker}. With Auto ON only that stock can be bought by hand. No order was sent.`);
-        }
+      const slots = slotUse(positionsRes.value, openRes.value, settings.maxPositions);
+      if (slots.free <= 0) {
+        return refusal(
+          "MAX_POSITIONS",
+          `${slots.used} of ${settings.maxPositions} position slots are in use (${[...slots.companies].join(", ")}). Close one first, or wait for a working order to finish. No order was sent.`,
+        );
       }
 
       const asset = await deps.broker.getAsset(ticker);
@@ -268,9 +266,11 @@ export async function buyLivePosition(
         res.status === "submitted"
           ? `Alpaca accepted BUY ${quantity} ${ticker} (${orderStatus ?? "pending"}), order ${res.clientOrderId}.`
           : `Order ${res.clientOrderId} already exists at Alpaca (${orderStatus ?? "unknown"}). Nothing new was sent.`;
-      const tail = filled
-        ? ` The ${ticker} position is shown at Alpaca.`
-        : " Not filled yet: the position is not shown at Alpaca until the order fills.";
+      const autoNote = auto.on ? ` Live Auto is ON, so it will manage ${ticker} by polarity (it may close it on a Neutral or Reverse reading).` : "";
+      const tail =
+        (filled
+          ? ` The ${ticker} position is shown at Alpaca.`
+          : " Not filled yet: the position is not shown at Alpaca until the order fills.") + autoNote;
       return {
         ok: true,
         status: res.status,

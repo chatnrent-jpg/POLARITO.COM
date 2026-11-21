@@ -85,6 +85,11 @@ export default function LiveLedgerPanel({ mode }: { mode: Exclude<LiveMode, { ki
       tone: pnlTone(day.pnl),
     },
     {
+      label: "Positions",
+      value: limits ? `${positions.length} of ${limits.maxPositions}` : String(positions.length),
+      tone: limits && positions.length > limits.maxPositions ? "text-red-300" : "text-white",
+    },
+    {
       label: "Stock exposure",
       value: `${money(exposure.notional)}${exposure.pct !== null ? ` (${exposure.pct.toFixed(1)}%)` : ""}`,
       tone: "text-white",
@@ -93,7 +98,7 @@ export default function LiveLedgerPanel({ mode }: { mode: Exclude<LiveMode, { ki
 
   return shell(
     <>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((t) => (
           <div key={t.label} className="rounded-xl bg-zinc-950/60 px-4 py-3 ring-1 ring-zinc-700">
             <div className="text-sm font-semibold uppercase tracking-wide text-slate-300">{t.label}</div>
@@ -103,7 +108,8 @@ export default function LiveLedgerPanel({ mode }: { mode: Exclude<LiveMode, { ki
       </div>
       {limits ? (
         <p className="text-sm text-slate-400">
-          Live risk limits: {limits.maxPositionPct}% of equity per position, 100% total exposure, {limits.dailyLossPct}% daily stop.
+          Live risk limits: up to {limits.maxPositions} stocks at once, {limits.perPositionCapPct}% of equity per position, {limits.totalExposureCapPct}% total exposure, long only,
+          {" "}{limits.dailyLossPct}% daily stop on the whole account.
           {status.day?.stoppedToday ? " Stopped out today: no entries until the next session." : ""}
         </p>
       ) : null}
@@ -114,13 +120,14 @@ export default function LiveLedgerPanel({ mode }: { mode: Exclude<LiveMode, { ki
           <p className="text-base text-slate-300">No stock positions at Alpaca.</p>
         ) : (
           <div className="overflow-auto rounded-xl ring-1 ring-zinc-700">
-            <table className="w-full min-w-[40rem] border-collapse text-left text-base">
+            <table className="w-full min-w-[44rem] border-collapse text-left text-base">
               <thead className="bg-zinc-900 text-sm uppercase tracking-wide text-slate-300">
                 <tr>
                   <th className={th}>Ticker</th>
                   <th className={th}>Side</th>
                   <th className={thR}>Qty</th>
                   <th className={thR}>Avg entry</th>
+                  <th className={thR}>% equity</th>
                   <th className={thR}>Mark</th>
                   <th className={thR}>Unrealized</th>
                 </tr>
@@ -132,6 +139,11 @@ export default function LiveLedgerPanel({ mode }: { mode: Exclude<LiveMode, { ki
                     <td className={`${td} font-bold uppercase`}>{p.side}</td>
                     <td className={tdR}>{p.quantity.toLocaleString("en-US")}</td>
                     <td className={tdR}>{money(p.avgEntryPrice)}</td>
+                    <td className={tdR}>
+                      {account.equity > 0
+                        ? `${(((typeof p.marketValue === "number" ? p.marketValue : p.quantity * p.avgEntryPrice) / account.equity) * 100).toFixed(1)}%`
+                        : "—"}
+                    </td>
                     <td className={tdR}>{typeof p.currentPrice === "number" ? money(p.currentPrice) : "—"}</td>
                     <td className={`${tdR} font-bold ${typeof p.unrealizedPnl === "number" ? pnlTone(p.unrealizedPnl) : "text-slate-400"}`}>
                       {typeof p.unrealizedPnl === "number" ? signedMoney(p.unrealizedPnl) : "—"}
@@ -142,7 +154,7 @@ export default function LiveLedgerPanel({ mode }: { mode: Exclude<LiveMode, { ki
             </table>
           </div>
         )}
-        <p className="text-sm text-slate-400">Read-only. Close a position with the Close button in the LIVE account block of the order ticket card.</p>
+        <p className="text-sm text-slate-400">Read-only. Close any one position with its own Close button in the LIVE account block of the order ticket card.</p>
       </div>
 
       <div className="flex flex-col gap-3">

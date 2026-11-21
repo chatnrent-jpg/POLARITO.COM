@@ -68,21 +68,21 @@ describe("manual Close position (server)", () => {
 });
 
 describe("Auto interaction after a manual close", () => {
-  it("with Auto ON the existing re-entry rule applies: it may re-enter on the next tick, as the next entry number", async () => {
+  it("with Auto ON the closed ticker is not re-entered the same day (one automatic entry per ticker per day); its slot stays free for another stock", async () => {
     const t = pickSetup({ specs: SPECS(), auto: true });
     await runPickTick(t.deps, t.settings, { dryRun: false });
     await closeLivePosition(deps(t), "NVDA");
     await runPickTick(t.deps, t.settings, { dryRun: false });
-    assert.deepEqual(t.broker.submitted.map((o) => o.clientOrderId), ["pol-20261119-e01-NVDA", "pol-20261119-c01-a1-NVDA", "pol-20261119-e02-NVDA"]);
+    assert.deepEqual(t.broker.submitted.map((o) => o.clientOrderId), ["pol-20261119-e01-NVDA", "pol-20261119-e02-WMT", "pol-20261119-c01-a1-NVDA"]);
   });
 
-  it("with Auto OFF (for example after Close + Auto OFF) nothing re-enters", async () => {
+  it("with Auto OFF (for example after Close + Auto OFF) nothing enters", async () => {
     const t = pickSetup({ specs: SPECS(), auto: true });
     await runPickTick(t.deps, t.settings, { dryRun: false });
     await closeLivePosition(deps(t), "NVDA");
     t.autoState.on = false;
     await runPickTick(t.deps, t.settings, { dryRun: false });
-    assert.equal(t.broker.submitted.length, 2);
+    assert.equal(t.broker.submitted.length, 3, "two entries and the manual close, nothing more");
   });
 });
 
@@ -105,7 +105,7 @@ describe("Close position control (source assertions)", () => {
   });
 
   it("with Auto ON the confirm offers Auto OFF after the flat close, through the guarded Auto route only", () => {
-    assert.match(panel, /Then turn Live Auto OFF once the position is flat/);
+    assert.match(panel, /Then turn Live Auto OFF once the account is flat/);
     assert.match(panel, /if \(thenAutoOff\) \{\s*const off = await requestAuto\(false\)/);
     assert.match(panel, /\/api\/broker\/live\/auto/);
   });
