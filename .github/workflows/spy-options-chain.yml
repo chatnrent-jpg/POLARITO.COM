@@ -1,0 +1,103 @@
+name: SPY options chain (read-only)
+
+# Manual only: there is NO schedule. Reads the SPY options chain from Alpaca and prints the contract the SPY options
+# design would pick, under two hard rules: expiry at least 365 days out (nearest listed) and |delta| >= 0.80
+# (calls for Drive, puts for Reverse). Also prints the account's options approval level, cash and buying power, and the
+# real cost per contract against the live account.
+#
+# READ-ONLY. scripts/spy-options-chain.ts goes through src/lib/alpacaReadOnly.ts, which only sends GET to: account,
+# option contracts, latest stock trade, option snapshots. No order endpoint is reachable. contents: read, nothing is
+# written back, the keys are never printed. The result is in the job log, on the run's Summary page and in the artifact
+# "spy-options-chain" (markdown + JSON).
+#
+# Secrets, in any of these forms (the live pair is used first for the account read):
+#   ALPACA_LIVE_KEY_ID + ALPACA_LIVE_SECRET_KEY   (optional: the live account)
+#   ALPACA_API_KEY_ID + ALPACA_API_SECRET_KEY     (two secrets), or
+#   ALPACAKEYS                                    (one secret holding the NAME=value lines)
+on:
+  workflow_dispatch:
+    inputs:
+      options_feed:
+        description: "Option data feed: indicative (free, delayed, modelled greeks) or opra (needs the paid options data plan)"
+        type: choice
+        options: [indicative, opra]
+        default: indicative
+      live_budget:
+        description: "Live account size in dollars for the can-I-afford-it line"
+        type: string
+        default: "1000"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spy-options-chain
+  cancel-in-progress: false
+
+jobs:
+  chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Prepare Alpaca keys
+        env:
+          COMBINED: ${{ secrets.ALPACAKEYS }}
+          KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          KEY_SECRET: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          LIVE_ID: ${{ secrets.ALPACA_LIVE_KEY_ID }}
+          LIVE_SECRET: ${{ secrets.ALPACA_LIVE_SECRET_KEY }}
+        run: |
+          f="$RUNNER_TEMP/alpaca.env"
+          : > "$f"
+          if [ -n "$COMBINED" ]; then printf '%s\n' "$COMBINED" | tr -d '\r' > "$f"; fi
+          if [ -n "$KEY_ID" ]; then printf 'ALPACA_API_KEY_ID=%s\n' "$KEY_ID" >> "$f"; fi
+          if [ -n "$KEY_SECRET" ]; then printf 'ALPACA_API_SECRET_KEY=%s\n' "$KEY_SECRET" >> "$f"; fi
+          if [ -n "$LIVE_ID" ]; then printf 'ALPACA_LIVE_KEY_ID=%s\n' "$LIVE_ID" >> "$f"; fi
+          if [ -n "$LIVE_SECRET" ]; then printf 'ALPACA_LIVE_SECRET_KEY=%s\n' "$LIVE_SECRET" >> "$f"; fi
+          have() { grep -q "^$1=." "$f"; }
+          if { have ALPACA_API_KEY_ID && have ALPACA_API_SECRET_KEY; } || { have ALPACA_LIVE_KEY_ID && have ALPACA_LIVE_SECRET_KEY; }; then
+            echo "found a usable key pair"
+          else
+            echo "::error::No Alpaca key pair found. Add ALPACA_API_KEY_ID + ALPACA_API_SECRET_KEY (or ALPACA_LIVE_KEY_ID + ALPACA_LIVE_SECRET_KEY, or one ALPACAKEYS secret with NAME=value lines)."
+            exit 1
+          fi
+
+      - name: Read the chain
+        env:
+          OPTIONS_FEED: ${{ inputs.options_feed }}
+          LIVE_BUDGET: ${{ inputs.live_budget }}
+        run: |
+          set -eu
+          case "$OPTIONS_FEED" in indicative|opra) ;; *) echo "::error::options_feed must be indicative or opra"; exit 1 ;; esac
+          case "$LIVE_BUDGET" in ''|*[!0-9.]*) echo "::error::live_budget must be a number"; exit 1 ;; esac
+          npx tsx --env-file="$RUNNER_TEMP/alpaca.env" scripts/spy-options-chain.ts \
+            --options-feed="$OPTIONS_FEED" --live-budget="$LIVE_BUDGET" --out-dir=spy-options-chain-out
+
+      - name: Show the summary on the run page
+        if: always()
+        run: |
+          if [ -f spy-options-chain-out/spy-options-chain.md ]; then
+            cat spy-options-chain-out/spy-options-chain.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spy-options-chain
+          path: spy-options-chain-out/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove the key file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/alpaca.env"
