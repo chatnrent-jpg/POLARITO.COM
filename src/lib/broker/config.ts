@@ -34,8 +34,11 @@ export function paperCredentials(env: BrokerEnv): { keyId: string; secretKey: st
   return keyId && secretKey ? { keyId, secretKey } : null;
 }
 
-/** The single gate every order passes through. Kill switch wins over everything. */
-export function tradingGate(config: PaperBrokerConfig): TradingGate {
+/**
+ * The single gate every order passes through. Kill switch wins over everything.
+ * `target` only picks the wording: a live account must name the live switch, never the paper one.
+ */
+export function tradingGate(config: PaperBrokerConfig, target: "paper" | "live" = "paper"): TradingGate {
   if (config.killed) {
     return { ok: false, code: "KILLED", error: "Kill switch is on. No orders will be placed." };
   }
@@ -43,11 +46,18 @@ export function tradingGate(config: PaperBrokerConfig): TradingGate {
     return {
       ok: false,
       code: "DISABLED",
-      error: "Paper trading is not enabled (set POLARITO_PAPER_TRADING_ENABLED=1).",
+      error:
+        target === "live"
+          ? "Live trading is not enabled (set POLARITO_LIVE_TRADING_ENABLED=1)."
+          : "Paper trading is not enabled (set POLARITO_PAPER_TRADING_ENABLED=1).",
     };
   }
   if (!config.configured) {
-    return { ok: false, code: "NOT_CONFIGURED", error: "Alpaca paper credentials are not configured." };
+    return {
+      ok: false,
+      code: "NOT_CONFIGURED",
+      error: target === "live" ? "Alpaca live credentials are not configured." : "Alpaca paper credentials are not configured.",
+    };
   }
   return { ok: true };
 }

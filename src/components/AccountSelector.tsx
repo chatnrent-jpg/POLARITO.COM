@@ -71,9 +71,7 @@ function LiveAccountCard({ mode }: { mode: Exclude<LiveMode, { kind: "sim" }> })
           Live data unavailable: {mode.reason} No balances are shown until Alpaca can be read.
         </p>
       ) : null}
-      <span className="text-sm text-slate-400">
-        Read from your Alpaca live account every 5 seconds. The simulated accounts are not used while live is on.
-      </span>
+      <span className="text-sm text-slate-400">Read from your Alpaca live account every 5 seconds.</span>
     </section>
   );
 }
