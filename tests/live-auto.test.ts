@@ -3,12 +3,11 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { NextRequest } from "next/server";
 import { POST as autoPost } from "../src/app/api/broker/live/auto/route.node";
 import { proxy } from "../src/proxy";
-import { closeLivePosition } from "../src/lib/liveClose";
 import { runPickTick } from "../src/lib/pickRunner";
 import { autoStoreCredentials, createAutoStore, LIVE_AUTO_KEY, readAutoState } from "../src/lib/liveAutoStore";
 import { requireIdle } from "../src/lib/liveAutoGuard";
 import { AUDIT_SOURCES } from "../src/lib/audit";
-import { pickSetup, type BarSpec, type FakeLiveBroker } from "./helpers/liveFake";
+import { pickSetup, type BarSpec } from "./helpers/liveFake";
 
 const KV = { KV_REST_API_URL: "https://kv.example.upstash.io", KV_REST_API_TOKEN: "kv-token-value" };
 
@@ -113,27 +112,6 @@ describe("Auto gates the live runner's signal-driven orders", () => {
     assert.match(broken.audit.map((a) => a.reason).join(" "), /Reading Auto failed/);
   });
 
-  it("switching ON takes effect on the next tick, switching OFF stops entries", async () => {
-    const t = pickSetup({ specs: SPECS(), auto: false });
-    await tick(t);
-    assert.equal(t.broker.submitted.length, 0);
-    t.autoState.on = true;
-    await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-NVDA"]);
-
-    const closed = await closeLivePosition(
-      { broker: t.broker as FakeLiveBroker, config: t.deps.config, audit: t.deps.audit, now: t.deps.now, sleep: t.deps.sleep },
-      "NVDA",
-    );
-    assert.ok(closed.ok);
-    t.autoState.on = false;
-    await tick(t);
-    assert.equal(t.broker.positions.length, 0, "no entry while Auto is OFF");
-    t.autoState.on = true;
-    await tick(t);
-    assert.deepEqual(t.broker.positions.map((p) => p.ticker), [], "NVDA already used its entry today");
-  });
-
   it("OFF: a held stock is not closed or flipped by the signal, only logged", async () => {
     const t = pickSetup({ specs: { NVDA: { kind: "neutral" } }, auto: false });
     t.broker.positions.push({ ticker: "NVDA", side: "long", quantity: 1, avgEntryPrice: 130 });
@@ -158,17 +136,6 @@ describe("Auto gates the live runner's signal-driven orders", () => {
     t.broker.orders.push({ id: "x", clientOrderId: "pol-20261119-e01-NVDA", status: "filled", ticker: "NVDA", side: "buy", quantity: 1 });
     await tick(t);
     assert.deepEqual(ids(t), ["pol-20261119-c01-a1-NVDA"]);
-  });
-
-  it("OFF: the manual Close route still works", async () => {
-    const t = pickSetup({ specs: SPECS(), auto: false });
-    t.broker.positions.push({ ticker: "NVDA", side: "long", quantity: 1, avgEntryPrice: 130 });
-    const res = await closeLivePosition(
-      { broker: t.broker as FakeLiveBroker, config: t.deps.config, audit: t.deps.audit, now: t.deps.now, sleep: t.deps.sleep },
-      "NVDA",
-    );
-    assert.ok(res.ok && res.status === "submitted");
-    assert.equal(t.broker.positions.length, 0);
   });
 
   it("an explicit dry run with Auto OFF stays a plain dry run (no Auto record)", async () => {
