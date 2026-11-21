@@ -276,6 +276,10 @@ E. First real orders (1 share) and the close-then-re-enter test
 11. Unverified until you check (checklist 7, 31): the exact `borrow_status` values Alpaca returns, and how fast sale proceeds free up buying power on a sub-$2,000 account.
 12. Accept the risk: the repo's back-tests found no edge in following polarity, $1,000 of real cash can be lost, and a 1% stop does not cap gap losses.
 
+### Alpaca key diagnostic (`GET /api/diag/alpaca-keys`)
+
+When the page says "Alpaca rejected the API key ID/secret", sign in and open `/api/diag/alpaca-keys` in the address bar. It is read-only, behind the login gate, and refuses cross-site requests (address-bar and same-origin calls only). It never returns a secret or a full key ID and places no order. For each pair the app knows (`ALPACA_API_KEY_ID`/`ALPACA_API_SECRET_KEY` for market data, `ALPACA_LIVE_*`, `ALPACA_PAPER_*`) it reports: present yes/no, the first two characters and length of the key ID (AK = live, PK = paper), the secret's length, and flags for leading/trailing whitespace, inner whitespace, quote characters, a newline, non-ASCII characters, a key ID/secret that look swapped, and unusual lengths. It also makes one real call per pair (market-data pair and live pair each fetch one AAPL daily bar from `data.alpaca.markets` with `feed=iex`; the live pair also reads the live account) and returns only the HTTP status and Alpaca's message, plus `deployment` (`VERCEL_ENV`, short commit SHA) so you can confirm which deploy answered, and plain-language `hints`. The paper pair is inspected but never called. The default market-data fetch is unchanged.
+
 ## Audit log (server only)
 
 The scheduled runner writes one structured JSON line per decision to the server log (`{"audit":{...}}`), searchable in Vercel logs, and returns the same records in its response. Records only contain whitelisted, length-capped fields, so credentials never appear.
