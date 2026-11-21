@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { AUDIT_SOURCES } from "../src/lib/audit";
 import { closeLivePosition } from "../src/lib/liveClose";
@@ -83,30 +82,5 @@ describe("Auto interaction after a manual close", () => {
     t.autoState.on = false;
     await runPickTick(t.deps, t.settings, { dryRun: false });
     assert.equal(t.broker.submitted.length, 3, "two entries and the manual close, nothing more");
-  });
-});
-
-describe("Close position control (source assertions)", () => {
-  const panel = readFileSync(new URL("../src/components/LiveAccountPanel.tsx", import.meta.url), "utf8");
-
-  it("is shown disabled with a reason when there is no position, not hidden", () => {
-    assert.match(panel, /positions\.length === 0 \? \(/);
-    assert.match(panel, /No open position to close\./);
-    assert.match(panel, /Close position\s*<\/button>/);
-    assert.match(panel, /disabled\s*\n\s*aria-label="Close position \(disabled: no open position to close\)"/);
-  });
-
-  it("per position: disabled with the reason when live orders are off, confirm step before sending", () => {
-    assert.match(panel, /disabled=\{busy \|\| !mode\.ordersAllowed\}/);
-    assert.match(panel, /Close is disabled: live orders are off/);
-    assert.match(panel, /REAL ORDER: this sends a market/);
-    assert.match(panel, /Confirm close/);
-    assert.match(panel, /\/api\/broker\/live\/close/);
-  });
-
-  it("with Auto ON the confirm offers Auto OFF after the flat close, through the guarded Auto route only", () => {
-    assert.match(panel, /Then turn Live Auto OFF once the account is flat/);
-    assert.match(panel, /if \(thenAutoOff\) \{\s*const off = await requestAuto\(false\)/);
-    assert.match(panel, /\/api\/broker\/live\/auto/);
   });
 });

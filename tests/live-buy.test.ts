@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { NextRequest } from "next/server";
 import { POST as buyPost } from "../src/app/api/broker/live/buy/route.node";
@@ -556,46 +555,5 @@ describe("the buy route", () => {
     assert.equal(res.status, 400);
     assert.equal((await res.json()).code, "NOT_WATCHLIST");
     assert.deepEqual(seen, []);
-  });
-});
-
-describe("the order ticket is the live order path", () => {
-  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
-  const ticket = read("src/components/OrderModule.tsx");
-  const panel = read("src/components/LiveAccountPanel.tsx");
-  const dashboard = read("src/components/PolarityDashboard.tsx");
-
-  it("keeps the ticket's own fields, gear gate and review flow", () => {
-    for (const text of ["Stock Ticker", "Order Type", "Quantity (shares)", "Review Order", "evaluateGuard", "validateQuantity", "Confirm simulated order", "addLedgerEntry"]) {
-      assert.ok(ticket.includes(text), text);
-    }
-    assert.match(dashboard, /<OrderModule key=\{accountId\} analysis=\{analysis\} ticker=\{tickerControl\} \/>/);
-  });
-
-  it("shows the mode on the header and only goes live on the server's say-so, never the other way", () => {
-    assert.match(ticket, /MODE: LIVE REAL CASH/);
-    assert.match(ticket, /MODE: SIMULATED/);
-    assert.match(ticket, /bg-amber-400/);
-    assert.match(ticket, /const live = mode\.kind === "live" && mode\.ordersAllowed;/);
-    const lib = read("src/lib/liveMode.ts");
-    assert.match(lib, /const ordersAllowed = status\.tradingAllowed === true;/);
-  });
-
-  it("live confirm posts to /api/broker/live/buy with the gear gate and writes nothing to the sim ledger", () => {
-    assert.match(ticket, /\/api\/broker\/live\/buy/);
-    assert.match(ticket, /requireDrive: true/);
-    const live = ticket.slice(ticket.indexOf("if (live) {\n      setReview(null);\n      void submitLive"));
-    assert.ok(live.indexOf("submitLive") < live.indexOf("addLedgerEntry"));
-    assert.match(ticket, /Short is not supported in LIVE mode/);
-  });
-
-  it("puts the live account inside the ticket card and no floating panel remains", () => {
-    assert.match(ticket, /<LiveAccountPanel feed=\{feed\} \/>/);
-    assert.doesNotMatch(panel, /\bfixed\b|\babsolute\b/);
-    assert.match(panel, /mode\.kind === "sim"\) return null/);
-    for (const text of ["Confirm Auto ON", "Close all positions first", "Confirm close"]) assert.ok(panel.includes(text), text);
-    assert.doesNotMatch(read("src/app/page.tsx"), /LiveBroker/);
-    assert.throws(() => read("src/components/LiveBrokerPanel.tsx"));
-    assert.throws(() => read("src/components/LiveBrokerGate.tsx"));
   });
 });

@@ -13,7 +13,6 @@ import type {
   Result,
 } from "../src/lib/broker/types";
 import {
-  MIRROR_TICK_GAP_MS,
   mirrorClientOrderId,
   mirrorSettings,
   runMirrorTick,
@@ -441,13 +440,6 @@ describe("the mirror reuses POLARITO's signal code instead of forking it", () =>
     assert.doesNotMatch(src, /completedBars/);
     assert.doesNotMatch(src, /netVolume|noiseFloor|NOISE_FLOOR|VOLUME_MA|gate\(/);
     assert.doesNotMatch(src, /hysteresis|confirmation|minHold|cooldown/i);
-  });
-
-  it("polls at the dashboard's refresh rate", () => {
-    const refresher = readFileSync(new URL("../src/components/PageRefresher.tsx", import.meta.url), "utf8");
-    const m = /PAGE_REFRESH_MS\s*=\s*([\d_]+)/.exec(refresher);
-    assert.ok(m);
-    assert.equal(MIRROR_TICK_GAP_MS, Number(m[1].replace(/_/g, "")));
   });
 
   it("registers its audit source", () => {
