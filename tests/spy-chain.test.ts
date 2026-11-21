@@ -47,10 +47,11 @@ function makeFetch(calls: Call[]): ReadOnlyFetch {
 }
 
 describe("read-only client", () => {
-  it("allows only the four read paths", () => {
+  it("allows only the five read paths", () => {
     assert.ok(isAllowedReadPath("trading-live", "/v2/account"));
     assert.ok(isAllowedReadPath("trading-paper", "/v2/options/contracts"));
     assert.ok(isAllowedReadPath("data", "/v2/stocks/SPY/trades/latest"));
+    assert.ok(isAllowedReadPath("data", "/v2/stocks/bars"));
     assert.ok(isAllowedReadPath("data", "/v1beta1/options/snapshots/SPY"));
     for (const bad of ["/v2/orders", "/v2/orders/abc", "/v2/positions", "/v2/positions/SPY", "/v2/account/configurations", "/v2/account/../orders"]) {
       assert.equal(isAllowedReadPath("trading-live", bad), false, bad);
