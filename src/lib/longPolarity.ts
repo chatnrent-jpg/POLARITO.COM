@@ -1,42 +1,37 @@
 /**
  * Long-timeframe polarity for the SPY options design: month, quarter, six-month and year, period to date.
- * NO daily and NO weekly reading exists in this module.
+ * NO daily and NO weekly reading exists in this module, and there is exactly ONE way to compute net volume.
  *
  * WHAT A READING IS (the definition, one plain paragraph):
  *   For the current period so far (this month, quarter, half-year or year to date) there are two things: the CANDLE
  *   COLOUR (green if the latest close is above the period's first open, red if below, flat if equal) and the NET VOLUME,
- *   ONE number: the volume that traded while price was rising minus the volume that traded while price was falling,
- *   added up over the whole period from the finest bars available (5-minute bars; daily bars if asked).
- *   The two must ALIGN for the reading to count:
+ *   ONE number: the sum over every 5-minute bar of the period of +volume (bar closed above its open) or -volume (bar
+ *   closed below its open); flat bars add nothing. The two must ALIGN for the reading to count:
  *     green candle AND positive net volume -> +1 Drive
  *     red candle   AND negative net volume -> -1 Reverse
- *     anything else (they disagree, the candle is flat, or net volume is exactly zero) -> 0 Neutral (no new entry)
- *   The reading is re-evaluated whenever the data updates; it can flip.
+ *     anything else (they disagree, the candle is flat, or net volume is exactly zero) -> 0 Neutral
+ *   The reading is re-evaluated whenever the data updates; it can flip. Neutral is a valid reading (the trader decides).
  *
- * Methods (`NetVolumeMethod`) choose how the net volume number is computed; the alignment rule above applies to all:
- *   "signed-intraday" (recommended): sum over the period's 5-minute bars of +volume (close > open) or -volume (close < open).
- *   "signed-daily": sum over the period's daily bars of the repo's own daily netVolume (green day +volume, red day
- *      -volume, flat day close-location x volume).
- *   "candle": the repo's old chart rule (chartBuckets.periodBucketsFor): the net volume IS +total or -total period volume
- *      by candle colour, then the engine's gate against a noise floor (sum of the days' floors). Its net volume agrees
- *      with the candle by construction, so only the floor can make it Neutral. Kept for comparison and audit only.
- * The signed methods have no noise band. polarity.ts is reused (netVolume, gate, computePolaritySeries, validateBars)
- * and not edited.
+ * There is no daily-volume or candle-approximation variant and no method selector. Daily bars are used ONLY for the
+ * candle (first open of the period, latest close), for the freshness and completeness checks, and to cross-check that
+ * the 5-minute volume adds up to the day's volume; never as a net volume. polarity.ts `validateBars` is reused
+ * (not edited).
  *
  * NEVER A GUESS: if the newest daily bar is not the one expected for the current session, any session in the period
- * has no bar (or zero/missing volume), the period starts before the loaded history, intraday coverage is incomplete or
- * stale, or the bars are malformed, the reading is "unavailable" (polarity null, "Data unavailable") with the reason.
- * Nothing is decided on it. Unavailable is different from Neutral: Neutral is a real, current, valid reading.
+ * has no bar (or zero/missing volume), the period starts before the loaded history, any session has no 5-minute bars,
+ * a finished day's 5-minute volume is not within the tolerance of its daily volume, the newest 5-minute bar is too old
+ * during the session, or any bar is malformed, the reading is "unavailable" (polarity null, "Data unavailable") with
+ * the reason. Nothing is decided on it. Unavailable is different from Neutral.
  *
- * Each reading carries its inputs side by side (candle colour, open, close, net volume, whether they agree, period
- * start, as-of time, newest bar) so it can be audited. The 6-month period is Jan 1 - Jun 30 and Jul 1 - Dec 31
- * (polarity.ts / chartBuckets.ts have no 6-month view).
+ * Each reading carries its inputs side by side (candle colour, open, close, net volume, up and down volume, whether
+ * they agree, period start, as-of time, newest 5-minute bar) so it can be audited. The 6-month period is Jan 1 - Jun 30
+ * and Jul 1 - Dec 31.
  *
  * Pure: no network, no clock (the caller passes `now`), no storage, no orders.
  */
 import { COVERAGE_SLACK_DAYS, addDays, periodEnd, periodStart } from "@/lib/periodCandles";
 import { expectedLatestSession, etClock, tradingDaysBetween } from "@/lib/marketCalendar";
-import { computePolaritySeries, gate, metaFor, netVolume, type Bar, type CandleKind, type Polarity } from "@/lib/polarity";
+import { metaFor, validateBars, type Bar, type CandleKind, type Polarity } from "@/lib/polarity";
 
 export const LONG_TIMEFRAMES = Object.freeze(["M", "Q", "H", "Y"] as const);
 export type LongTimeframe = (typeof LONG_TIMEFRAMES)[number];
@@ -49,10 +44,6 @@ export const LONG_TIMEFRAME_NAMES: Readonly<Record<LongTimeframe, string>> = Obj
   Y: "Yearly",
 });
 
-export const NET_VOLUME_METHODS = Object.freeze(["signed-intraday", "signed-daily", "candle"] as const);
-export type NetVolumeMethod = (typeof NET_VOLUME_METHODS)[number];
-export const DEFAULT_NET_VOLUME_METHOD: NetVolumeMethod = "signed-intraday";
-
 export function isLongTimeframe(value: unknown): value is LongTimeframe {
   return typeof value === "string" && (LONG_TIMEFRAMES as readonly string[]).includes(value);
 }
@@ -60,10 +51,6 @@ export function isLongTimeframe(value: unknown): value is LongTimeframe {
 /** Anything unknown (including "1D" and "1W") falls back to the default; daily and weekly never exist here. */
 export function coerceLongTimeframe(value: unknown): LongTimeframe {
   return isLongTimeframe(value) ? value : DEFAULT_DECISION_TIMEFRAME;
-}
-
-export function isNetVolumeMethod(value: unknown): value is NetVolumeMethod {
-  return typeof value === "string" && (NET_VOLUME_METHODS as readonly string[]).includes(value);
 }
 
 export function longPeriodStart(iso: string, tf: LongTimeframe): string {
@@ -102,10 +89,9 @@ export type IntradayBar = { t: string; date: string; open: number; close: number
 export type LongInput = {
   /** Chronological daily bars; the newest may be the session in progress. */
   daily: readonly Bar[];
-  /** 5-minute bars covering at least the longest period to date; required only for "signed-intraday". */
+  /** 5-minute bars covering at least the longest period to date. Missing or incomplete means "Data unavailable". */
   intraday?: readonly IntradayBar[];
   now: Date;
-  method?: NetVolumeMethod;
   /** Allowed gap between the sum of a day's 5-minute volume and its daily-bar volume (0.1 = 10%). */
   intradayTolerance?: number;
   /** During the session the newest 5-minute bar must start within this many minutes of now. */
@@ -114,7 +100,6 @@ export type LongInput = {
 
 export type LongReading = {
   timeframe: LongTimeframe;
-  method: NetVolumeMethod;
   status: "ok" | "unavailable";
   /** null when unavailable: no guessed Drive/Reverse. */
   polarity: Polarity | null;
@@ -127,14 +112,12 @@ export type LongReading = {
   throughDate: string;
   /** The `now` the reading was evaluated at (ISO). */
   asOf: string;
-  /** Start of the newest intraday bar included (signed-intraday only). */
+  /** Start of the newest 5-minute bar included. */
   lastBarAt: string | null;
   sessions: number;
   netVolume: number | null;
   upVolume: number | null;
   downVolume: number | null;
-  /** Candle method only (the signed methods have no noise band). */
-  noiseFloor: number | null;
   open: number | null;
   close: number | null;
   /** Candle colour of the period to date: close vs the period's first open. */
@@ -143,8 +126,6 @@ export type LongReading = {
   netSign: Polarity | null;
   /** Whether candle colour and net volume agree (green+positive or red+negative); null when unavailable. */
   agreement: "agree" | "disagree" | null;
-  /** Candle method only: the price at which the reading flips (the period's open). */
-  flipPrice: number | null;
 };
 
 export type LongReadings = Readonly<Record<LongTimeframe, LongReading>>;
@@ -162,11 +143,10 @@ export function alignedPolarity(kind: CandleKind, net: number): Polarity {
   return 0;
 }
 
-function unavailable(tf: LongTimeframe, method: NetVolumeMethod, reason: string, throughDate: string, now: Date, extra: Partial<LongReading> = {}): LongReading {
+function unavailable(tf: LongTimeframe, reason: string, throughDate: string, now: Date, extra: Partial<LongReading> = {}): LongReading {
   const anchor = /^\d{4}-\d{2}-\d{2}$/.test(throughDate) ? throughDate : etClock(now).date;
   return {
     timeframe: tf,
-    method,
     status: "unavailable",
     polarity: null,
     label: "Data unavailable",
@@ -180,20 +160,18 @@ function unavailable(tf: LongTimeframe, method: NetVolumeMethod, reason: string,
     netVolume: null,
     upVolume: null,
     downVolume: null,
-    noiseFloor: null,
     open: null,
     close: null,
     kind: null,
     netSign: null,
     agreement: null,
-    flipPrice: null,
     ...extra,
   };
 }
 
-function allUnavailable(method: NetVolumeMethod, reason: string, throughDate: string, now: Date): LongReadings {
+function allUnavailable(reason: string, throughDate: string, now: Date): LongReadings {
   const out = {} as Record<LongTimeframe, LongReading>;
-  for (const tf of LONG_TIMEFRAMES) out[tf] = unavailable(tf, method, reason, throughDate, now);
+  for (const tf of LONG_TIMEFRAMES) out[tf] = unavailable(tf, reason, throughDate, now);
   return out;
 }
 
@@ -211,31 +189,28 @@ export function dailyStaleReason(daily: readonly Bar[], now: Date): string | nul
  * the affected reading "unavailable" with the reason.
  */
 export function computeLongReadings(input: LongInput): LongReadings {
-  const method = input.method ?? DEFAULT_NET_VOLUME_METHOD;
   const { daily, now } = input;
   const newest = daily.length ? daily[daily.length - 1].date : "";
 
-  if (!isNetVolumeMethod(method)) return allUnavailable(DEFAULT_NET_VOLUME_METHOD, `unknown net volume method "${String(method)}"`, newest, now);
-  let series;
   try {
-    series = computePolaritySeries(daily); // validates every bar (finite, ordered, high >= low, ...)
+    validateBars(daily); // every bar finite, ordered, high >= low, ...
   } catch (e) {
-    return allUnavailable(method, `daily bars rejected: ${e instanceof Error ? e.message : "malformed"}`, newest, now);
+    return allUnavailable(`daily bars rejected: ${e instanceof Error ? e.message : "malformed"}`, newest, now);
   }
   const stale = dailyStaleReason(daily, now);
-  if (stale) return allUnavailable(method, `stale data: ${stale}`, newest, now);
+  if (stale) return allUnavailable(`stale data: ${stale}`, newest, now);
 
   const out = {} as Record<LongTimeframe, LongReading>;
-  for (const tf of LONG_TIMEFRAMES) out[tf] = readOne(tf, method, input, series.map((r) => r.noiseFloor));
+  for (const tf of LONG_TIMEFRAMES) out[tf] = readOne(tf, input);
   return out;
 }
 
-function readOne(tf: LongTimeframe, method: NetVolumeMethod, input: LongInput, dayFloors: ReadonlyArray<number | null>): LongReading {
+function readOne(tf: LongTimeframe, input: LongInput): LongReading {
   const { daily, now } = input;
   const last = daily[daily.length - 1];
   const start = longPeriodStart(last.date, tf);
   const end = longPeriodEnd(last.date, tf);
-  const fail = (reason: string, extra: Partial<LongReading> = {}) => unavailable(tf, method, reason, last.date, now, extra);
+  const fail = (reason: string, extra: Partial<LongReading> = {}) => unavailable(tf, reason, last.date, now, extra);
 
   let first = daily.length - 1;
   while (first > 0 && daily[first - 1].date >= start) first--;
@@ -250,65 +225,36 @@ function readOne(tf: LongTimeframe, method: NetVolumeMethod, input: LongInput, d
   const noVolume = days.find((d) => !(d.volume > 0));
   if (noVolume) return fail(`volume missing or zero on ${noVolume.date}`);
 
-  let high = -Infinity;
-  let low = Infinity;
-  let volume = 0;
-  for (const d of days) {
-    if (d.high > high) high = d.high;
-    if (d.low < low) low = d.low;
-    volume += d.volume;
-  }
   const open = days[0].open;
   const close = last.close;
   const base: Partial<LongReading> = { sessions: days.length, open, close, kind: candleKind(open, close) };
-  const ok = (polarity: Polarity, net: number, up: number, down: number, extra: Partial<LongReading> = {}): LongReading => ({
-    timeframe: tf,
-    method,
-    status: "ok",
-    polarity,
-    label: metaFor(polarity).label,
-    reason: null,
-    periodStart: start,
-    periodEnd: end,
-    throughDate: last.date,
-    asOf: now.toISOString(),
-    lastBarAt: null,
-    sessions: days.length,
-    netVolume: net,
-    upVolume: up,
-    downVolume: down,
-    noiseFloor: null,
-    open,
-    close,
-    kind: candleKind(open, close),
-    netSign: polarityOfSign(net),
-    agreement: (candleKind(open, close) === "green" && net > 0) || (candleKind(open, close) === "red" && net < 0) ? "agree" : "disagree",
-    flipPrice: null,
-    ...extra,
-  });
+  const ok = (net: number, up: number, down: number, extra: Partial<LongReading> = {}): LongReading => {
+    const polarity = alignedPolarity(candleKind(open, close), net);
+    return {
+      timeframe: tf,
+      status: "ok",
+      polarity,
+      label: metaFor(polarity).label,
+      reason: null,
+      periodStart: start,
+      periodEnd: end,
+      throughDate: last.date,
+      asOf: now.toISOString(),
+      lastBarAt: null,
+      sessions: days.length,
+      netVolume: net,
+      upVolume: up,
+      downVolume: down,
+      open,
+      close,
+      kind: candleKind(open, close),
+      netSign: polarityOfSign(net),
+      agreement: polarity === 0 ? "disagree" : "agree",
+      ...extra,
+    };
+  };
 
-  if (method === "candle") {
-    // The old chart rule needs each day's floor (20 bars of history) and complete history before the period.
-    const floors = dayFloors.slice(first);
-    if (floors.some((f) => f === null)) return fail("a day in the period has fewer than 20 bars of history, so there is no noise floor", base);
-    const noiseFloor = floors.reduce<number>((s, f) => s + (f as number), 0);
-    const net = netVolume({ date: last.date, open, high, low, close, volume });
-    return ok(gate(net, noiseFloor), net, net > 0 ? volume : 0, net < 0 ? volume : 0, { noiseFloor, flipPrice: open });
-  }
-
-  if (method === "signed-daily") {
-    let up = 0;
-    let down = 0;
-    for (const d of days) {
-      const n = netVolume(d);
-      if (n > 0) up += n;
-      else if (n < 0) down += -n;
-    }
-    const net = up - down;
-    return ok(alignedPolarity(candleKind(open, close), net), net, up, down);
-  }
-
-  // signed-intraday
+  // Net volume: ONE whole-period sum of the signed 5-minute bar volumes.
   const bars = (input.intraday ?? []).filter((b) => b.date >= start && b.date <= last.date);
   if (bars.length === 0) return fail("no 5-minute bars for the period", base);
   const tol = input.intradayTolerance ?? 0.1;
@@ -337,7 +283,7 @@ function readOne(tf: LongTimeframe, method: NetVolumeMethod, input: LongInput, d
   if (inSession && (now.getTime() - Date.parse(newestAt)) / 60_000 > lag) return fail(`the newest 5-minute bar (${newestAt}) is more than ${lag} minutes old during the session`, base);
   if (!inSession && etClock(new Date(Date.parse(newestAt))).date !== last.date) return fail(`the newest 5-minute bar (${newestAt}) is not from ${last.date}`, base);
   const net = up - down;
-  return ok(alignedPolarity(candleKind(open, close), net), net, up, down, { lastBarAt: newestAt });
+  return ok(net, up, down, { lastBarAt: newestAt });
 }
 
 /** Compact text such as "M:D Q:R H:R Y:- (unavailable)" for logs. */
