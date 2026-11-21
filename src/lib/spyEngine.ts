@@ -72,7 +72,7 @@ export type DryPosition = {
   entryAsk: number;
   entryMid: number;
   entryDelta: number;
-  /** "fallback" when no contract reached |delta| 0.80 and the best one at or above the 0.60 floor was taken. */
+  /** "fallback" when no contract reached |delta| 0.80 and the cheapest one at or above the 0.60 floor was taken. */
   deltaTier: "primary" | "fallback";
   /** Why the 0.80 target was not met (fallback only). */
   fallbackReason: string | null;
