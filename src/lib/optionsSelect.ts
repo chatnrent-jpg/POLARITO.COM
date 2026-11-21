@@ -263,6 +263,20 @@ export function pickDeepItm(rows: readonly ChainRow[], listedExpirations: readon
   return { ok: true, row: best, expiration, daysToExpiry: daysBetween(today, expiration), qualifying: floor.length, tier: "fallback", fallbackReason: why };
 }
 
+/**
+ * Every contract a trader may choose BY HAND for `type`: the same nearest listed expiry of at least 365 days, usable
+ * quotes only, |delta| at or above the hard 0.60 floor (the 0.80 target is not required, because a trader decides by hand
+ * only when the reading is Neutral). Cheapest first (ask x 100), then tighter spread, then higher |delta|.
+ * Never contains a later expiry and never anything under the floor.
+ */
+export function eligibleContracts(rows: readonly ChainRow[], listedExpirations: readonly string[], type: OptionType, today: string): { expiration: string | null; rows: ChainRow[] } {
+  const expiration = nearestQualifyingExpiry(listedExpirations, today);
+  if (expiration === null) return { expiration: null, rows: [] };
+  const eligible = rows.filter((r) => r.type === type && r.expiration === expiration && assertContractRules(r, type, today, DELTA_THRESHOLDS.floor) === null);
+  eligible.sort((a, b) => a.costAtAsk - b.costAtAsk || a.spreadPct - b.spreadPct || Math.abs(b.delta) - Math.abs(a.delta));
+  return { expiration, rows: eligible };
+}
+
 export type Affordability = {
   costPerContract: number;
   budget: number;
