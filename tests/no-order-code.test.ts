@@ -44,6 +44,21 @@ describe("the repository contains no order-sending code", () => {
   });
 });
 
+describe("the example environment ships the live switches off", () => {
+  const env = readFileSync(join(root, ".env.example"), "utf8");
+  const active = env.split("\n").filter((l) => /^[A-Z]/.test(l));
+
+  it("no live opt-in, live trading or paper trading variable is set to on in .env.example", () => {
+    assert.ok(!active.some((l) => /^POLARITO_LIVE_TRADING_ENABLED=/.test(l) || /^POLARITO_LIVE_ACCOUNT=/.test(l)));
+    assert.ok(active.includes("POLARITO_PAPER_TRADING_ENABLED=0"));
+    assert.ok(active.includes("POLARITO_BROKER_KILL=0"));
+  });
+
+  it("the removed runner, watchlist and cron variables are gone from the example", () => {
+    assert.doesNotMatch(env, /CRON_SECRET|POLARITO_PAPER_(INSTRUMENT|WATCHLIST|QTY|SIZING|RISK_PCT)|POLARITO_MIRROR_|POLARITO_OPTIONS_|POLARITO_LIVE_(WATCHLIST|QTY|MAX_POSITION_PCT|DAILY_LOSS_PCT|PICK_START|FLATTEN_AT|LONG_ONLY_FALLBACK)|NEXT_PUBLIC_[A-Z]/);
+  });
+});
+
 describe("the Alpaca adapter can only read", () => {
   it("every method it has sends GET without a body, on both the paper and the live target", async () => {
     for (const target of ["paper", "live"] as const) {

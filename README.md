@@ -1,19 +1,19 @@
 # Polarito
 
-Next.js polarity transmission dashboard (Alpaca daily bars). Local / Node hosting uses a login gate; Name.com static export still uses the PHP bars bridge.
+polarito.com is a **SPY-only, long-timeframe options desk**, driven by volume-weighted candle polarity (Drive +1, Neutral 0, Reverse -1). It is **dry run only**: it reads market data and keeps a small dry-run record. No code in this repository can send an order.
 
 ## Getting Started
 
 ```bash
 cp .env.example .env.local
-# Fill Alpaca keys + Polarito login env (see below), then:
+# Fill the Alpaca data keys and the Polarito login env (see below), then:
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Unauthenticated visitors are redirected to `/login`.
+Open [http://localhost:3000](http://localhost:3000). Unauthenticated visitors are redirected to `/login`; after sign-in `/` redirects to `/spy`.
 
-## Login gate (local / Node / Vercel)
+## Login gate
 
 The app is closed until someone signs in. Credentials live in **server env only** (never `NEXT_PUBLIC_*`, never a default password in the repo):
 
@@ -21,279 +21,49 @@ The app is closed until someone signs in. Credentials live in **server env only*
 | --- | --- |
 | `POLARITO_AUTH_USER` | Username |
 | `POLARITO_AUTH_PASSWORD` | Password (choose a strong one yourself) |
-| `POLARITO_AUTH_SECRET` | Cookie signing secret (`openssl rand -hex 32`, ≥16 chars) |
+| `POLARITO_AUTH_SECRET` | Cookie signing secret (`openssl rand -hex 32`, at least 16 chars) |
 
-Fail-closed: if any of the three are missing, sign-in is refused and the dashboard stays locked.
+Fail-closed: if any of the three are missing, sign-in is refused and everything stays locked. `src/proxy.ts` gates every page and API route (there is no cookie-free route). **Sign out** is the button at the top right of `/spy`; it clears the httpOnly `polarito_session` cookie.
 
-After a successful login, `src/components/PageRefresher.tsx` full-reloads the home page every **5 seconds**. Sign out clears the httpOnly `polarito_session` cookie.
+## SPY desk (`/spy`)
 
-This gate runs in `src/proxy.ts` for `next dev` / `next start` / Node hosts. The Name.com static HTML export has no Node runtime; protect that host separately (or run Node) if you need the same gate there.
+Off unless the server has `POLARITO_SPY_DESK=1`. It shows the four period-to-date readings (monthly, quarterly, 6-month, yearly), the decision on the chosen timeframe, the contract the engine would pick (nearest listed expiry of at least 365 days, primary delta 0.80, floor 0.60, then the cheapest at or above the floor), a **manual dry-run ticket** (for Neutral readings) and a manual Close. The manual actions change only the saved dry-run record.
 
-## Auto simulation
-
-The **Auto · Simulated** panel has two controls: on/off and shares. The paper position follows the polarity of the analyzed ticker: +1 = long, 0 = flat, -1 = short, filled at the latest bar's close with no added cost. Manual Review / Close still work.
-
-Underneath, two plain protections remain: it never buys more than the account's available cash, and new entries pause after a 2% daily loss (closes are never blocked). Stale or malformed data is never traded. The richer options (risk-based sizing, next-open fills, slippage) still exist in the code for the server runner but are not on the page.
-
-## Alpaca paper trading (server side)
-
-`src/lib/broker/` holds a paper-only broker adapter and an order executor; `src/lib/paperRunner.ts` is the scheduled cycle that drives them. Set the `ALPACA_PAPER_*`, `POLARITO_*` and `CRON_SECRET` variables from `.env.example`.
-
-- **Status.** Sign in and open `/api/broker/paper/status` (read-only) to check the connection.
-- **Schedule.** `vercel.json` calls `/api/cron/paper-run` on weekdays at 21:30 UTC (after the close, in both EST and EDT). The route skips the browser login gate and instead requires `Authorization: Bearer $CRON_SECRET`; with no secret set it refuses everyone.
-- **Observe until switched on.** With credentials set but `POLARITO_PAPER_TRADING_ENABLED` not `1`, every scheduled run only observes: it decides and logs what it would do and sends nothing. The kill switch and missing credentials still stop it completely.
-- **Dry run.** `GET /api/cron/paper-run?dry=1` (with the bearer header) computes and audits every decision but sends no order. It works with credentials alone, before you enable trading.
-- **What a cycle does.** Per ticker in `POLARITO_PAPER_WATCHLIST` (max 10): load daily bars, drop any bar still forming (New York time), compute polarity, make the same decision as the browser sim, then send at most one DAY market order that queues for the next open. Equity, cash and positions come from the Alpaca paper account, not the browser.
-- **Risk.** Same risk guard as the sim, with the daily loss/profit boundary taken from the broker's equity vs. last close. Entries across tickers in one cycle are tracked so they cannot oversubscribe the account. Closes are never blocked.
-- **Known limits.** Losing-streak scale-down is not applied on the server (it needs closed-trade history). A flip closes first and re-enters at the next session once the broker confirms flat. Positions in tickers outside the watchlist count toward exposure but are never managed.
-
-### Options mode (paper)
-
-Set `POLARITO_PAPER_INSTRUMENT=options` to run `src/lib/optionsRunner.ts` instead of the stock cycle. Per ticker, at most one option at a time:
-
-- **+1 Drive** buys a call, **-1 Reverse** buys a put, **0 / unready / stale data** holds nothing. The executor re-checks this from the contract's own OCC symbol, so no other entry can be sent.
-- Entries use the nearest expiry at least 365 days out and the strike closest to the last close, as a DAY limit order at the ask (rounded up to the 5-cent tick). Entries are refused when the quote is missing, stale or crossed, when the bid/ask gap is over 15% of the price, when one position would cost over 10% of equity, or when the premium exceeds available cash.
-- **Daily loss stop.** If the account is down 1% or more on the day (`POLARITO_OPTIONS_DAILY_LOSS_PCT`, default 1, allowed 0.25-10; a bad value falls back to 1), every option is sold to close and nothing is bought; an option closed that day is not bought back until the next session. The after-close run checks this, and `/api/cron/loss-check` checks it during the session. That route reads no signal and buys nothing. `.github/workflows/loss-check.yml` calls it every 30 minutes on weekdays and needs one repository secret, `POLARITO_CRON_SECRET`, with the same value as `CRON_SECRET` in Vercel. It does nothing outside 09:30-16:00 New York.
-- Exits are sell-to-close: on Neutral, on a flip (the new option is bought next session once flat is confirmed), or when the option is within 60 days of expiry. They use a limit at the bid, or a market order when no usable quote exists. Closes are never blocked by risk limits.
-- The loss on a bought option is limited to the premium. `POLARITO_OPTIONS_CONTRACTS` sets contracts per entry (default 1, max 10).
-- Contracts come live from Alpaca's contract list; quotes use Alpaca's indicative option feed. The paper account must have options trading enabled.
-- Polarity is read once per weekday after the close, so polarity exits and entries happen at that check. Only the 1% loss stop runs during the session.
-- Plain stock positions are never touched in this mode. Close any leftover stock orders or positions in the watchlist first.
-
-### Live mirror mode (paper)
-
-Set `POLARITO_PAPER_INSTRUMENT=mirror` to make the Alpaca paper account move in lockstep with POLARITO's SPY signal. This is the same idea as the dashboard's Auto sim, run on the server because the sim itself lives in the browser's localStorage.
-
-- **Same code, no extras.** `src/lib/mirrorRunner.ts` imports `computePolaritySeries`, `buildAutoSimInput` and `decideAuto` and runs them exactly as the dashboard does: live bars including today's forming bar, `signal-close`, fixed shares. It adds no delay, confirmation, hold or filter. A flip closes and enters the other side in the same tick; Neutral closes; an aligned position is left alone.
-- **Instrument.** Only plain SPY shares. Option positions are never touched. Options mode is still available (`POLARITO_PAPER_INSTRUMENT=options`) and is off while mirror is on; the daily after-close run does nothing in mirror mode.
-- **Size and rails.** `POLARITO_MIRROR_QTY` shares (default 10, like the dashboard), never above `POLARITO_MIRROR_MAX_SHARES` (default 100). The shared risk caps from `risk.ts` still apply. If the account is down `POLARITO_MIRROR_DAILY_LOSS_PCT` (default 2%) on the day, SPY is flattened and the mirror stands aside until the next session. Orders are sent only 09:30-16:00 New York, never on a bar that is not today's, and never while an SPY order is still working. `POLARITO_PAPER_TRADING_ENABLED=1` and the kill switch work as before; until enabled, every tick only observes and audits. The loss check counts the whole paper account, so leftover option positions can trip it.
-- **Ticks.** `GET /api/cron/mirror-run` (Bearer `CRON_SECRET`) runs one tick; `?ticks=N` (max 12) runs N ticks 5s apart, the dashboard's refresh rate. `?dry=1` decides and audits without sending orders.
-- **Trigger.** Vercel Hobby only allows daily crons, and a per-minute entry in `vercel.json` would fail a Hobby deploy, so none is added. Vercel Pro can run a cron every minute. Here `.github/workflows/mirror-run.yml` starts before the open and loops inside the job, calling the endpoint every 10s until just after the close (it reads the New York clock, so daylight saving needs no change). It stops after 5.5h and starts the next run itself, because a job is limited to 6h; a concurrency group keeps runs from overlapping. Add the repository secret `POLARITO_CRON_SECRET` (same value as `CRON_SECRET` in Vercel) and, optionally, the repository variable `POLARITO_BASE_URL` (default `https://www.polarito.com`). Start it by hand from the Actions tab (Run workflow).
-- **Cost.** Free on a public repository. On a private one it uses about 400 Actions minutes per trading day (about 8,400 a month) against 2,000 (Free) or 3,000 (Pro) included, roughly $50-65 a month at $0.008/min.
-
-Safety properties: hard-coded paper host (the live host is reachable only through the opt-in live path below); orders need `POLARITO_PAPER_TRADING_ENABLED=1` and an off kill switch; deterministic client order ids make retries idempotent; positions are reconciled against the broker before any order; closes flatten the broker's actual quantity; every error path returns a result instead of throwing, and credentials never appear in errors.
-
-## Live cash trading (real money, shipped OFF)
-
-Up to 3 stocks at a time from a 10-name watchlist, on a real Alpaca account (decided: $1,000 account, at most 3 positions, each capped at 33% of equity, long only, 1% daily stop on the whole account, no re-entry after a stop-out). All the limits are read from one constant, `LIVE_LIMITS` in `src/lib/liveLimits.ts`. Everything is off until you set the variables in `.env.example` under "LIVE CASH". **With none of them set the app behaves exactly as before** (paper, options, mirror, cron, UI, Daily candle): the live keys are never read, the live host is never contacted, and the order ticket stays simulated with no live block (the status route answers `live: false` and nothing is read from Alpaca). The polarity engine, Daily candle logic and the browser sim are untouched; the live code only calls them.
-
-### The two switches and the keys
-
-| Variable | Effect |
+| Piece | Where |
 | --- | --- |
-| `ALPACA_LIVE_KEY_ID`, `ALPACA_LIVE_SECRET_KEY` | Live keys. Separate from `ALPACA_PAPER_*`, which are never used for live (and these are never used for paper). |
-| `POLARITO_LIVE_ACCOUNT=1` | Switch 1. Uses the live keys and `https://api.alpaca.markets`. Read-only on its own: the pick observes and audits, the site shows the live account. |
-| `POLARITO_LIVE_TRADING_ENABLED=1` | Switch 2. Allows real orders. `POLARITO_BROKER_KILL` (shared) still stops everything. `POLARITO_PAPER_TRADING_ENABLED` has no effect on live. |
-| `POLARITO_PAPER_INSTRUMENT=pick` | Selects the pick runner. This is the deployment-wide instrument switch, so the daily paper/options/mirror runs do nothing on that deployment (use a second Vercel project if you want paper options to keep running). |
+| Page and routes | `src/app/spy/page.tsx`, `src/app/api/spy/{desk,ticket,close}` (POST routes are same-origin only) |
+| Engine, chain, desk logic | `src/lib/spy*.ts`, `src/lib/optionsSelect.ts`, `src/lib/longPolarity.ts`, `src/lib/polarity.ts` |
+| Read-only Alpaca client | `src/lib/alpacaReadOnly.ts` (GET allowlist: account, option contracts, latest trade, option snapshots, bars) |
+| Dry-run record | Redis-over-HTTPS (Upstash / Vercel KV): `KV_REST_API_URL`, `KV_REST_API_TOKEN`. Without it the readings show and the manual actions say they are off. `SPY_DESK_STORE=memory` is for local development only and is refused in production. |
 
-Sizing and rail variables (`POLARITO_LIVE_WATCHLIST`, `_QTY`, `_MAX_POSITION_PCT`, `_DAILY_LOSS_PCT`, `_PICK_START`, `_FLATTEN_AT`, `_LONG_ONLY_FALLBACK`) are documented in `.env.example`. The live watchlist is its own variable; `POLARITO_PAPER_WATCHLIST` is never used for live.
+Settings: `SPY_DECISION_TIMEFRAME` (M, Q, H, Y; default M), `SPY_LIVE_BUDGET`, `SPY_STOCK_FEED`, `SPY_OPTIONS_FEED`. Data keys are `ALPACA_LIVE_KEY_ID` / `ALPACA_LIVE_SECRET_KEY` or `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` (read-only use).
 
-### How a day works (`src/lib/pickRunner.ts`)
+Two manual GitHub workflows run the same code without the website (no schedule, GET only, keys never printed): `SPY options chain (read-only)` and `SPY options dry run (no orders)` (`scripts/spy-options-chain.ts`, `scripts/spy-options-engine.ts`).
 
-- **Loop.** `.github/workflows/pick-run.yml` calls `GET /api/cron/pick-run` about every 10s (same loop as the mirror; it exits at once while live is off). Each tick reads the live account, positions, working orders and today's orders, derives the day's state from those orders (no database), and re-checks everything before any order.
-- **Pick.** Each tick ranks the watchlist by `|netVolume| / noiseFloor` of the latest bar (how far the reading sits outside the Neutral band; Neutral scores 0) and fills the free slots (3 minus held positions minus working orders) with the best eligible names, one order at a time, logging one line for every name it skipped and why. Eligible: not already held, not already entered today, bars ready and today's, not Neutral, a Drive (long) reading, asset active and tradable, and at least one whole share under the cap and cash. A name that rounds to zero shares (one share costs more than 33% of equity) is skipped to the next and the note says "rounds to zero shares". Entries start at `POLARITO_LIVE_PICK_START` (10:00 New York). Before every entry after the first, the account, positions and working orders are read again and the previous order must have filled, so the second and third entry are sized against fresh cash and a hand buy that lands in between simply uses up a slot. Dry runs (`dry=1`) list every "Would enter" line with the ranking and skip reasons in `results[].notes`.
-- **GOOGL and GOOG are one company.** They are collapsed into one candidate (ranked by the better of the two) and use one slot. The more liquid class (20-day dollar volume, then alphabetical so `GOOG` before `GOOGL`) is tried first, the other class second if the first fails; the day only ever holds one of them.
-- **Up to 3 stocks at a time.** Held positions plus working orders, counted by company, never exceed `LIVE_LIMITS.maxPositions` (3). Every position counts, stock or option, on or off the watchlist. Fewer than 3 held means the rest are filled from the ranking as above. The status route reports `limits.maxPositions` (3) and `limits.perPositionCapPct` (33).
-- **Long only, at any equity.** A Reverse reading is never traded and never opens a short, even above $2,000 (the short path stays in the code but `LIVE_LIMITS.longOnly` keeps it closed). A held stock whose reading turns Neutral or Reverse is simply closed. If the top-ranked reading is a Reverse the default is to stand aside (`POLARITO_LIVE_LONG_ONLY_FALLBACK=aside`: stop filling slots at that point); set `next` to skip it and take the next eligible Drive stock.
-- **Cap.** Entry size is `POLARITO_LIVE_QTY` shares (default 1) reduced by the shared risk engine (`src/lib/risk.ts`): at most **33% of current equity per position, in whole shares (floored)**, 100% total exposure across all open positions (3 x 33% = 99% fits) and available cash. `POLARITO_LIVE_MAX_POSITION_PCT` can only lower the 33%. On a $1,000 account that is $330 per stock: a $100 stock takes up to 3 shares, $130 takes 2, $165 takes 2, anything over $330 rounds to zero and is skipped. With the default `POLARITO_LIVE_QTY=1` each entry is a single share (far below the cap); set `POLARITO_LIVE_QTY` high (up to 1000) to size each position up to the 33% cap. Only the live path passes this cap; the browser sim stays at 25%.
-- **Re-entry, per ticker: one automatic entry per ticker per New York day.** The pick enters a ticker at most once a day (`LIVE_LIMITS.maxAutoEntriesPerTickerPerDay`, counted from the day's order ids, so a restart cannot repeat it; rejected or canceled orders do not count; a manual buy counts). After a signal-driven close (Neutral or Reverse) or a manual close, that ticker is out until the next session and its slot goes to the next-ranked eligible stock, which keeps the 3-stock limit and the cap. A stop-out or the end-of-day flatten ends all entries for the day. A rejected entry is retried by the next tick under the same or next entry number; if Alpaca keeps rejecting for a reason that does not go away (for example buying power) that repeats every tick (about 10 seconds), so watch the logs and turn Auto OFF or set the kill switch. Entry ids are `pol-{date}-e{NN}-{TICKER}`: the ticker is in every id, so ids never collide across tickers, and `NN` is the day's entry sequence (the second and third entry of one tick are `NN+1`, `NN+2`).
-- **Follow the signal.** Each held stock follows its own polarity: Neutral or Reverse closes it (waiting for nothing else; the closes of different stocks are independent). Nothing is opened the other way.
-- **1% stop (whole account).** Each tick, if the account is down 1% on the day (Alpaca's equity vs `last_equity`, so it adds up every position) every managed stock is flattened, each with its own stop-out order (`s{NN}-a{K}-{TICKER}`), and nothing is entered for the rest of the day, by the automation or by hand. A manual close at a loss counts: if it puts the day at -1% or worse the automation stays out; a smaller loss still allows entries. A stop does not limit gap losses (a 10% gap on one share of a $300 stock is about $30), and with three positions a single-stock gap can pass 1% before a tick sees it.
-- **End of day.** At 15:55 New York (`POLARITO_LIVE_FLATTEN_AT`; `off` holds overnight) every managed stock is flattened and entries stop.
-- **Auto is the on/off for everything signal-driven** (next section; it can be turned OFF only when the account is flat with no working orders, so with 3 positions open all 3 must be closed first). With Auto OFF the runner places no entries and no Neutral or Reverse closes; it only logs "Would ...". Still running with Auto OFF: the 1% stop-out, the end-of-day flatten, the loss-check backstop and the manual Close button.
-- **Backstop.** The existing `loss-check.yml` (every 30 minutes) calls `/api/cron/loss-check`; in pick mode that route runs only the stop-out and end-of-day flatten (no signal, no entry), in case the 10s loop is not running.
-- **Only watchlist stocks are managed.** Other positions (and option positions) are never touched; they count toward exposure and cash, and each uses one of the 3 slots.
+## No order code, live switches kept off
 
-### Order ids (idempotent; Alpaca never reuses a `client_order_id`)
+After the cleanup the Alpaca adapter (`src/lib/broker/alpacaPaper.ts`) has no method that creates, changes or cancels an order: it sends only `GET`, and tests (`tests/no-order-code.test.ts`, plus the SPY engine and desk tests) fail if an order function, a non-GET Alpaca call or a new POST appears.
 
-| Order | Id |
+The old live-cash switches are kept, inert, so a future live SPY options executor starts from fail-closed settings. Nothing reads them to send an order today.
+
+| Variable | Behaviour |
 | --- | --- |
-| Entry number N | `pol-{YYYYMMDD}-e{NN}-{TICKER}` e.g. `pol-20261120-e02-NVDA` |
-| Close of entry N, attempt K (auto and manual share it) | `pol-{YYYYMMDD}-c{NN}-a{K}-{TICKER}` |
-| Stop-out flatten, attempt K (also the "stopped today" marker) | `pol-{YYYYMMDD}-s{NN}-a{K}-{TICKER}` |
+| `POLARITO_LIVE_ACCOUNT=1` | Opt in to the live account (live keys, live host). Read-only on its own. Exactly `"1"`, anything else is OFF. |
+| `POLARITO_LIVE_TRADING_ENABLED=1` | Would allow real orders. Exactly `"1"`, anything else is OFF. Leave it unset. The SPY engine and desk never read it (a test proves it). |
+| `POLARITO_BROKER_KILL` | Shared kill switch; any value other than empty/0/false/no/off kills. |
+| Live Auto (`POST /api/broker/live/auto`) | Persisted on/off in the KV store, **OFF by default**. Turning it ON needs the live opt-in and a store; turning it OFF is refused unless the live account is flat with no working orders (checked against Alpaca, fails closed). It sends no order and nothing consumes it today. |
 
-A retry or a parallel run computes the same id, so a double click, the automation and a stop-out cannot sell the same position twice. A duplicate-id refusal (HTTP 422) is treated as "already placed" only after the order is found by its id; otherwise it is an error. A close that ended canceled or rejected moves to the next attempt number; after 3 failed attempts a circuit breaker stops automatic tries and new entries and logs an error (close it in Alpaca's own dashboard). A position held overnight is closed under `c00`.
+Code: `src/lib/broker/liveConfig.ts`, `src/lib/broker/config.ts`, `src/lib/liveAutoStore.ts`, `src/lib/liveAutoGuard.ts`.
 
-### Live Auto: a real on/off on polarito.com
+## Alpaca key diagnostic (`GET /api/diag/alpaca-keys`)
 
-The live block in the order ticket card has a **Live Auto** control (`POST /api/broker/live/auto`, behind the same login gate as Close, same-origin only, and only when `POLARITO_LIVE_ACCOUNT=1`). It defaults to **OFF at deploy** and is the single switch for the automation's signal-driven orders.
-
-| Auto OFF (default) | Auto ON |
-| --- | --- |
-| No entries, no re-entries, no Neutral or flip closes. Each tick only logs "Would ..." plus "Live Auto is OFF". | The runner enters, closes and re-enters by polarity as described above (only while `POLARITO_LIVE_TRADING_ENABLED=1` and the kill switch is off). |
-| **Still runs:** the 1% daily stop-out, the 15:55 end-of-day flatten, the 30-minute loss-check backstop, and the manual **Close** button. | Same backstops. |
-
-**Auto can only be turned OFF when the account is flat with no working orders (option B plus Henry's order rule).** `POST /api/broker/live/auto` with `{"auto": false}` asks Alpaca for the live positions and the open orders first, on the server, so the rule holds for any caller and not only the button:
-
-- **Any open position refuses OFF** (HTTP 409, `POSITIONS_OPEN`, "Close all positions first"). Every position counts: a stock off the watchlist or an option position blocks it too, because nothing may be left open without the signal-driven exits.
-- **Any working (unfilled) order refuses OFF** (HTTP 409, `ORDERS_OPEN`, "Cancel or let working orders finish first"). This is every order Alpaca lists as open (`status=open`: new, accepted, partially filled, pending and so on), whatever its ticker or who placed it. If a position and an order are both open the answer is `POSITIONS_OPEN` and the message gives both counts.
-- **Never auto-cancels.** The app does not cancel, replace or send any order for this: wait for the order to fill or expire, or cancel it yourself in Alpaca, then try again.
-- **Unreadable positions or orders refuse OFF** (HTTP 502, `POSITIONS_UNREADABLE` / `ORDERS_UNREADABLE`; no live keys is 503 `NO_BROKER`; a malformed list counts as unreadable). Auto stays as it was and the error is shown. It fails closed.
-- **Race guard.** After writing OFF the server reads positions and orders again; if a position or order appeared in that instant it writes ON back and refuses (the answer says whether ON was confirmed).
-- **Turning ON** needs no Alpaca call and works with positions or orders open. While Auto is ON and positions are open, nothing changes.
-- **Panel.** The "Turn Auto OFF" button is disabled while Auto is ON and anything is open, with the message "Close all positions first (N open at Alpaca)" and/or "Cancel or let working orders finish first (N working at Alpaca)". The counts come from `GET /api/broker/live/status` (`auto.openPositions`, `auto.openOrders`); if Alpaca cannot be read the status call errors and the control is hidden, and the server refuses anyway.
-
-**How this interacts with the rails.** Because OFF needs a flat account with nothing working, the signal exits, the 1% stop-out and the 15:55 flatten only matter while Auto is ON. Once the account is flat, nothing is working and Auto is OFF, nothing runs: no entries and no orders, only observation. A stop-out or the flatten does not turn Auto OFF; after one, Auto stays ON and the lockout rules (no re-entry after a stop-out today; no entries after 15:55) keep the day flat, so you can then turn OFF once any stop or flatten order has filled. Because a working order also blocks OFF, the late-fill gap (an entry filling after OFF) can no longer arise from the button.
-
-How it is stored: the repo has no database and a Vercel function has no durable disk, so Auto lives in one key (`polarito:live:auto:v1`) of a Redis-over-HTTPS store. Add **Upstash Redis** from the Vercel Marketplace to the project; it injects `KV_REST_API_URL` and `KV_REST_API_TOKEN` (`UPSTASH_REDIS_REST_URL`/`_TOKEN` also work). No new npm dependency, no secrets in the client. The runner reads the key every tick, so a click takes effect on the next tick (about 10 seconds).
-
-It fails closed: Auto is ON only when the store answers and says so. No store configured, an unreachable store or a malformed value all mean OFF, and the panel says why. Without a store the button is disabled and Auto simply stays OFF (so the automation never places a signal-driven order); you can still use Close and the stop-out. Turning Auto ON asks for a second click to confirm; the route writes, reads the value back, and the panel shows what the store holds, never a change that was not saved. Each change is audited (`source: live-auto`).
-
-The browser's own Auto toggle still drives only the browser simulation. Auto OFF never closes or cancels anything and is refused while positions or working orders are open; to get out, use Close (and let or make orders finish) first, then turn Auto OFF. For an emergency `POLARITO_BROKER_KILL=1` stops all live orders including the stop-out, so use it only with the position already flat or handled by hand.
-
-### The order ticket: simulated by default, LIVE when live is on
-
-The main page's order ticket (one **Stock Ticker** field with an Analyze button: typing a ticker and pressing Analyze or Enter loads its daily bars and gear, and the order below uses that analysis; there is no separate analyze input at the top, and a typed ticker that is not yet analyzed keeps Review Order locked; Order Type, Quantity (shares), Review Order, locked until the engine reports a gear) is unchanged. Only what Confirm does depends on the mode, shown as a badge in the card header (`MODE: SIMULATED`, grey, or `MODE: LIVE REAL CASH`, amber with an amber card border).
-
-| | Simulated (default) | LIVE |
-| --- | --- | --- |
-| When | Always, unless the server says live orders are possible | `POLARITO_LIVE_ACCOUNT=1` **and** `POLARITO_LIVE_TRADING_ENABLED=1`, kill switch off, live keys present (decided server-side by `GET /api/broker/live/status` `tradingAllowed`). With `POLARITO_LIVE_ACCOUNT` off the ticket is simulated; with it on but orders off, loading or unreadable the ticket is **locked** (see "Everything reflects live" below), never simulated |
-| Header | "Order · Simulated · {account}" | "Order · LIVE · Real cash" |
-| Confirm | Writes a simulated entry to the browser ledger | Sends a real market buy through `POST /api/broker/live/buy`; nothing is written to the simulated ledger |
-| Order Type | Long or Short | **Long only.** Short is refused with "Short is not supported in LIVE mode" (real cash, no shorting) |
-| Stocks | The analyzed ticker | The analyzed ticker, and it must be on `POLARITO_LIVE_WATCHLIST` (otherwise the ticket says so and Review Order stays locked) |
-| Gear gate | Must be aligned (Drive = Long) | Same, plus the server re-checks it (`requireDrive`: the engine's latest reading for the stock must be ready and Drive) |
-| Funds check | Simulated account cash | Live cash and buying power |
-| Open-position check | Simulated ledger (no long and short on one ticker) | Not used; the server applies the 3-position limit against Alpaca |
-| Size | Exactly the shares typed | The shares typed, **reduced or refused, never raised**, by the live risk engine (below). Real cash is unlevered; the gear never increases size |
-| Review dialog | "Confirm simulated order" (green) | "Confirm LIVE order (real cash)" (amber), with the REAL ORDER warning |
-| Result | "Simulated LONG recorded ..." | The server's exact answer: "Alpaca accepted BUY n TICKER ..." (amber until the position shows at Alpaca, then green), or the reason it was refused |
-
-With `POLARITO_LIVE_ACCOUNT=1` the same card also holds a **LIVE account (real cash)** block (`src/components/LiveAccountPanel.tsx`): equity, today, cash, Live Auto ON/OFF with the "Confirm Auto ON" step and the OFF guard messages, today's stock, the stock positions and **Close** with "Confirm close". With live off the block is not rendered and the card is exactly what it was. If the live account is on but live orders are not (observe only, kill switch, missing keys), the ticket is locked and says why. The old floating corner panel is gone. The ticket has no sells, so there is no live sell path in it: closing is the Close button in the live block. The browser sim logic (`autoSim*.ts`, `autoDecision.ts`, `polarity.ts`, the ledger, `PageRefresher`, the default `marketApi.ts` fetch, mirror and Daily behavior) is untouched.
-
-### Everything reflects live (`POLARITO_LIVE_ACCOUNT=1`)
-
-Once live is on the page no longer shows simulated account data. `src/app/page.tsx` reads `POLARITO_LIVE_ACCOUNT` on the server and passes it to `LiveModeProvider`, which polls `GET /api/broker/live/status` every 5 s and turns the answer into one mode (`src/lib/liveMode.ts`, `deriveLiveMode`). Every display picks exactly one branch, so simulated and live numbers are never on screen together, and with the variable off nothing live is fetched and the page is exactly the simulated page.
-
-| Mode | When | What the displays show |
-| --- | --- | --- |
-| Simulated | `POLARITO_LIVE_ACCOUNT` is not 1 | Today's simulated accounts, labeled Simulated, unchanged |
-| Checking | Live is on, first answer pending | "Reading the live account from Alpaca...", no numbers |
-| Live data unavailable | Live is on and the status read failed (route unreachable, Alpaca error, unusable balances/positions). A failed poll after a good one also lands here | A red "Live data unavailable: reason" in each display; no balances, positions or orders, no stale or zero values, no simulated fallback; order ticket locked |
-| Live | Live is on and Alpaca answered | Alpaca's own equity, cash, buying power, today's P&L (equity vs last close), positions with mark and unrealized P&L, real orders and fills; labeled LIVE / real cash. Orders are allowed only when `tradingAllowed` (live trading enabled, kill switch off, keys); otherwise the ticket is locked with the reason |
-
-**Audit: every place that showed or computed simulated account data**
-
-| Where | Simulated mode | Live mode |
-| --- | --- | --- |
-| Account card (`AccountSelector.tsx`): "Active Account - Simulated", TOTAL EQUITY, account switcher (Conservative Swing, Aggressive Leverage, Tactical Capital) | Unchanged | "Active Account - LIVE - Real cash", Alpaca equity, cash, today's P&L, buying power; no account switcher |
-| Ledger (`LedgerPanel.tsx`): cash, equity, realized/unrealized P&L, exposure, positions, order history | Unchanged | `LiveLedgerPanel.tsx`: equity, cash, buying power, today's P&L, stock exposure and the live risk limits, Alpaca positions, real order history (`GET /api/broker/live/orders`: last 7 days, newest first, max 50, with fill quantity and average price). Read only; Close stays in the live block of the order ticket card |
-| Order ticket (`OrderModule.tsx`): header "Order - Simulated - {account}", cash-available check, open-position check, "Simulated" confirm and result text | Unchanged | LIVE header and live cash, or locked (header "Order - LIVE - Locked") when orders are off, loading or unreadable. It never records to the simulated ledger in live mode |
-| Auto panel (`AutoSimControls.tsx`) and the browser Auto sim effect (`PolarityDashboard.tsx`) | Unchanged | Panel is not shown there (a footer notice "Auto · Simulation paused" sits at the very bottom of the page); the effect that writes simulated entries does not run, so nothing is written to the simulated ledger. Live Auto is the switch in the live block |
-| Daily P&L and daily-loss readout | Simulated ledger | Today's P&L from Alpaca, plus the daily stop shown in the live ledger |
-| Risk / exposure readouts | Simulated exposure | Alpaca stock exposure as a share of equity, with the live per-position cap |
-
-**Live pages carry no paper wording.** No page component calls the paper broker routes (`/api/broker/paper/*` is only for the server runners and direct calls). The live gate's wording names `POLARITO_LIVE_TRADING_ENABLED=1` (`tradingGate(config, "live")`), and the market-data 401 message points to Vercel Environment Variables on a deployed page (`.env.local` only locally). That 401 comes from the **market-data** keys `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` (used by `/api/bars`), not from the `ALPACA_LIVE_*` or `ALPACA_PAPER_*` keys: set them to keys Alpaca accepts (a live account's keys work for market data).
-
-**Left alone, on purpose.** `polarity.ts`, `autoDecision.ts`, `autoSim*.ts`, `PageRefresher.tsx`, the default `marketApi.ts` fetch and the mirroring calculation are untouched. `AuditTrail.tsx` is not mounted on the page. `PremiumGate.tsx` ("Simulated checkout") is billing, not account data. The page title text in `layout.tsx` is not account data.
-
-**Daily / mirror features and the simulated account.** The server-side runners (`paperRunner` daily after-close run, `mirrorRunner` SPY mirror, `optionsLossLimit`) trade the Alpaca **paper** account and read that paper account, not the browser's simulated ledger, so they behave the same in live mode (the live pick runner and Live Auto are separate and unchanged). The only feature that depends on the simulated account is the browser Auto sim (the on-page version of the mirror): it follows the polarity of the analyzed stock and writes to the browser ledger, so in live mode it is paused (no calculation or market-data change) and the panel says so. That is the one behavior change to decide on: if you want the paper-mirror's numbers on screen in live mode, it needs its own paper-account view.
-
-New read-only route: `GET /api/broker/live/orders` (behind the login gate; `{live:false}` without `POLARITO_LIVE_ACCOUNT=1`; a failed Alpaca read is a 502, never an empty list; no credentials in the response; no order is placed or cancelled). The status route also returns the live risk limits (`limits`). No new order path, no new environment variable, no new dependency.
-
-### Live buy route rules (`POST /api/broker/live/buy`)
-
-The order ticket (live mode, above) sends its buy through `POST /api/broker/live/buy` (`{"ticker","quantity","requireDrive":true}`; `requireDrive` is optional for other callers), behind the same login gate and same-origin check as Close and Auto (`src/lib/liveBuy.ts`). No new environment variable is needed.
-
-- **Needs both switches.** `POLARITO_LIVE_ACCOUNT=1` and `POLARITO_LIVE_TRADING_ENABLED=1`; `POLARITO_BROKER_KILL` blocks it. Otherwise the ticket stays simulated, and a direct call is refused by the server (409 `LIVE_OFF` / `DISABLED` / `KILLED`) before any Alpaca call. There is no "would buy" observe mode.
-- **Long only, real stocks only.** A market buy (day) of a watchlist ticker whose Alpaca asset is active and tradable. Option positions never take part. GOOGL and GOOG count as one company.
-- **Same risk engine as Auto.** Size is the box quantity reduced by the shared engine (`sizeLiveEntry`: 33% per-position cap on equity in whole shares, 100% total exposure, cash and buying power) against today's latest close. It is reduced or refused (`RISK`), never larger. The reply says what was sent, e.g. "Reduced from 10 to 2 by the risk limits".
-- **Lockouts.** Refused after a stop-out today (`STOPPED`), when the account is already down the daily stop (`DAILY_LOSS`), outside 09:30-16:00 New York (`MARKET_CLOSED`), and from the end-of-day flatten time on (`FLATTEN_TIME`, the flatten would sell it).
-- **Up to 3 stocks at a time.** Refused (409, `MAX_POSITIONS`) when held positions plus working orders (stock or option, counted by company) already fill the 3 slots. It never adds to a position or stacks on a working order in the same stock (`HELD` / `WORKING`).
-- **Auto ON rule (replaces the old one-stock `AUTO_LOCK`).** With Auto ON a manual buy of any watchlist stock is allowed under the same rules as with Auto OFF: fewer than 3 slots used and the 33% cap holds (the safer choice in every conflict is to refuse or send fewer shares, never to exceed 3 or the cap). A hand buy of a stock outside Auto's picks does not conflict: Auto never enters a stock that is held, has a working order, or already has an entry today, and before each of its entries it re-reads positions and working orders, so whichever order lands first simply uses a slot. Once bought, Auto manages the position by polarity like any other, so it may close it on a Neutral or Reverse reading (the reply says so). With Auto OFF, nothing but the stop-out and the end-of-day flatten acts on it, and Close always works. Turning Auto OFF stays blocked while any position or working order is open (unchanged).
-- **Fails closed.** An unreadable account, positions, working orders, today's orders, asset, Auto switch (a configured store that does not answer), prices, or a latest bar that is not today's all refuse (502 `UNREADABLE`, 409 `STALE`) and send nothing.
-- **Order id.** `pol-{YYYYMMDD}-m{NN}-{TICKER}`, where `NN` continues the same sequence as the automatic entries (`e`), so the next automatic entry is numbered after it and closes (`c{NN}`) never collide. A duplicate id (a double click, a racing request, or HTTP 422) is a no-op only when the live order is found by its id; otherwise it is an error. A manual buy that was rejected or canceled does not lock the day's stock.
-- **Honest wording.** "Alpaca accepted BUY ..." appears only after Alpaca returned the order. `filled: true` (and "The position is shown at Alpaca") only when Alpaca's own position list shows the stock; otherwise the reply says "Not filled yet".
-- **Audit.** Every attempt past the route's gates is logged with `source: live-manual-buy` (`entered`, `held` for an existing id, `blocked` for a refusal, `error`).
-
-### Closing on polarito.com for the live account
-
-**Close position button.** The live block always shows it: with no stock position it is disabled with "No open position to close"; with a position each row has **Close position** (disabled with the reason when live orders are off: live trading not enabled, kill switch, or missing keys). It needs a confirm ("REAL ORDER: ... market sell of all N TICKER ... never cancels other orders") before anything is sent. The server (`POST /api/broker/live/close`, login gate, same-origin, audit `source: live-manual-close`) reads the broker's own position and sells its whole quantity under the deterministic id `pol-{YYYYMMDD}-c{NN}-a{K}-{TICKER}` (a second click is a no-op); unreadable positions or orders fail closed, nothing else is cancelled, and with live trading off it sends nothing. **Auto interaction:** a manual close does not switch Auto off. With Auto ON the pick does not re-buy that ticker the same day if it entered it today (one automatic entry per ticker per day), but it fills the freed slot with the next-ranked stock on its next tick (about 10 s). To stop Auto altogether, the confirm shows a checkbox (on by default while Auto is ON), "Then turn Live Auto OFF once the account is flat": after Alpaca shows the position flat the page calls the existing guarded Auto route, which only accepts OFF when the account is flat with no working order, so with several positions it is refused until the others are closed too (Auto stays ON and the message says so). There is a short window between the flat close and the Auto OFF in which one Auto tick could enter another stock. Each of the up to 3 positions has its own **Close position** button; the ledger shows "Positions n of 3" and each position's share of equity.
-
-With `POLARITO_LIVE_ACCOUNT=1` the live block shows the account read from Alpaca (`GET /api/broker/live/status`), never from the browser ledger. **Close** calls `POST /api/broker/live/close` (behind the login gate, same-origin only), which sells a long or buys to cover a short for the broker's own quantity. The live block says "closed" only after Alpaca accepted the order and its own position list no longer shows the stock; if the order is accepted but not filled it says so and the position stays shown as open; if Alpaca rejects it (for example wash-trade protection while an entry is still working) the error is shown and the position stays open. Working entries are not cancelled automatically: wait for the fill, then close. With live orders off (observe mode) Close sends nothing and says "would close". The browser's Auto toggle only drives the browser simulation and has no effect on the live account; stop the live automation with the Live Auto control above (or, for an emergency, `POLARITO_BROKER_KILL=1` in Vercel and a redeploy).
-
-### Go-live checklist (one action per step; nothing sends a real order until the steps that set `POLARITO_LIVE_TRADING_ENABLED=1` and turn Live Auto ON)
-
-A. Decide and fund
-1. Write down the decisions in "Decisions for Henry" below (or accept the defaults).
-2. Open (or confirm) an individual live Alpaca account. Do not fund it yet.
-3. Turn on two-factor sign-in on the Alpaca account.
-4. Fund $1,000 by ACH at least two trading days before step 27, so `last_equity` exists.
-5. From now on do not deposit or withdraw during market hours.
-
-B. Check the facts (no trading)
-6. In Alpaca, check whether margin and shorting show as enabled. Under $2,000 they will be off and Reverse readings will not be traded.
-7. For each of AAPL, MSFT, NVDA, AMZN, AVGO, GOOGL, GOOG, TSLA, JPM, WMT, look up the asset in Alpaca and write down `tradable`, `shortable`, `fractionable` and `borrow_status`. Short columns matter only from $2,000 of equity; the app accepts `easy_to_borrow` or `ETB` as a good `borrow_status`, so check the exact value Alpaca returns.
-8. Read Alpaca's fee schedule once for sell-side regulatory fees.
-
-C. Deploy the code (paper stays the default)
-9. Merge this change. Nothing changes until you set live variables.
-10. Make sure the repository secret `POLARITO_CRON_SECRET` exists (same value as `CRON_SECRET` in Vercel).
-11. In Vercel add the Upstash Redis integration (Storage, Marketplace) to this project, so `KV_REST_API_URL` and `KV_REST_API_TOKEN` exist.
-12. On the paper account, send the same `client_order_id` twice (for example `curl -X POST https://paper-api.alpaca.markets/v2/orders` with your PAPER keys, `{"symbol":"WMT","qty":"1","side":"buy","type":"market","time_in_force":"day","client_order_id":"pol-test-dup-1"}`) and confirm the second answer is HTTP 422 "client_order_id must be unique".
-
-D. Observe on live keys (no orders possible)
-13. Create live Alpaca API keys.
-14. In Vercel set `ALPACA_LIVE_KEY_ID` and `ALPACA_LIVE_SECRET_KEY` (never in chat or the repo).
-15. In Vercel set `POLARITO_LIVE_WATCHLIST=AAPL,MSFT,NVDA,AMZN,AVGO,GOOGL,GOOG,TSLA,JPM,WMT`.
-16. In Vercel set `POLARITO_PAPER_INSTRUMENT=pick`.
-17. In Vercel set `POLARITO_BROKER_KILL=0`, and leave `POLARITO_LIVE_TRADING_ENABLED` unset.
-18. In Vercel set `POLARITO_LIVE_ACCOUNT=1`, then redeploy.
-19. Sign in and confirm the live block in the order ticket card shows your real equity and positions.
-20. Confirm the panel says "Live Auto: OFF" (it must be OFF after every deploy until you turn it on).
-21. During the session (a weekday 09:30-16:00 New York; outside it the answer is only "US market is closed") run a dry check: in GitHub open Actions, then **Pick run**, then **Run workflow**, tick **dry**, and press the green **Run workflow** button. It uses the repository secret `POLARITO_CRON_SECRET` (nothing to paste), makes one call to `/api/cron/pick-run?ticks=1&dry=1` and never sends an order. Open the finished run: the **Summary** shows the result in plain text and the log prints the full JSON. In each `results` entry read `outcome`/`reason` (a `dry-run` line "Would enter long N TICKER as entry 1" is the chosen stock, side and size) and `notes` (the `Ranked:` list and one line per stock that was skipped with the reason). A call by hand with the `Authorization: Bearer $CRON_SECRET` header to `GET /api/cron/pick-run?dry=1` returns the same JSON. `ok:false` or an `error` outcome is a problem (for example "Cannot read the broker account" or "Live credentials are not configured."). **A freshly funded account has `last_equity` 0 until its first session close, so the runner (and a manual buy) answers "Broker equity is not usable. No trading.": that is the fail-closed rule working, expected, and it clears after the next session close.**
-22. In the Actions tab run the "Pick run" workflow by hand (it is also scheduled). It stays in observe mode.
-23. Leave it for at least 5 sessions.
-24. Each evening read the Vercel logs (`"source":"pick-runner"`) and write down the top-ranked stock, who was skipped and why, the "Would enter" line and each "Would close".
-25. On one day click Close in the live block in observe mode and confirm it says "would close" with the right side and that nothing was sent.
-26. Check on screen that polarito.com shows the same polarity for the picked stock and for the skipped ones.
-
-E. First real orders (1 share) and the close-then-re-enter test
-27. On a day you can watch, set `POLARITO_LIVE_QTY=1` and `POLARITO_LIVE_TRADING_ENABLED=1` in Vercel and redeploy.
-28. Click "Turn Auto ON" in the live block and confirm with "Confirm Auto ON"; the panel must then say "Live Auto: ON".
-29. Watch the first entry in Alpaca's dashboard and the logs: one order, correct side, 1 share, id `pol-{date}-e01-{TICKER}`.
-30. After `e01` fills, click Close in the live block and confirm in Alpaca a real sell (long) or buy-to-cover (short) for 1 share with id `...-c01-a1-...`, and that the panel said "closed" only after Alpaca accepted it.
-31. Wait for the next ticks without touching anything. If the signal is still aligned and the day is above -1%, confirm `e02` for the same stock, 1 share, and never two entries; if not aligned, confirm nothing is placed and the reason is logged. This also shows how fast sale proceeds are usable again on a small cash account.
-32. Click Close again on the same position and confirm the second click is a no-op (same id) and nothing doubles.
-33. Rejected-close drill: while an entry order is still working, click Close and confirm Alpaca rejects it, the panel shows the error, the position stays open and nothing re-enters; then close once the entry has filled.
-34. Auto-OFF refusal drill: with Auto ON and a position open, confirm the panel's "Turn Auto OFF" is disabled with "Close all positions first". (Optional: `curl -X POST .../api/broker/live/auto -d '{"auto":false}'` with your session cookie and confirm HTTP 409 `POSITIONS_OPEN` or `ORDERS_OPEN`.)
-35. While an entry order is still working (before it fills), confirm the same button is disabled and says "Cancel or let working orders finish first" with the count.
-36. Click Close and wait until the panel shows no positions. If "Turn Auto OFF" is still disabled with "Cancel or let working orders finish first", an order is still working: let it fill or expire, or cancel it yourself in Alpaca (the app never cancels), and confirm the button stays disabled until it is gone.
-37. Click "Turn Auto OFF" and confirm on the next ticks that the logs say "Live Auto is OFF", nothing is entered or re-entered, and Close still works. Then turn Auto ON again if you want to continue.
-38. After the session confirm the account is flat or matches the logged position, the day's entries are numbered in order (`e01`, `e02`, ...) and each one matches a polarity reading in the logs, and the day's loss is inside 1%.
-39. If anything surprises you, click Close on every open position and let or make working orders finish first (Auto OFF is refused while any position or order is open), then "Turn Auto OFF"; if you cannot wait, set `POLARITO_BROKER_KILL=1` and redeploy (this stops all live orders including the stop-out, so close by hand in Alpaca), then ask questions.
-40. Run 5 sessions at 1 share before raising anything; change one thing a week.
-
-### Decisions for Henry (chosen by the safest option where the plan left them open; change any with one variable)
-
-1. Down-day fallback: **stand aside** when the strongest reading is a Reverse that cannot be traded (`POLARITO_LIVE_LONG_ONLY_FALLBACK=aside`); `next` takes a weaker Drive stock.
-2. "Strongest" is `|netVolume| / noiseFloor` (relative volume outside the Neutral band). The repo's studies found no edge in following polarity and nothing backtests this ranking. Alphabet rule as above; no way to force one class.
-3. Skip-to-next when a name is unaffordable, not tradable or not shortable: yes, one logged line per skip. Neutral and stale names are skipped the same way.
-4. After a manual close the automation does not re-enter that ticker the same day (one automatic entry per ticker per day); the freed slot goes to the next-ranked stock. The stop-out lockout applies as before.
-5. Entries per day: at most 3 positions at once and one automatic entry per ticker per New York day, so at most `watchlist size` entries a day. `POLARITO_LIVE_MAX_ENTRIES` stays removed. The one exception to automatic tries is the 3-attempt circuit breaker on a single failing close (it also blocks new entries). Pick start 10:00 New York. Flatten at 15:55 New York (overnight hold needs `POLARITO_LIVE_FLATTEN_AT=off`).
-6. Live Auto: a working on/off on polarito.com, **OFF at deploy**, stored in an Upstash Redis key through the Vercel Marketplace (the repo has no database and Alpaca has no place to keep a flag; an env var needs a redeploy and is not a control). It needs `KV_REST_API_URL` and `KV_REST_API_TOKEN`; without them Auto stays OFF and the button is disabled. It fails closed: any store error means OFF.
-   **Resolved (Henry): Auto cannot be turned OFF while any live position is open OR any working (unfilled) order exists.** Checked on the server against Alpaca (not only the UI); every position counts (stock, option, off-watchlist) and every `status=open` order counts; unreadable or malformed positions or orders refuse OFF; ON is unchanged; nothing is ever cancelled by the app (distinct codes `POSITIONS_OPEN` / `ORDERS_OPEN`). A write is re-checked and ON restored if a position or order appears mid-change. Consequence: the stop-out and 15:55 flatten only matter while Auto is ON; once flat, nothing working and OFF, nothing runs. Trade-off to know: a stuck working order (for example a GTC order you placed by hand) will keep OFF disabled until you cancel it in Alpaca.
-7. Quantity 1 share per entry by default (`POLARITO_LIVE_QTY`), well below the 33% cap; raise `POLARITO_LIVE_QTY` to size toward the cap. The shared risk engine's +4% daily profit lock also stops new entries for the day.
-8. One deployment with flags (a second Vercel project is cleaner if you want paper options to keep running, because `POLARITO_PAPER_INSTRUMENT=pick` switches the other runners off).
-9. Working entry orders are not cancelled by the app; a close during one is rejected by Alpaca and shown as an error.
-10. The stop-out order id carries an attempt number too (`s{NN}-a{K}`) so a rejected stop can be retried; a flat account that is already at -1% (for example after a manual loss) is locked out by the equity check rather than by a marker order.
-11. Unverified until you check (checklist 7, 31): the exact `borrow_status` values Alpaca returns, and how fast sale proceeds free up buying power on a sub-$2,000 account.
-12. Accept the risk: the repo's back-tests found no edge in following polarity, $1,000 of real cash can be lost, and a 1% stop does not cap gap losses.
-13. Three-stock limits (all in `LIVE_LIMITS`, `src/lib/liveLimits.ts`): 3 positions, 33% per position, 100% total, 1% whole-account stop, long only, one automatic entry per ticker per day. Trade-offs to decide: (a) at $1,000 a stock above $330 is never tradable (rounds to zero), and whole-share rounding leaves cash idle (a $130 stock uses $260 of its $330); (b) with `POLARITO_LIVE_QTY=1` positions are one share each, far below the 33% cap; (c) three positions can lose more than 1% in one tick on a gap before the stop sees it; (d) one entry per ticker per day means a stock that closes on Neutral and turns Drive again the same day is not re-bought until tomorrow (the freed slot goes to another stock); (e) the manual buy is reduced to the cap rather than refused outright, and says so in the reply.
-
-### Alpaca key diagnostic (`GET /api/diag/alpaca-keys`)
-
-When the page says "Alpaca rejected the API key ID/secret", sign in and open `/api/diag/alpaca-keys` in the address bar. It is read-only, behind the login gate, and refuses cross-site requests (address-bar and same-origin calls only). It never returns a secret or a full key ID and places no order. For each pair the app knows (`ALPACA_API_KEY_ID`/`ALPACA_API_SECRET_KEY` for market data, `ALPACA_LIVE_*`, `ALPACA_PAPER_*`) it reports: present yes/no, the first two characters and length of the key ID (AK = live, PK = paper), the secret's length, and flags for leading/trailing whitespace, inner whitespace, quote characters, a newline, non-ASCII characters, a key ID/secret that look swapped, and unusual lengths. It also makes one real call per pair (market-data pair and live pair each fetch one AAPL daily bar from `data.alpaca.markets` with `feed=iex`; the live pair also reads the live account) and returns only the HTTP status and Alpaca's message, plus `deployment` (`VERCEL_ENV`, short commit SHA) so you can confirm which deploy answered, and plain-language `hints`. The paper pair is inspected but never called. The default market-data fetch is unchanged.
-
-## Audit log (server only)
-
-The scheduled runner writes one structured JSON line per decision to the server log (`{"audit":{...}}`), searchable in Vercel logs, and returns the same records in its response. Records only contain whitelisted, length-capped fields, so credentials never appear.
+When the data says "Alpaca rejected the API key ID/secret", sign in and open `/api/diag/alpaca-keys` in the address bar. It is read-only, behind the login gate and refuses cross-site requests. It never returns a secret or a full key ID and places no order. For each key pair the app knows it reports presence, the first two characters and length of the key ID (AK = live, PK = paper), the secret length, flags for whitespace, quotes, newlines, non-ASCII, swapped values and unusual lengths, makes one real read call per pair, and returns the HTTP status and Alpaca's message plus the deployment (`VERCEL_ENV`, short commit SHA) and plain-language hints.
 
 ## Scripts
 
-- `npm run test` — unit tests (including session auth)
-- `npm run build` / `npm start` — production Node app
-- `npm run package:namecom` — static `/out` + PHP bars bridge
+- `npm run dev` / `npm run build` / `npm start`: the Node app
+- `npm test`: unit tests (SPY engine, chain, desk, polarity, auth, live switches, no-order checks)
+- `npm run lint`
 
 ## Learn More
 

@@ -34,11 +34,6 @@ yarn-error.log*
 .env*
 !.env.example
 
-# Name.com secrets (never commit the filled-in copy)
-polarito-secrets.php
-hosting/polarito-secrets.php
-src/app/.api-hidden-for-export/
-
 # vercel
 .vercel
 
@@ -49,9 +44,3 @@ next-env.d.ts
 .vercel
 .env*
 !.env.example
-
-# backtest data cache (reports/ is committed)
-data/
-
-# forward-test scheduler log (the CSVs are the committed record)
-forward-test/run.log
