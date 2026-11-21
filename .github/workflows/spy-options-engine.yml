@@ -2,7 +2,7 @@ name: SPY options dry run (no orders)
 
 # Manual only: there is NO schedule. Runs the SPY-only options decision engine in DRY RUN: it reads SPY bars and the
 # options chain, prints the four period-to-date readings (monthly, quarterly, 6-month, yearly) with their inputs, decides
-# CALL / PUT / STAND ASIDE on the decision timeframe, and logs the contract it WOULD buy (nearest listed expiry of at
+# CALL / PUT / STAND ASIDE on the decision timeframe (Neutral = "NEUTRAL: TRADER DECIDES": no automatic exit or entry), and logs the contract it WOULD buy (nearest listed expiry of at
 # least 365 days, |delta| >= 0.80). Stale or incomplete data gives "data unavailable" and no decision.
 #
 # NO ORDER IS SENT AND NONE CAN BE: scripts/spy-options-engine.ts goes through src/lib/alpacaReadOnly.ts, which only
@@ -28,11 +28,6 @@ on:
         type: choice
         options: [signed-intraday, signed-daily, candle]
         default: signed-intraday
-      on_neutral:
-        description: "A position already held when the reading goes Neutral (candle and net volume disagree): hold it (default) or exit it"
-        type: choice
-        options: [hold, exit]
-        default: hold
       stock_feed:
         description: "Stock data feed (sip needs the paid plan for the latest 15 minutes; iex is free, partial volume)"
         type: choice
@@ -100,7 +95,6 @@ jobs:
         env:
           TIMEFRAME: ${{ inputs.timeframe }}
           METHOD: ${{ inputs.method }}
-          ON_NEUTRAL: ${{ inputs.on_neutral }}
           STOCK_FEED: ${{ inputs.stock_feed }}
           OPTIONS_FEED: ${{ inputs.options_feed }}
           LIVE_BUDGET: ${{ inputs.live_budget }}
@@ -108,12 +102,11 @@ jobs:
           set -eu
           case "$TIMEFRAME" in M|Q|H|Y) ;; *) echo "::error::timeframe must be M, Q, H or Y"; exit 1 ;; esac
           case "$METHOD" in signed-intraday|signed-daily|candle) ;; *) echo "::error::bad method"; exit 1 ;; esac
-          case "$ON_NEUTRAL" in hold|exit) ;; *) echo "::error::on_neutral must be hold or exit"; exit 1 ;; esac
           case "$STOCK_FEED" in sip|iex) ;; *) echo "::error::stock_feed must be sip or iex"; exit 1 ;; esac
           case "$OPTIONS_FEED" in indicative|opra) ;; *) echo "::error::options_feed must be indicative or opra"; exit 1 ;; esac
           case "$LIVE_BUDGET" in ''|*[!0-9.]*) echo "::error::live_budget must be a number"; exit 1 ;; esac
           npx tsx --env-file="$RUNNER_TEMP/alpaca.env" scripts/spy-options-engine.ts --write --dir=spy-options-dry-run \
-            --timeframe="$TIMEFRAME" --method="$METHOD" --on-neutral="$ON_NEUTRAL" --stock-feed="$STOCK_FEED" --options-feed="$OPTIONS_FEED" --live-budget="$LIVE_BUDGET"
+            --timeframe="$TIMEFRAME" --method="$METHOD" --stock-feed="$STOCK_FEED" --options-feed="$OPTIONS_FEED" --live-budget="$LIVE_BUDGET"
 
       - name: Show the summary on the run page
         if: always()

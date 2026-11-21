@@ -15,8 +15,10 @@
  *  - CALL only on Drive (+1), PUT only on Reverse (-1), STAND ASIDE on Neutral (0). The reading is Neutral when candle
  *    colour and net volume disagree (longPolarity.ts), so no new entry happens on a disagreement.
  *  - Roll or exit when the decision timeframe's reading flips to the opposite side (Drive <-> Reverse).
- *  - A held position when the reading goes Neutral: governed by config.onNeutral. "hold" (default) keeps it: no exit, no
- *    new entry, logged. "exit" would sell it (and then stand aside).
+ *  - NEUTRAL = TRADER DECIDES. When the reading is Neutral the engine takes NO automatic action: no exit of a held
+ *    position, no new entry. It only flags it clearly ("NEUTRAL: TRADER DECIDES") in the log and report. The trader then
+ *    decides by hand (the SPY option ticket and a Close button are later PRs, disabled for live until Henry says).
+ *    There is no config option that turns Neutral into an automatic exit or entry.
  *  - No automatic expiry roll: a warning is logged when the held contract has fewer than 60 days left.
  *  - Every change of any reading is logged with its timestamp, net volume and inputs.
  */
@@ -47,13 +49,11 @@ export const ENGINE_SYMBOL = "SPY";
 export const EXPIRY_WARNING_DAYS = 60;
 export const CONTRACT_MULTIPLIER = 100;
 
-export const NEUTRAL_HELD_POLICIES = Object.freeze(["hold", "exit"] as const);
-export type NeutralHeldPolicy = (typeof NEUTRAL_HELD_POLICIES)[number];
+/** The only Neutral policy: the engine does nothing by itself and flags it; the trader decides. */
+export const NEUTRAL_POLICY = "manual" as const;
 
 export type EngineConfig = {
   timeframe: LongTimeframe;
-  /** What to do with an already-held position when the decision reading goes Neutral. Default "hold". */
-  onNeutral: NeutralHeldPolicy;
   method: NetVolumeMethod;
   /** Real account size for the plain affordability line only. The dry run always tracks one imaginary contract. */
   liveBudget: number;
@@ -90,9 +90,11 @@ export type EngineState = {
   version: 1;
   readings: Partial<Record<LongTimeframe, ReadingMemory>>;
   position: DryPosition | null;
+  /** When the decision timeframe's reading first went Neutral in the current spell (trader decides); null otherwise. */
+  neutralSince: string | null;
 };
 
-export const EMPTY_STATE: EngineState = Object.freeze({ version: 1, readings: {}, position: null }) as EngineState;
+export const EMPTY_STATE: EngineState = Object.freeze({ version: 1, readings: {}, position: null, neutralSince: null }) as EngineState;
 
 export type EventKind =
   | "run"
@@ -101,6 +103,7 @@ export type EventKind =
   | "would-buy"
   | "would-sell"
   | "hold"
+  | "trader-decides"
   | "no-contract"
   | "data-unavailable"
   | "warning"
@@ -112,6 +115,8 @@ export type Decision = {
   action: "CALL" | "PUT" | "STAND_ASIDE" | "DATA_UNAVAILABLE";
   timeframe: LongTimeframe;
   reason: string;
+  /** True when the reading is Neutral: the engine does nothing and the trader decides. */
+  traderDecides: boolean;
 };
 
 export type EngineResult = {
@@ -156,7 +161,9 @@ export function parseEngineState(raw: unknown): { ok: true; state: EngineState }
     }
     position = p as unknown as DryPosition;
   }
-  return { ok: true, state: { version: 1, readings, position } };
+  const neutralSince = raw.neutralSince === undefined || raw.neutralSince === null ? null : raw.neutralSince;
+  if (neutralSince !== null && typeof neutralSince !== "string") return { ok: false, error: "state neutralSince is malformed" };
+  return { ok: true, state: { version: 1, readings, position, neutralSince } };
 }
 
 export function parseEngineConfig(env: Readonly<Record<string, string | undefined>>): { ok: true; config: EngineConfig } | { ok: false; error: string } {
@@ -164,11 +171,11 @@ export function parseEngineConfig(env: Readonly<Record<string, string | undefine
   if (!isLongTimeframe(timeframe)) return { ok: false, error: `SPY_DECISION_TIMEFRAME must be one of M, Q, H, Y (got "${timeframe}"); there is no daily or weekly option` };
   const method = (env.SPY_NET_VOLUME_METHOD ?? "signed-intraday").trim();
   if (!isNetVolumeMethod(method)) return { ok: false, error: `SPY_NET_VOLUME_METHOD must be one of ${NET_VOLUME_METHODS.join(", ")} (got "${method}")` };
-  const onNeutral = (env.SPY_ON_NEUTRAL_HELD_POSITION ?? "hold").trim().toLowerCase();
-  if (onNeutral !== "hold" && onNeutral !== "exit") return { ok: false, error: `SPY_ON_NEUTRAL_HELD_POSITION must be hold or exit (got "${onNeutral}")` };
+  const onNeutral = (env.SPY_ON_NEUTRAL ?? NEUTRAL_POLICY).trim().toLowerCase();
+  if (onNeutral !== NEUTRAL_POLICY) return { ok: false, error: `SPY_ON_NEUTRAL, if set, must be "${NEUTRAL_POLICY}": on Neutral the trader decides; there is no automatic exit or entry` };
   const liveBudget = Number(env.SPY_LIVE_BUDGET ?? "1000");
   if (!Number.isFinite(liveBudget) || liveBudget <= 0) return { ok: false, error: "SPY_LIVE_BUDGET must be a positive number" };
-  return { ok: true, config: { timeframe, onNeutral, method, liveBudget } };
+  return { ok: true, config: { timeframe, method, liveBudget } };
 }
 
 const gear = (p: number | null): string => (p === 1 ? "Drive" : p === -1 ? "Reverse" : p === 0 ? "Neutral" : "Data unavailable");
@@ -205,7 +212,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
   const emit = (kind: EventKind, message: string, data?: Record<string, unknown>): void => {
     events.push({ at, kind, message, ...(data ? { data } : {}) });
   };
-  const state: EngineState = { version: 1, readings: { ...previous.readings }, position: previous.position };
+  const state: EngineState = { version: 1, readings: { ...previous.readings }, position: previous.position, neutralSince: previous.neutralSince };
   const base: EngineResult = { ok: false, state, events, decision: null, readings: null, comparison: {} };
 
   try {
@@ -215,7 +222,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     const dailyRes = await deps.loadDaily();
     if (!dailyRes.ok) {
       emit("data-unavailable", `Data unavailable: daily bars could not be read (${dailyRes.error}). No decision.`);
-      return { ...base, decision: { action: "DATA_UNAVAILABLE", timeframe: config.timeframe, reason: dailyRes.error } };
+      return { ...base, decision: { action: "DATA_UNAVAILABLE", timeframe: config.timeframe, reason: dailyRes.error, traderDecides: false } };
     }
     const daily = dailyRes.value;
 
@@ -256,7 +263,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     const primary = readings[config.timeframe];
     if (primary.status !== "ok" || primary.polarity === null) {
       const reason = primary.reason ?? "unknown";
-      const decision: Decision = { action: "DATA_UNAVAILABLE", timeframe: config.timeframe, reason };
+      const decision: Decision = { action: "DATA_UNAVAILABLE", timeframe: config.timeframe, reason, traderDecides: false };
       emit("data-unavailable", `Data unavailable for the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading: ${reason}. No decision; nothing changes.`, { reason });
       return { ...result, decision };
     }
@@ -265,6 +272,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     const decision: Decision = {
       action,
       timeframe: config.timeframe,
+      traderDecides: action === "STAND_ASIDE",
       reason: `${LONG_TIMEFRAME_NAMES[config.timeframe]} since ${primary.periodStart}: candle ${primary.kind}, net volume ${millions(primary.netVolume)}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`,
     };
     emit("decision", `Decision: ${action.replace("_", " ")}. ${decision.reason}.`, { action, ...readingData(primary) });
@@ -276,18 +284,35 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
       emit("warning", `The held contract ${held.symbol} has ${daysBetween(today, held.expiration)} days left. There is no automatic roll: it changes only when the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading flips.`);
     }
 
+    if (wantType === null) {
+      const since = state.neutralSince ?? at;
+      const first = state.neutralSince === null;
+      state.neutralSince = since;
+      const why = `${LONG_TIMEFRAME_NAMES[config.timeframe]} candle ${primary.kind} and net volume ${millions(primary.netVolume)} do not agree`;
+      let extra = "";
+      let data: Record<string, unknown> = { held: held ? held.symbol : null, neutralSince: since, automatic: false };
+      if (held) {
+        const spotRead = await deps.readSpot();
+        const quote = spotRead.ok ? await deps.readHeld(held, spotRead.value.price, today, now) : null;
+        if (quote) {
+          const pnl = (quote.bid - held.entryAsk) * CONTRACT_MULTIPLIER;
+          extra = ` Held ${held.symbol} now bids ${usd(quote.bid)} / asks ${usd(quote.ask)} (entry ask ${usd(held.entryAsk)}; result if sold at the bid ${usd(pnl)} per contract; max loss ${usd(held.maxLossUsd)}).`;
+          data = { ...data, bid: quote.bid, ask: quote.ask, pnlUsd: pnl };
+        } else {
+          extra = ` Held ${held.symbol}: no usable quote right now.`;
+        }
+      }
+      emit(
+        "trader-decides",
+        `NEUTRAL: TRADER DECIDES. ${why}${first ? "" : ` (Neutral since ${since})`}. ${held ? `No automatic exit: ${held.symbol} stays as it is.` : "No position and no automatic entry."}${extra} Decide by hand (the SPY option ticket and Close button come in later PRs, disabled for live).`,
+        data,
+      );
+      return { ...result, ok: true, decision };
+    }
+    state.neutralSince = null;
+
     if (held && wantType === held.type) {
       emit("hold", `Holding ${held.symbol}: the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading still says ${action}.`, { symbol: held.symbol });
-      return { ...result, ok: true, decision };
-    }
-
-    if (held && wantType === null && config.onNeutral === "hold") {
-      emit("hold", `Reading is Neutral (candle and net volume do not agree): no new entry, and HOLDING ${held.symbol} (on-neutral setting: hold). Set SPY_ON_NEUTRAL_HELD_POSITION=exit to sell on Neutral instead.`, { symbol: held.symbol, onNeutral: config.onNeutral });
-      return { ...result, ok: true, decision };
-    }
-
-    if (!held && wantType === null) {
-      emit("hold", "Stand aside: the reading is Neutral (candle and net volume do not agree), so no entry.");
       return { ...result, ok: true, decision };
     }
 

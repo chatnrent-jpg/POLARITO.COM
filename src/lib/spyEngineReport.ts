@@ -16,9 +16,10 @@ function row(r: LongReading, mark: string): string {
 export function renderEngineReport(result: EngineResult, config: EngineConfig): string {
   const L: string[] = ["# SPY options dry run", "", "DRY RUN: no order is sent and none can be: this job only reads market data.", ""];
   L.push(
-    `Decision timeframe: ${LONG_TIMEFRAME_NAMES[config.timeframe]} (marked with *). Net volume method: ${config.method}. A reading counts only when candle colour and net volume match (green + positive = Drive, red + negative = Reverse, otherwise Neutral). On Neutral with a position held: ${config.onNeutral === "hold" ? "hold it (no exit, no new entry)" : "exit it"}. Rules: expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${MIN_ABS_DELTA}; calls on Drive, puts on Reverse; one position at a time; max loss = premium; roll or exit only when the decision timeframe flips.`,
+    `Decision timeframe: ${LONG_TIMEFRAME_NAMES[config.timeframe]} (marked with *). Net volume method: ${config.method}. A reading counts only when candle colour and net volume match (green + positive = Drive, red + negative = Reverse, otherwise Neutral). On Neutral the engine does nothing automatic: the trader decides. Rules: expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${MIN_ABS_DELTA}; calls on Drive, puts on Reverse; one position at a time; max loss = premium; roll or exit only when the decision timeframe flips.`,
     "",
   );
+  if (result.decision?.traderDecides) L.push("## NEUTRAL: TRADER DECIDES", "", "Candle colour and net volume do not agree. No automatic exit and no automatic entry. Decide by hand.", "");
   if (result.decision) L.push(`## Decision: ${result.decision.action.replace("_", " ")}`, "", result.decision.reason, "");
   if (result.readings) {
     L.push(
