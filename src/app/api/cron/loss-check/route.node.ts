@@ -6,7 +6,8 @@ import { cronAuthorized } from "@/lib/cronAuth";
 import { runLossCheck } from "@/lib/optionsLossCheck";
 import { optionsDailyLossLimit } from "@/lib/optionsLossLimit";
 import { paperRunnerSettings } from "@/lib/paperRunner";
-import { createLiveBroker, liveBrokerConfig, liveOptedIn, liveSettings } from "@/lib/broker/liveConfig";
+import { createLiveBroker, liveBrokerConfig, liveOptedIn } from "@/lib/broker/liveConfig";
+import { liveSettings } from "@/lib/liveSettings";
 import { fetchRealMarketData } from "@/lib/marketApi";
 import { runPickTick } from "@/lib/pickRunner";
 

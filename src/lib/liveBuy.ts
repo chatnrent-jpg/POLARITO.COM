@@ -26,7 +26,7 @@
  */
 import { buildAuditRecord, type AuditDraft, type AuditRecord } from "@/lib/audit";
 import { tradingGate, type PaperBrokerConfig } from "@/lib/broker/config";
-import type { LiveSettings } from "@/lib/broker/liveConfig";
+import type { LiveSettings } from "@/lib/liveSettings";
 import { placeLiveManualBuy } from "@/lib/broker/liveExecute";
 import { deriveDayState } from "@/lib/broker/liveOrders";
 import type { LiveBroker } from "@/lib/broker/types";
