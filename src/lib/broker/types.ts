@@ -66,43 +66,14 @@ export type BrokerAsset = {
   borrowStatus: string | null;
 };
 
-export type MarketOrderRequest = {
-  ticker: string;
-  side: "buy" | "sell";
-  quantity: number;
-  clientOrderId: string;
-  timeInForce: "day" | "opg";
-};
-
 export interface Broker {
   getAccount(): Promise<Result<BrokerAccount, BrokerErrorCode>>;
   getPositions(): Promise<Result<BrokerPosition[], BrokerErrorCode>>;
   /** ok(null) when no order carries that client id. */
   getOrderByClientId(clientOrderId: string): Promise<Result<BrokerOrder | null, BrokerErrorCode>>;
-  submitMarketOrder(req: MarketOrderRequest): Promise<Result<BrokerOrder, BrokerErrorCode>>;
 }
 
-/** What the strategy wants done. Closes always flatten the broker's ACTUAL quantity. */
-export type OrderIntent = {
-  action: "enter" | "close";
-  ticker: string;
-  /** The position side being entered or closed. */
-  side: PositionSide;
-  /** Shares to enter. Ignored for closes. */
-  quantity: number;
-  /** Polarity of the signal bar. An entry must match it: +1 = long, -1 = short. Closes ignore it. */
-  signalPolarity?: number;
-  /** Session date (YYYY-MM-DD) of the signal bar. Part of the idempotency key. */
-  signalDate: string;
-  timeInForce?: "day" | "opg";
-  /**
-   * Optional explicit client order id (1-48 of A-Z a-z 0-9 _ . -). The default id is one per
-   * signal date; callers that can trade several times a day must supply a unique one.
-   */
-  clientOrderId?: string;
-};
-
-/** What the live pick runner and the live close route need on top of the plain broker. */
+/** What the Auto OFF guard needs on top of the plain read-only broker. */
 export interface LiveBroker extends Broker {
   /** ok(null) when Alpaca has no such asset. */
   getAsset(symbol: string): Promise<Result<BrokerAsset | null, BrokerErrorCode>>;

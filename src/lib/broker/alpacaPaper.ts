@@ -11,7 +11,6 @@ import {
   parseOccSymbol,
   type ContractQuery,
   type OptionContract,
-  type OptionOrderRequest,
   type OptionQuote,
   type OptionsBroker,
 } from "@/lib/broker/options";
@@ -22,7 +21,6 @@ import type {
   BrokerOrder,
   BrokerPosition,
   LiveBroker,
-  MarketOrderRequest,
   Result,
 } from "@/lib/broker/types";
 
@@ -160,25 +158,24 @@ export class AlpacaPaperBroker implements OptionsBroker, LiveBroker {
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
-  /** Never includes headers or credentials in the returned error. */
+  /**
+   * The only network call in this adapter, and it can only GET: there is no method or body parameter, so no
+   * order can be created, changed or cancelled through it. Never includes headers or credentials in the error.
+   */
   private async request(
-    method: "GET" | "POST",
     path: string,
-    body?: unknown,
     baseUrl: string = this.target === "live" ? ALPACA_LIVE_BASE_URL : ALPACA_PAPER_BASE_URL,
   ): Promise<Result<{ status: number; data: unknown }, BrokerErrorCode>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const res = await this.fetchImpl(`${baseUrl}${path}`, {
-        method,
+        method: "GET",
         headers: {
           "APCA-API-KEY-ID": this.keyId,
           "APCA-API-SECRET-KEY": this.secretKey,
           Accept: "application/json",
-          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
         },
-        body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal,
       });
       let data: unknown = null;
@@ -207,7 +204,7 @@ export class AlpacaPaperBroker implements OptionsBroker, LiveBroker {
   }
 
   async getAccount(): Promise<Result<BrokerAccount, BrokerErrorCode>> {
-    const res = await this.request("GET", "/v2/account");
+    const res = await this.request("/v2/account");
     if (!res.ok) return res;
     const d = res.value.data;
     if (res.value.status !== 200 || !isRecord(d)) return fail("MALFORMED", "Unexpected account response.");
@@ -243,7 +240,7 @@ export class AlpacaPaperBroker implements OptionsBroker, LiveBroker {
   }
 
   async getPositions(): Promise<Result<BrokerPosition[], BrokerErrorCode>> {
-    const res = await this.request("GET", "/v2/positions");
+    const res = await this.request("/v2/positions");
     if (!res.ok) return res;
     const d = res.value.data;
     if (res.value.status !== 200 || !Array.isArray(d)) {
@@ -285,7 +282,7 @@ export class AlpacaPaperBroker implements OptionsBroker, LiveBroker {
   }
 
   async getAsset(symbol: string): Promise<Result<BrokerAsset | null, BrokerErrorCode>> {
-    const res = await this.request("GET", `/v2/assets/${encodeURIComponent(symbol)}`);
+    const res = await this.request(`/v2/assets/${encodeURIComponent(symbol)}`);
     if (!res.ok) return res;
     if (res.value.status === 404) return { ok: true, value: null };
     const d = res.value.data;
@@ -312,7 +309,7 @@ export class AlpacaPaperBroker implements OptionsBroker, LiveBroker {
   }
 
   private async listOrders(path: string): Promise<Result<BrokerOrder[], BrokerErrorCode>> {
-    const res = await this.request("GET", path);
+    const res = await this.request(path);
     if (!res.ok) return res;
     const d = res.value.data;
     if (res.value.status !== 200 || !Array.isArray(d)) return fail("MALFORMED", "Unexpected orders response.");
@@ -336,23 +333,6 @@ export class AlpacaPaperBroker implements OptionsBroker, LiveBroker {
     return this.listOrders("/v2/orders?status=open&limit=500&direction=asc");
   }
 
-  async submitMarketOrder(req: MarketOrderRequest): Promise<Result<BrokerOrder, BrokerErrorCode>> {
-    if (!Number.isSafeInteger(req.quantity) || req.quantity < 1) {
-      return fail("REJECTED", "Order quantity must be a whole number of shares.");
-    }
-    const res = await this.request("POST", "/v2/orders", {
-      symbol: req.ticker,
-      qty: String(req.quantity),
-      side: req.side,
-      type: "market",
-      time_in_force: req.timeInForce,
-      client_order_id: req.clientOrderId,
-    });
-    if (!res.ok) return res;
-    const order = parseOrder(res.value.data);
-    return order ? { ok: true, value: order } : fail("MALFORMED", "Order response failed validation.");
-  }
-
   async listContracts(q: ContractQuery): Promise<Result<OptionContract[], BrokerErrorCode>> {
     const out: OptionContract[] = [];
     let pageToken: string | null = null;
@@ -368,7 +348,7 @@ export class AlpacaPaperBroker implements OptionsBroker, LiveBroker {
         limit: "1000",
       });
       if (pageToken) params.set("page_token", pageToken);
-      const res = await this.request("GET", `/v2/options/contracts?${params.toString()}`);
+      const res = await this.request(`/v2/options/contracts?${params.toString()}`);
       if (!res.ok) return res;
       const d = res.value.data;
       if (res.value.status !== 200 || !isRecord(d) || !Array.isArray(d.option_contracts)) {
@@ -387,9 +367,7 @@ export class AlpacaPaperBroker implements OptionsBroker, LiveBroker {
   async getOptionQuote(symbol: string): Promise<Result<OptionQuote | null, BrokerErrorCode>> {
     if (!parseOccSymbol(symbol)) return fail("REJECTED", "Not a valid option symbol.");
     const res = await this.request(
-      "GET",
       `/v1beta1/options/snapshots?symbols=${encodeURIComponent(symbol)}&feed=indicative`,
-      undefined,
       ALPACA_DATA_BASE_URL,
     );
     if (!res.ok) return res;
@@ -408,28 +386,5 @@ export class AlpacaPaperBroker implements OptionsBroker, LiveBroker {
       return fail("MALFORMED", "Option quote failed validation.");
     }
     return { ok: true, value: { symbol, bid, ask, at } };
-  }
-
-  async submitOptionOrder(req: OptionOrderRequest): Promise<Result<BrokerOrder, BrokerErrorCode>> {
-    if (!parseOccSymbol(req.symbol)) return fail("REJECTED", "Not a valid option symbol.");
-    if (!Number.isSafeInteger(req.quantity) || req.quantity < 1) {
-      return fail("REJECTED", "Option quantity must be a whole number of contracts.");
-    }
-    if (req.type === "limit" && !(typeof req.limitPrice === "number" && req.limitPrice > 0)) {
-      return fail("REJECTED", "A limit order needs a positive limit price.");
-    }
-    const res = await this.request("POST", "/v2/orders", {
-      symbol: req.symbol,
-      qty: String(req.quantity),
-      side: req.side,
-      type: req.type,
-      time_in_force: "day",
-      position_intent: req.positionIntent,
-      client_order_id: req.clientOrderId,
-      ...(req.type === "limit" ? { limit_price: (req.limitPrice as number).toFixed(2) } : {}),
-    });
-    if (!res.ok) return res;
-    const order = parseOrder(res.value.data);
-    return order ? { ok: true, value: order } : fail("MALFORMED", "Order response failed validation.");
   }
 }

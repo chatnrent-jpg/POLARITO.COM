@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Polarito — Polarity Transmission",
+  title: "Polarito: SPY desk",
   description:
-    "Volume-weighted candle direction as Drive (+1), Neutral (0) or Reverse (-1). A descriptive dashboard with a simulated ledger; not investment advice.",
+    "Long-timeframe SPY options desk driven by volume-weighted candle polarity. Dry run only; not investment advice.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

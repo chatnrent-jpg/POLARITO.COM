@@ -5,18 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "package:namecom": "node scripts/package-namecom.mjs",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test tests/*.test.ts",
-    "backtest": "tsx --env-file=.env.local scripts/backtest.ts",
-    "floor-study": "tsx --env-file=.env.local scripts/floor-study.ts",
-    "validate-capitulation": "tsx --env-file=.env.local scripts/validate-capitulation.ts",
-    "spy-study": "tsx --env-file=.env.local scripts/spy-study.ts",
-    "intraday-study": "tsx --env-file=.env.local scripts/intraday-study.ts",
-    "top10-study": "tsx --env-file=.env.local scripts/top10-study.ts",
-    "signal-log": "tsx --env-file=.env.local scripts/signal-log.ts",
-    "signal-log:ci": "tsx scripts/signal-log.ts"
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "next": "16.4.6",
