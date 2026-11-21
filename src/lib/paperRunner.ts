@@ -130,7 +130,13 @@ export type RunnerDeps = {
   now?: () => Date;
 };
 
-export type TickerReport = { ticker: string; outcome: AuditRecord["outcome"]; reason: string };
+export type TickerReport = {
+  ticker: string;
+  outcome: AuditRecord["outcome"];
+  reason: string;
+  /** Pick runner, dry or observe-only ticks only: the ranked candidates and why each skipped stock was skipped. */
+  notes?: string[];
+};
 
 export type RunReport =
   | { ok: true; dryRun: boolean; ranAt: string; results: TickerReport[] }

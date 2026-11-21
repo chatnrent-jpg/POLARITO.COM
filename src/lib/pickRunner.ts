@@ -61,6 +61,10 @@ const PICK_LABEL = "PICK";
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const clock = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 
+/** Watchlist is at most 10 names: the rank line plus one skip line each fits. */
+const MAX_REPORT_NOTES = 25;
+const MAX_NOTE_CHARS = 220;
+
 export const isStockPosition = (p: BrokerPosition): boolean => parseOccSymbol(p.ticker) === null;
 
 /** Why Alpaca would refuse a short on this account, or null when shorting is allowed. */
@@ -92,7 +96,10 @@ export async function runPickTick(
     } catch {
       /* an audit sink failure must not change what was decided or sent */
     }
-    results.push({ ticker: rec.ticker, outcome: rec.outcome, reason: rec.reason });
+    // Dry and observe-only ticks also return the ranked list and each skipped stock's reason (no orders are sent
+    // on them). Live ticks keep the full notes in the audit log only.
+    const notes = dryRun && draft.notes && draft.notes.length > 0 ? draft.notes.slice(0, MAX_REPORT_NOTES).map((n) => n.slice(0, MAX_NOTE_CHARS)) : undefined;
+    results.push({ ticker: rec.ticker, outcome: rec.outcome, reason: rec.reason, ...(notes ? { notes } : {}) });
   };
   const fail = (error: string): RunReport => {
     record({ ticker: PICK_LABEL, outcome: "error", reason: error });

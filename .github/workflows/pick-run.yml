@@ -23,6 +23,11 @@ on:
     - cron: "20 13 * * 1-5"
     - cron: "20 14 * * 1-5"
   workflow_dispatch:
+    inputs:
+      dry:
+        description: "Dry run: one check right now (any time of day), prints what the pick would do, sends NO order"
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -42,6 +47,7 @@ jobs:
           POLARITO_CRON_SECRET: ${{ secrets.POLARITO_CRON_SECRET }}
           POLARITO_BASE_URL: ${{ vars.POLARITO_BASE_URL }}
           GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry }}
         shell: bash
         run: |
           set -u
@@ -77,6 +83,40 @@ jobs:
             read -r dow hms < <(et_now)
             echo $((10#${hms:0:2} * 60 + 10#${hms:3:2}))
           }
+
+          # Dry run (manual "Run workflow" with the dry box ticked): one call with dry=1, which never sends an
+          # order, whatever the switches are. It skips the window check; outside 09:30-16:00 New York the route
+          # itself answers "US market is closed". The secret is only sent as a header and is never printed.
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            code=$(curl --silent --show-error --max-time 55 --output "$OUT" --write-out '%{http_code}' \
+              -H "Authorization: Bearer $POLARITO_CRON_SECRET" \
+              "$BASE/api/cron/pick-run?ticks=1&dry=1" 2>/dev/null) || code=000
+            echo "DRY RUN (no order is sent). HTTP $code"
+            if jq -e . "$OUT" >/dev/null 2>&1; then
+              jq . "$OUT"
+              {
+                echo "## Pick run: dry run (no order sent)"
+                echo
+                echo "HTTP status: \`$code\`"
+                echo
+                jq -r 'if .action == "none" then "**Not active:** \(.reason)"
+                       elif .reports then
+                         (.reports[] | "**Result:** ok=\(.ok) dryRun=\(.dryRun) at \(.ranAt)" + (if .error then "  \n**Problem:** \(.error)" else "" end),
+                          "",
+                          (.results[] | "- **\(.outcome)** \(.ticker): \(.reason)" + ((.notes // []) | map("\n  - " + .) | join(""))))
+                       else "**Error:** \(.error // "unexpected answer") (\(.code // "no code"))" end' "$OUT"
+              } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            else
+              echo "The server did not answer with JSON (HTTP $code)." >&2
+              head -c 500 "$OUT" >&2 || true
+            fi
+            if [ "$code" = "401" ]; then
+              echo "Unauthorized: POLARITO_CRON_SECRET does not match CRON_SECRET in Vercel." >&2
+              exit 1
+            fi
+            [ "$code" = "200" ] || exit 1
+            exit 0
+          fi
 
           if ! in_window; then
             echo "Outside the US session window (weekday 09:20-16:02 New York). Nothing to do."
