@@ -29,7 +29,7 @@ function side(type: OptionType, today: string, listed: string[], strikes?: numbe
   const rows: ChainRow[] = [];
   for (const exp of listed) for (const k of strikes ?? (type === "call" ? [450, 500, 550, 600] : [800, 850, 900, 1000])) rows.push(row(type, exp, k, today));
   const pick = pickDeepItm(rows, listed, type, today);
-  return { type, listedExpirations: listed, pick, ladder: [], highestAbsDelta: null, window: { low: 0, high: 0 }, strikesRead: { count: rows.length, min: null, max: null }, later: [], rowsBuilt: rows.length, rejected: {}, error: null };
+  return { type, listedExpirations: listed, pick, ladder: [], eligible: [], highestAbsDelta: null, window: { low: 0, high: 0 }, strikesRead: { count: rows.length, min: null, max: null }, later: [], rowsBuilt: rows.length, rejected: {}, error: null };
 }
 
 type Day = { open: number; close: number; volume: number };

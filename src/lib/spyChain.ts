@@ -13,6 +13,7 @@ import {
   MIN_DAYS_TO_EXPIRY,
   buildRow,
   earliestExpiry,
+  eligibleContracts,
   pickDeepItm,
   type ChainRow,
   type PickResult,
@@ -204,6 +205,8 @@ export type SideReport = {
   ladder: ChainRow[];
   /** The usable row with the highest |delta| at the chosen expiry, whether or not it meets the other rules. */
   highestAbsDelta: ChainRow | null;
+  /** Contracts a trader may pick by hand at the chosen expiry (usable quote, |delta| >= the 0.60 floor), cheapest first. */
+  eligible: ChainRow[];
   /** The strike window requested, and what the usable rows actually covered. */
   window: { low: number; high: number };
   strikesRead: { count: number; min: number | null; max: number | null };
@@ -250,7 +253,7 @@ const highest = (rows: readonly ChainRow[]): ChainRow | null => rows.reduce<Chai
 export async function readSide(client: ReadOnlyClient, type: OptionType, o: ChainOptions): Promise<SideReport> {
   const model = o.model ?? DEFAULT_MODEL;
   const { low, high } = strikeRange(type, o.spot);
-  const base: SideReport = { type, listedExpirations: [], pick: { ok: false, reason: "not run", expiration: null }, ladder: [], highestAbsDelta: null, window: { low, high }, strikesRead: { count: 0, min: null, max: null }, later: [], rowsBuilt: 0, rejected: {}, error: null };
+  const base: SideReport = { type, listedExpirations: [], pick: { ok: false, reason: "not run", expiration: null }, ladder: [], eligible: [], highestAbsDelta: null, window: { low, high }, strikesRead: { count: 0, min: null, max: null }, later: [], rowsBuilt: 0, rejected: {}, error: null };
   try {
     const from = earliestExpiry(o.today);
     const to = addDays(from, 400);
@@ -273,6 +276,7 @@ export async function readSide(client: ReadOnlyClient, type: OptionType, o: Chai
     base.rowsBuilt = rows.length;
     base.pick = pickDeepItm(rows, listed, type, o.today);
     base.highestAbsDelta = highest(rows);
+    base.eligible = eligibleContracts(rows, listed, type, o.today).rows;
     const strikes = rows.map((r) => r.strike);
     base.strikesRead = { count: rows.length, min: strikes.length ? Math.min(...strikes) : null, max: strikes.length ? Math.max(...strikes) : null };
     base.ladder = rows

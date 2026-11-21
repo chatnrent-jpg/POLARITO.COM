@@ -239,6 +239,8 @@ describe("put strike window and what the report shows", () => {
     assert.equal(put.pick.expiration, "2027-12-17");
     assert.ok(put.pick.daysToExpiry >= 365);
     assert.equal(put.later.length, 0);
+    assert.deepEqual(put.eligible.map((r) => r.strike), [850]); // only strikes at or above the 0.60 floor can be chosen by hand
+    assert.ok(put.eligible.every((r) => r.expiration === "2027-12-17" && Math.abs(r.delta) >= 0.6));
     const call = await readSide(createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch([], () => [450, 500]) }), "call", SIDE_OPTS);
     assert.equal(call.pick.ok && call.pick.tier, "primary");
     const report = renderChainReport({ generatedAt: NOW.toISOString(), today: TODAY, spot: { price: SPOT, at: NOW.toISOString(), feed: "iex" }, accountHost: null, account: null, accountError: "x", optionsFeed: "indicative", liveBudget: 1000, call, put, model: { rate: 0.043, dividendYield: 0.012 } });
@@ -296,7 +298,7 @@ describe("put strike window and what the report shows", () => {
 describe("options approval level in the account answer", () => {
   const base = { status: "ACTIVE", equity: "1000", cash: "1000", buying_power: "1000", multiplier: "1" };
   const reportFor = (account: AccountSummary) => {
-    const side = { type: "call" as const, listedExpirations: [], pick: { ok: false as const, reason: "x", expiration: null }, ladder: [], highestAbsDelta: null, window: { low: 0, high: 0 }, strikesRead: { count: 0, min: null, max: null }, later: [], rowsBuilt: 0, rejected: {}, error: null };
+    const side = { type: "call" as const, listedExpirations: [], pick: { ok: false as const, reason: "x", expiration: null }, ladder: [], eligible: [], highestAbsDelta: null, window: { low: 0, high: 0 }, strikesRead: { count: 0, min: null, max: null }, later: [], rowsBuilt: 0, rejected: {}, error: null };
     return renderChainReport({ generatedAt: NOW.toISOString(), today: TODAY, spot: { price: SPOT, at: NOW.toISOString(), feed: "iex" }, accountHost: "live", account, accountError: null, optionsFeed: "indicative", liveBudget: 1000, call: side, put: { ...side, type: "put" }, model: { rate: 0.043, dividendYield: 0.012 } });
   };
   it("fields absent: the report says Alpaca did not return them, and lists the option-related fields it did send", () => {
