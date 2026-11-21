@@ -1,17 +1,17 @@
 /**
- * READ-ONLY study of the ALIGNED definition with the ONE net volume method: a period-to-date reading counts only when
- * the candle colour and the net volume agree (green candle + positive net volume = Drive, red + negative = Reverse,
- * otherwise Neutral).
+ * READ-ONLY study of the ALIGNED definition with the ONE net volume definition (the chart's): a period-to-date reading
+ * counts only when the candle colour and the net volume agree (green candle + positive net volume = Drive, red + negative
+ * = Reverse, otherwise Neutral).
  *
  *   npx tsx scripts/spy-aligned-study.ts [--out-dir=/tmp/spy-study]
  *
- * Keyless (Yahoo public chart endpoint: SPY daily bars and SPY 5-minute bars for the last ~60 sessions). No secrets, no orders.
+ * Keyless (Yahoo public chart endpoint: SPY daily bars back to 1993). No secrets, no orders, no 5-minute data.
  *
  * Candle colour = the period-to-date candle: latest close vs the period's first open (month, quarter, 6-month, year).
- * Net volume = the sum over every 5-minute bar of the period of +volume (bar closed above its open) or -volume (below).
- * Only periods that began inside the free 5-minute window can be built: the month since 1 Sep 2026 and the quarter
- * since 1 Oct 2026. The 6-month and yearly periods began before it, and the 1993-2026 history has no 5-minute data, so
- * none of those can be studied with this method (and no daily approximation is used instead).
+ * Net volume = the chart definition (TradingView Net Volume on the period's own timeframe): the total daily volume of the
+ * period to date, signed +/- by the latest close vs the PREVIOUS PERIOD'S LAST CLOSE. Exactly equal closes give a zero net
+ * volume, which is Neutral and counted separately. Verified on SPY monthly 20 Nov 2026: chart -957,839,594 vs -957,406,100
+ * from Yahoo daily volume (0.05% apart). The first period of the history has no previous close and is skipped.
  * The aligned rule is written out here (not imported) so this script stands alone on any branch.
  */
 import fs from "node:fs";
@@ -55,7 +55,6 @@ async function yahoo(symbol: string, query: string, tag: string): Promise<Raw> {
   throw new Error(`${symbol}: no data`);
 }
 
-const etDate = (sec: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date(sec * 1000));
 const utcDate = (sec: number) => new Date(sec * 1000).toISOString().slice(0, 10);
 const pad2 = (n: number) => String(n).padStart(2, "0");
 function keyFor(date: string, tf: TF): string {
@@ -70,7 +69,7 @@ function keyFor(date: string, tf: TF): string {
 }
 const aligned = (kind: Kind, net: number): P => (kind === "green" && net > 0 ? 1 : kind === "red" && net < 0 ? -1 : 0);
 
-type Row = { date: string; tf: TF; kind: Kind; open: number; close: number; net: number; reading: P };
+type Row = { date: string; tf: TF; kind: Kind; open: number; prevClose: number; close: number; total: number; net: number; reading: P };
 
 async function main(): Promise<void> {
   const daily = await yahoo("SPY", "period1=-631152000&period2=1900000000&interval=1d", "daily");
@@ -84,31 +83,21 @@ async function main(): Promise<void> {
     bars.push({ date, open: o, high: Math.max(h, o, c), low: Math.min(l, o, c), close: c, volume: v });
     prev = date;
   }
-  const m5raw = await yahoo("SPY", "range=60d&interval=5m", "5m");
-  const m5ByDate = new Map<string, number>();
-  let m5First = "9999-12-31";
-  for (let i = 0; i < m5raw.ts.length; i++) {
-    const [o, c, v] = [m5raw.q.open[i], m5raw.q.close[i], m5raw.q.volume[i]];
-    if (o == null || c == null || v == null) continue;
-    const d = etDate(m5raw.ts[i]);
-    if (d < m5First) m5First = d;
-    m5ByDate.set(d, (m5ByDate.get(d) ?? 0) + (c > o ? v : c < o ? -v : 0));
-  }
 
   const rows: Row[] = [];
   for (const tf of TFS) {
     let i0 = 0;
-    let d5 = 0;
-    let d5ok = true;
-    for (let i = 0; i < bars.length; i++) {
+    let total = 0;
+    for (let i = 1; i < bars.length; i++) {
       const b = bars[i];
-      if (i === 0 || keyFor(b.date, tf) !== keyFor(bars[i - 1].date, tf)) { i0 = i; d5 = 0; d5ok = true; }
-      const e = m5ByDate.get(b.date);
-      if (e !== undefined) d5 += e; else d5ok = false;
-      if (!(d5ok && keyFor(b.date, tf) >= m5First)) continue; // the whole period must be covered by 5-minute bars
+      if (keyFor(b.date, tf) !== keyFor(bars[i - 1].date, tf)) { i0 = i; total = 0; }
+      total += b.volume;
+      if (i0 === 0) continue; // the first period has no previous close
       const open = bars[i0].open;
+      const prevClose = bars[i0 - 1].close;
       const kind: Kind = b.close > open ? "green" : b.close < open ? "red" : "flat";
-      rows.push({ date: b.date, tf, kind, open, close: b.close, net: d5, reading: aligned(kind, d5) });
+      const net = b.close > prevClose ? total : b.close < prevClose ? -total : 0;
+      rows.push({ date: b.date, tf, kind, open, prevClose, close: b.close, total, net, reading: aligned(kind, net) });
     }
   }
 
@@ -117,38 +106,38 @@ async function main(): Promise<void> {
   const g = (p: P) => (p === 1 ? "Drive" : p === -1 ? "Reverse" : "Neutral");
   const out: string[] = [];
   out.push(
-    "# SPY aligned definition study (signed 5-minute net volume only)",
+    "# SPY aligned definition study (chart net volume: period-to-date daily volume signed by close vs previous period's last close)",
     "",
-    `SPY daily to ${last}; 5-minute bars ${m5First} to ${last}. Every trading day is one observation of each timeframe's period-to-date reading. Aligned rule: green candle + positive net volume = Drive, red candle + negative net volume = Reverse, anything else Neutral. Net volume = 5-minute up-bar volume minus down-bar volume, summed over the whole period.`,
-    "",
-    "Coverage: free 5-minute history is about 60 sessions, so only periods that began inside it can be built: the month since 1 Sep and the quarter since 1 Oct. The 6-month and yearly periods began earlier, and 1993-2026 has no 5-minute data, so they cannot be studied with this method. No daily approximation is substituted.",
+    `SPY daily 1993 to ${last}. Every trading day is one observation of each timeframe's period-to-date reading. Aligned rule: green candle + positive net volume = Drive, red candle + negative net volume = Reverse, anything else Neutral (including an exactly zero net volume, counted separately). Net volume = total period-to-date daily volume signed by the latest close vs the previous period's last close.`,
     "",
   );
 
   const ranges: Array<{ name: string; from: string }> = [
     { name: "This month (1 Nov - 20 Nov 2026)", from: "2026-11-01" },
     { name: "Sept - Nov 2026 (1 Sep - 20 Nov)", from: "2026-09-01" },
+    { name: "1993 - 2026", from: "0000-00-00" },
   ];
 
   out.push("## 1. How often candle colour and net volume DISAGREE (so the reading is Neutral)", "", "Disagree = green candle with negative or zero net volume, red candle with positive or zero net volume, or a flat candle.", "");
   const disJson: Record<string, unknown> = {};
-  out.push("| Window | Timeframe | Days | Disagree | Green candle, net not positive | Red candle, net not negative | Flat candle |", "| --- | --- | --- | --- | --- | --- | --- |");
+  out.push("| Window | Timeframe | Days | Disagree | Green candle, net not positive | Red candle, net not negative | Flat candle | Zero net volume |", "| --- | --- | --- | --- | --- | --- | --- | --- |");
   for (const r of ranges) for (const tf of TFS) {
     const xs = rows.filter((x) => x.tf === tf && x.date >= r.from);
     if (xs.length === 0) {
-      out.push(`| ${r.name} | ${NAMES[tf]} | n/a: period began before the 5-minute window | | | | |`);
+      out.push(`| ${r.name} | ${NAMES[tf]} | n/a | | | | | |`);
       continue;
     }
     const dis = xs.filter((x) => x.reading === 0);
     const gr = dis.filter((x) => x.kind === "green").length;
     const rd = dis.filter((x) => x.kind === "red").length;
     const fl = dis.filter((x) => x.kind === "flat").length;
-    out.push(`| ${r.name} | ${NAMES[tf]} | ${xs.length} | ${dis.length} (${pct(dis.length, xs.length)}) | ${gr} | ${rd} | ${fl} |`);
-    disJson[`${r.name}|${tf}`] = { days: xs.length, disagree: dis.length, green: gr, red: rd, flat: fl };
+    const zero = xs.filter((x) => x.net === 0).length;
+    out.push(`| ${r.name} | ${NAMES[tf]} | ${xs.length} | ${dis.length} (${pct(dis.length, xs.length)}) | ${gr} | ${rd} | ${fl} | ${zero} |`);
+    disJson[`${r.name}|${tf}`] = { days: xs.length, disagree: dis.length, green: gr, red: rd, flat: fl, zero };
   }
   out.push("");
 
-  out.push("## 2. Flips and Neutral spells of the ALIGNED reading", "", "Flip = the reading changes from one trading day to the next (Neutral is a state, so Drive to Neutral and Neutral to Reverse are each a flip). Neutral spell = a run of consecutive trading days in Neutral. On Neutral the engine does nothing automatic (the trader decides). 'Side changes skipping Neutral' = changes between Drive and Reverse when Neutral days are skipped over. Windows are short, so no per-year figures are given.", "");
+  out.push("## 2. Flips and Neutral spells of the ALIGNED reading", "", "Flip = the reading changes from one trading day to the next (Neutral is a state, so Drive to Neutral and Neutral to Reverse are each a flip). Neutral spell = a run of consecutive trading days in Neutral. On Neutral the engine does nothing automatic (the trader decides). 'Side changes skipping Neutral' = changes between Drive and Reverse when Neutral days are skipped over. Flips are counted within one continuous run of days; the period-to-date reading resets at each period start, so day-to-day changes at a period boundary are included.", "");
   const flipJson: Record<string, unknown> = {};
   out.push("| Window | Timeframe | Days | Neutral days | Flips | Flips direct Drive<->Reverse | Neutral spells | Average Neutral spell (days) | Side changes skipping Neutral |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
   for (const r of ranges) for (const tf of TFS) {
@@ -171,16 +160,17 @@ async function main(): Promise<void> {
   }
   out.push("");
 
-  out.push("## 3. Right now (as of the last bar)", "", `As of ${last} close; net volume in millions of shares.`, "", "| Timeframe | Period start | Candle (open to close) | Colour | Net volume | Reading |", "| --- | --- | --- | --- | --- | --- |");
+  out.push("## 3. Right now (as of the last bar)", "", `As of ${last} close; the raw net volume is in shares so it can be compared with the chart.`, "", "| Timeframe | Period start | Candle (open to close) | Colour | Previous period close | Net volume (raw) | Flag | Reading |", "| --- | --- | --- | --- | --- | --- | --- | --- |");
   const nowJson: Record<string, unknown> = {};
   for (const tf of TFS) {
     const x = rows.filter((r) => r.tf === tf).at(-1);
     if (!x || x.date !== last) {
-      out.push(`| ${NAMES[tf]} | ${keyFor(last, tf)} | n/a | n/a | n/a | Data unavailable (period began before the 5-minute window) |`);
+      out.push(`| ${NAMES[tf]} | ${keyFor(last, tf)} | n/a | n/a | n/a | n/a | | Data unavailable |`);
       continue;
     }
-    out.push(`| ${NAMES[tf]} | ${keyFor(last, tf)} | ${x.open.toFixed(2)} to ${x.close.toFixed(2)} | ${x.kind} | ${(x.net / 1e6).toFixed(0)}M | ${g(x.reading)} |`);
-    nowJson[tf] = { start: keyFor(last, tf), kind: x.kind, open: x.open, close: x.close, net: x.net, reading: x.reading };
+    const raw = `${x.net > 0 ? "+" : ""}${Math.round(x.net).toLocaleString("en-US")}`;
+    out.push(`| ${NAMES[tf]} | ${keyFor(last, tf)} | ${x.open.toFixed(2)} to ${x.close.toFixed(2)} | ${x.kind} | ${x.prevClose.toFixed(2)} | ${raw} | ${x.net === 0 ? "ZERO NET VOLUME" : ""} | ${g(x.reading)} |`);
+    nowJson[tf] = { start: keyFor(last, tf), kind: x.kind, open: x.open, prevClose: x.prevClose, close: x.close, total: x.total, net: x.net, reading: x.reading };
   }
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
