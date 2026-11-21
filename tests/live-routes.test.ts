@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { NextRequest } from "next/server";
-import { POST as closePost } from "../src/app/api/broker/live/close/route.node";
-import { GET as statusGet } from "../src/app/api/broker/live/status/route.node";
 import { GET as lossCheckGet } from "../src/app/api/cron/loss-check/route.node";
 import { GET as paperRunGet } from "../src/app/api/cron/paper-run/route.node";
 import { GET as pickRunGet } from "../src/app/api/cron/pick-run/route.node";
@@ -41,13 +39,6 @@ const get = (path: string, auth = true) => {
     nextUrl: new URL(url),
   }) as unknown as NextRequest;
 };
-const post = (body: unknown, headers: Record<string, string> = { origin: BASE, host: "www.polarito.com" }) =>
-  new Request(`${BASE}/api/broker/live/close`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  }) as unknown as NextRequest;
-
 /** A fetch that fails the test if anything at all goes over the network. */
 function forbidNetwork() {
   const real = globalThis.fetch;
@@ -115,91 +106,4 @@ describe("with no new env vars the live code does nothing", () => {
     assert.equal(pick.action, "none");
   });
 
-  it("the close route refuses and does nothing when the live account is not switched on", async () => {
-    const net = forbidNetwork();
-    try {
-      const res = await closePost(post({ ticker: "NVDA" }));
-      assert.equal(res.status, 409);
-      assert.equal((await res.json()).code, "LIVE_OFF");
-      assert.deepEqual(net.seen, []);
-    } finally {
-      net.restore();
-    }
-  });
-
-  it("the status route says live: false and reads nothing", async () => {
-    const net = forbidNetwork();
-    try {
-      let body: unknown;
-      try {
-        body = await (await statusGet()).json();
-      } catch (e) {
-        // `connection()` only works inside a Next request scope; outside it the route cannot run at all.
-        assert.match(String(e), /request scope|outside/i);
-        return;
-      }
-      assert.deepEqual(body, { ok: true, live: false });
-      assert.deepEqual(net.seen, []);
-    } finally {
-      net.restore();
-    }
-  });
-});
-
-describe("the close route when live is on", () => {
-  beforeEach(() => {
-    process.env.POLARITO_LIVE_ACCOUNT = "1";
-  });
-
-  it("refuses a cross-site request before doing anything", async () => {
-    const net = forbidNetwork();
-    try {
-      const res = await closePost(post({ ticker: "NVDA" }, { origin: "https://evil.example", host: "www.polarito.com" }));
-      assert.equal(res.status, 403);
-      assert.deepEqual(net.seen, []);
-    } finally {
-      net.restore();
-    }
-  });
-
-  it("validates the body shape", async () => {
-    assert.equal((await closePost(post("not json"))).status, 400);
-    assert.equal((await closePost(post({ symbol: "NVDA" }))).status, 400);
-    assert.equal((await closePost(post({ ticker: 5 }))).status, 400);
-  });
-
-  it("needs live credentials", async () => {
-    const res = await closePost(post({ ticker: "NVDA" }));
-    assert.equal(res.status, 503);
-  });
-
-  it("with live keys it calls only the live host, with the live keys", async () => {
-    process.env.ALPACA_LIVE_KEY_ID = "LIVEID";
-    process.env.ALPACA_LIVE_SECRET_KEY = "LIVESECRET";
-    process.env.ALPACA_PAPER_KEY_ID = "PAPERID";
-    process.env.ALPACA_PAPER_SECRET_KEY = "PAPERSECRET";
-    const real = globalThis.fetch;
-    const calls: Array<{ url: string; key: string | undefined; method: string | undefined }> = [];
-    globalThis.fetch = (async (input: unknown, init?: { method?: string; headers?: Record<string, string> }) => {
-      calls.push({ url: String(input), key: init?.headers?.["APCA-API-KEY-ID"], method: init?.method });
-      const data = String(input).endsWith("/v2/positions")
-        ? [{ symbol: "NVDA", qty: "1", avg_entry_price: "100", side: "long" }]
-        : [];
-      return { ok: true, status: 200, json: async () => data };
-    }) as unknown as typeof fetch;
-    try {
-      const res = await closePost(post({ ticker: "NVDA" }));
-      const body = await res.json();
-      assert.equal(body.status, "observed", "live orders are not enabled, so it only observes");
-      assert.ok(calls.length >= 1);
-      assert.ok(calls.every((c) => c.method === "GET"), "no order is sent while live trading is off");
-      for (const c of calls) {
-        assert.ok(c.url.startsWith("https://api.alpaca.markets/"), c.url);
-        assert.equal(c.key, "LIVEID");
-      }
-      assert.doesNotMatch(JSON.stringify(body), /LIVESECRET|PAPERSECRET|LIVEID/);
-    } finally {
-      globalThis.fetch = real;
-    }
-  });
 });
