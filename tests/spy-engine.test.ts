@@ -107,7 +107,7 @@ describe("decision follows the aligned reading only", () => {
   });
 });
 
-describe("one position, flip rolls, Neutral hold or exit", () => {
+describe("one position, flip rolls, Neutral = trader decides", () => {
   async function held(): Promise<EngineState> {
     return (await runEngine(makeDeps(DRIVE, T0), CFG, EMPTY_STATE)).state;
   }

@@ -329,7 +329,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
       const pnl = exitBid === null ? null : (exitBid - held.entryAsk) * CONTRACT_MULTIPLIER;
       emit(
         "would-sell",
-        `WOULD SELL ${held.symbol} because the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading ${wantType === null ? "went Neutral (on-neutral setting: exit)" : `flipped to ${gear(primary.polarity)}`}${exitBid === null ? " (no usable quote to price the sale)" : ` at the bid ${usd(exitBid)}; result versus the entry ask ${pnl === null ? "n/a" : usd(pnl)} per contract`}. Dry run: no order sent.`,
+        `WOULD SELL ${held.symbol} because the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading flipped to ${gear(primary.polarity)}${exitBid === null ? " (no usable quote to price the sale)" : ` at the bid ${usd(exitBid)}; result versus the entry ask ${pnl === null ? "n/a" : usd(pnl)} per contract`}. Dry run: no order sent.`,
         { symbol: held.symbol, exitBid, pnlUsd: pnl, maxLossUsd: held.maxLossUsd },
       );
       state.position = null;
