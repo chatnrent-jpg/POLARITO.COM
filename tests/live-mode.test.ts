@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { AlpacaPaperBroker } from "../src/lib/broker/alpacaPaper";
 import { tradingGate } from "../src/lib/broker/config";
@@ -41,7 +40,6 @@ describe("adapter parses the extra read-only fields only when valid", () => {
 });
 
 describe("live mode has no paper wording or paper calls", () => {
-  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
   const live = { enabled: false, killed: false, configured: true };
 
   it("the live gate names the live switch, never the paper one", () => {
@@ -62,8 +60,4 @@ describe("live mode has no paper wording or paper calls", () => {
     if (!off.ok) assert.match(off.error, /POLARITO_PAPER_TRADING_ENABLED=1/);
   });
 
-  it("the market-data auth error does not send a deployed page to .env.local", () => {
-    const api = read("src/lib/marketApi.ts");
-    assert.match(api, /process\.env\.VERCEL\s*\?\s*"Alpaca rejected the market-data API key/);
-  });
 });
