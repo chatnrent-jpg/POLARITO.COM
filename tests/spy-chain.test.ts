@@ -246,6 +246,7 @@ describe("put strike window and what the report shows", () => {
     assert.match(report, /the actual delta is -0\.\d{3}, below the 0\.8 target/);
     assert.match(report, /no 2027-12-17 put reaches \|delta\| 0\.8 with a usable quote/);
     assert.match(report, /Floor 0\.6 is never crossed/);
+    assert.match(report, /picked the CHEAPEST usable contract at or above the 0\.6 floor/);
     assert.match(report, /One put \(at least 365 days\): \*\*FALLBACK DELTA \(below 0\.80\)\*\*/);
     assert.match(report, /One call \(delta >= 0\.8, at least 365 days\)/);
   });

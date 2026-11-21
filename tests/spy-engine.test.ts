@@ -222,6 +222,17 @@ describe("delta fallback (0.80 target, 0.60 floor)", () => {
     assert.match(text, /\*\*FALLBACK DELTA \(below 0\.80\)\*\*/);
     assert.match(text, /hard floor of 0\.6/);
   });
+  it("the fallback buys the CHEAPEST contract at or above 0.60, not the deepest or highest-delta one", async () => {
+    const r = await runEngine(makeDeps(REVERSE, T0, { strikes: [690, 800, 850, 900] }), CFG, EMPTY_STATE);
+    const p = r.state.position;
+    assert.ok(p);
+    assert.equal(p.deltaTier, "fallback");
+    assert.equal(p.strike, 800);
+    assert.ok(Math.abs(p.entryDelta) >= 0.6 && Math.abs(p.entryDelta) < 0.8);
+    assert.match(p.fallbackReason ?? "", /picked the CHEAPEST usable contract at or above the 0\.6 floor/);
+    assert.match(r.decision?.reason ?? "", /picked the CHEAPEST usable contract at or above the 0\.6 floor/);
+    assert.match(renderEngineReport(r, CFG), /cheapest usable contract \(ask x 100\)/);
+  });
   it("a calls-side fallback works the same (Drive)", async () => {
     const r = await runEngine(makeDeps(DRIVE, T0, { strikes: [650, 690] }), CFG, EMPTY_STATE);
     assert.equal(r.state.position?.type, "call");

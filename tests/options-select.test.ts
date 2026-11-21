@@ -234,8 +234,8 @@ describe("delta fallback (primary 0.80, hard floor 0.60)", () => {
     assert.equal(pick.fallbackReason, null);
     assert.ok(delta(pick.row) >= 0.8);
   });
-  it("with none at 0.80, takes the HIGHEST |delta| that is still >= 0.60, and explains why", () => {
-    const puts = rows(exp, "put", [690, 700, 800, 850, 875]); // all between about 0.40 and 0.75
+  it("with none at 0.80, takes the CHEAPEST contract (ask x 100) that is still >= 0.60, not the highest delta, and explains why", () => {
+    const puts = rows(exp, "put", [690, 700, 800, 850, 875, 900]); // all between about 0.40 and 0.75
     assert.ok(puts.every((r) => delta(r) < 0.8));
     const eligible = puts.filter((r) => delta(r) >= 0.6);
     assert.ok(eligible.length >= 2);
@@ -243,20 +243,22 @@ describe("delta fallback (primary 0.80, hard floor 0.60)", () => {
     assert.ok(pick.ok);
     assert.equal(pick.tier, "fallback");
     assert.ok(delta(pick.row) >= 0.6 && delta(pick.row) < 0.8);
-    assert.equal(delta(pick.row), Math.max(...eligible.map(delta)));
-    assert.equal(pick.row.strike, 875);
+    assert.equal(pick.row.costAtAsk, Math.min(...eligible.map((r) => r.costAtAsk)));
+    assert.ok(delta(pick.row) < Math.max(...eligible.map(delta)), "a higher delta exists but is dearer, and is not chosen");
+    assert.equal(pick.row.strike, 850);
     assert.equal(pick.qualifying, eligible.length);
     assert.match(pick.fallbackReason ?? "", /reaches \|delta\| 0\.8/);
     assert.match(pick.fallbackReason ?? "", /highest \|delta\| of any is/);
+    assert.match(pick.fallbackReason ?? "", /picked the CHEAPEST usable contract at or above the 0\.6 floor \(3 qualify\): strike 850/);
     assert.equal(pick.expiration, exp);
     assert.ok(pick.daysToExpiry >= 365);
   });
   it("calls fall back the same way", () => {
-    const pick = pickDeepItm(rows(exp, "call", [650, 670, 690]), [exp], "call", TODAY);
+    const pick = pickDeepItm(rows(exp, "call", [600, 640, 670, 690]), [exp], "call", TODAY); // 690 is just under the floor
     assert.ok(pick.ok);
     assert.equal(pick.tier, "fallback");
     assert.ok(delta(pick.row) >= 0.6 && delta(pick.row) < 0.8);
-    assert.equal(pick.row.strike, 650);
+    assert.equal(pick.row.strike, 670);
   });
   it("nothing at or above 0.60 means no contract, and nothing is substituted", () => {
     const pick = pickDeepItm(rows(exp, "put", [690, 700, 750]), [exp], "put", TODAY);
@@ -274,22 +276,37 @@ describe("delta fallback (primary 0.80, hard floor 0.60)", () => {
     assert.ok(p.ok);
     assert.equal(p.tier, "fallback");
   });
-  it("tie on |delta|: the tighter spread wins", () => {
+  it("a deep, dear put is not chosen over a cheaper one that clears the floor (the case that cost $68,828 vs about $11,000)", () => {
     const base = rows(exp, "put", [850])[0];
-    const wide: ChainRow = { ...base, symbol: base.symbol.replace("00850000", "00851000"), strike: 851, spreadPct: 0.1 };
-    const tight: ChainRow = { ...base, symbol: base.symbol.replace("00850000", "00852000"), strike: 852, spreadPct: 0.02 };
-    const pick = pickDeepItm([wide, tight], [exp], "put", TODAY);
+    const cheap: ChainRow = { ...base, symbol: base.symbol.replace("00850000", "00800000"), strike: 800, delta: -0.61, ask: 110, costAtAsk: 11000 };
+    const dear: ChainRow = { ...base, symbol: base.symbol.replace("00850000", "01390000"), strike: 1390, delta: -0.754, ask: 688.28, costAtAsk: 68828, spreadPct: 0.01 };
+    const pick = pickDeepItm([dear, cheap], [exp], "put", TODAY);
     assert.ok(pick.ok);
     assert.equal(pick.tier, "fallback");
-    assert.equal(pick.row.strike, 852);
+    assert.equal(pick.row.strike, 800);
+    assert.equal(pick.row.costAtAsk, 11000);
+  });
+  it("tie on cost: the tighter spread wins, then the higher |delta|", () => {
+    const base = rows(exp, "put", [850])[0];
+    const mk = (strike: number, over: Partial<ChainRow>): ChainRow => ({ ...base, symbol: base.symbol.replace("00850000", `00${strike}000`), strike, ask: 100, costAtAsk: 10000, ...over });
+    const wide = mk(851, { spreadPct: 0.1, delta: -0.7 });
+    const tight = mk(852, { spreadPct: 0.02, delta: -0.65 });
+    const p1 = pickDeepItm([wide, tight], [exp], "put", TODAY);
+    assert.ok(p1.ok);
+    assert.equal(p1.row.strike, 852);
+    const a = mk(853, { spreadPct: 0.02, delta: -0.7 });
+    const b = mk(854, { spreadPct: 0.02, delta: -0.65 });
+    const p2 = pickDeepItm([b, a], [exp], "put", TODAY);
+    assert.ok(p2.ok);
+    assert.equal(p2.row.strike, 853);
   });
   it("quote quality still applies to the fallback: wide, crossed or stale quotes are never chosen", () => {
     const base = rows(exp, "put", [850])[0];
     assert.equal(pickDeepItm([{ ...base, spreadPct: 0.2 }], [exp], "put", TODAY).ok, false);
-    // a higher delta with a too-wide spread loses to a lower, clean one
+    // the cheapest contract is skipped when its spread is too wide
     const clean: ChainRow = { ...base, delta: -0.65 };
-    const wideHigh: ChainRow = { ...base, symbol: base.symbol.replace("00850000", "00900000"), strike: 900, delta: -0.75, spreadPct: 0.3 };
-    const pick = pickDeepItm([clean, wideHigh], [exp], "put", TODAY);
+    const wideCheap: ChainRow = { ...base, symbol: base.symbol.replace("00850000", "00800000"), strike: 800, delta: -0.62, ask: 50, costAtAsk: 5000, spreadPct: 0.3 };
+    const pick = pickDeepItm([clean, wideCheap], [exp], "put", TODAY);
     assert.ok(pick.ok);
     assert.equal(pick.row.strike, 850);
   });

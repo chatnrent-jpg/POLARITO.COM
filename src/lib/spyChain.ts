@@ -303,4 +303,4 @@ export async function readSide(client: ReadOnlyClient, type: OptionType, o: Chai
   }
 }
 
-export const RULES_TEXT = `expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${MIN_ABS_DELTA}, else the best usable |delta| down to a hard floor of ${DELTA_THRESHOLDS.floor} (marked as a fallback)`;
+export const RULES_TEXT = `expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${MIN_ABS_DELTA}, else the cheapest usable contract with |delta| down to a hard floor of ${DELTA_THRESHOLDS.floor} (marked as a fallback)`;

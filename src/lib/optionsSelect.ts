@@ -7,7 +7,7 @@
  *      at least 365 days out is the only expiry considered; no later expiry is substituted.
  *   2. Delta, in two tiers (DELTA_THRESHOLDS, the one place the numbers live): |delta| >= 0.80 first (deep in the
  *      money): a CALL on Drive, a PUT on Reverse. Only if NO contract at that expiry reaches 0.80 with a usable
- *      quote, the FALLBACK takes the contract with the HIGHEST |delta| that is still >= 0.60 (a hard floor, never
+ *      quote, the FALLBACK takes the CHEAPEST contract (ask x 100) that is still >= 0.60 (a hard floor, never
  *      below it), marked "FALLBACK DELTA (below 0.80)" everywhere it is shown. If nothing reaches 0.60, no contract.
  *
  * Delta comes from Alpaca's greeks when they are present and agree with Black-Scholes; otherwise it is
@@ -241,7 +241,7 @@ export const FALLBACK_LABEL = `FALLBACK DELTA (below ${DELTA_THRESHOLDS.primary.
  * Pick the contract for `type`: the nearest listed expiry that is at least 365 days out, then among
  * its contracts with |delta| >= 0.80 the one with the smallest |delta| (the cheapest that still obeys the rule;
  * ties go to the lower ask). If none reaches 0.80 with a usable quote, the FALLBACK: among the same expiry's usable
- * contracts with |delta| >= 0.60 the one with the HIGHEST |delta| (ties: the tighter spread, then the lower ask). If
+ * contracts with |delta| >= 0.60 the CHEAPEST by ask x 100 (ties: the tighter spread, then the higher |delta|). If
  * not even 0.60 is reached the answer is "none": nothing else is substituted and no later expiry is used.
  */
 export function pickDeepItm(rows: readonly ChainRow[], listedExpirations: readonly string[], type: OptionType, today: string): PickResult {
@@ -256,10 +256,10 @@ export function pickDeepItm(rows: readonly ChainRow[], listedExpirations: readon
   }
   const floor = sameExpiry.filter((r) => assertContractRules(r, type, today, DELTA_THRESHOLDS.floor) === null);
   if (floor.length === 0) return { ok: false, reason: `no ${expiration} ${type} has |delta| >= ${DELTA_THRESHOLDS.floor} (the floor; ${DELTA_THRESHOLDS.primary} is the target) with a usable quote`, expiration };
-  floor.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.spreadPct - b.spreadPct || a.ask - b.ask);
+  floor.sort((a, b) => a.ask - b.ask || a.spreadPct - b.spreadPct || Math.abs(b.delta) - Math.abs(a.delta));
   const best = floor[0];
   const top = sameExpiry.reduce((m, r) => (Math.abs(r.delta) > Math.abs(m.delta) ? r : m), sameExpiry[0]);
-  const why = `no ${expiration} ${type} reaches |delta| ${DELTA_THRESHOLDS.primary} with a usable quote (${sameExpiry.length} usable quotes; the highest |delta| of any is ${Math.abs(top.delta).toFixed(3)} at strike ${top.strike}); the best usable contract at or above the ${DELTA_THRESHOLDS.floor} floor has |delta| ${Math.abs(best.delta).toFixed(3)}`;
+  const why = `no ${expiration} ${type} reaches |delta| ${DELTA_THRESHOLDS.primary} with a usable quote (${sameExpiry.length} usable quotes; the highest |delta| of any is ${Math.abs(top.delta).toFixed(3)} at strike ${top.strike}); picked the CHEAPEST usable contract at or above the ${DELTA_THRESHOLDS.floor} floor (${floor.length} qualify): strike ${best.strike}, |delta| ${Math.abs(best.delta).toFixed(3)}, ask ${usd(best.ask * 100)}`;
   return { ok: true, row: best, expiration, daysToExpiry: daysBetween(today, expiration), qualifying: floor.length, tier: "fallback", fallbackReason: why };
 }
 

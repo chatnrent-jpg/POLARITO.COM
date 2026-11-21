@@ -38,7 +38,7 @@ function pickLines(label: string, side: SideReport, budgets: Array<{ name: strin
     ...(side.pick.tier === "fallback"
       ? [
           `- **${FALLBACK_LABEL}**: the actual delta is ${r.delta.toFixed(3)}, below the ${DELTA_THRESHOLDS.primary} target. Why: ${side.pick.fallbackReason}. Floor ${DELTA_THRESHOLDS.floor} is never crossed.`,
-          `- Contract: ${r.symbol} (strike ${r.strike}); the highest |delta| of ${side.pick.qualifying} usable contracts at that expiry with |delta| >= ${DELTA_THRESHOLDS.floor}`,
+          `- Contract: ${r.symbol} (strike ${r.strike}); the CHEAPEST (ask x 100) of ${side.pick.qualifying} usable contracts at that expiry with |delta| >= ${DELTA_THRESHOLDS.floor}`,
         ]
       : [`- Contract: ${r.symbol} (strike ${r.strike}); the cheapest of ${side.pick.qualifying} contracts at that expiry with |delta| >= ${MIN_ABS_DELTA}`]),
     `- Quote: bid ${usd(r.bid)}, ask ${usd(r.ask)}, mid ${usd(r.mid)} per share (spread ${pct(r.spreadPct)}), quote time ${r.quoteAt}`,
@@ -101,7 +101,7 @@ export function renderChainReport(i: ChainReportInput): string {
     "",
     "## Rules applied (hard)",
     `- Expiration at least ${MIN_DAYS_TO_EXPIRY} calendar days out; the nearest LISTED expiry that is at least ${MIN_DAYS_TO_EXPIRY} days out. Never less.`,
-    `- |delta| >= ${DELTA_THRESHOLDS.primary} (deep in the money): a CALL for Drive, a PUT for Reverse. If no contract at that expiry reaches ${DELTA_THRESHOLDS.primary}, the FALLBACK is the usable contract with the highest |delta| that is still >= ${DELTA_THRESHOLDS.floor} (hard floor, never below), marked "${FALLBACK_LABEL}". If nothing reaches ${DELTA_THRESHOLDS.floor}, no contract.`,
+    `- |delta| >= ${DELTA_THRESHOLDS.primary} (deep in the money): a CALL for Drive, a PUT for Reverse. If no contract at that expiry reaches ${DELTA_THRESHOLDS.primary}, the FALLBACK is the CHEAPEST usable contract (ask x 100) that is still >= ${DELTA_THRESHOLDS.floor} (hard floor, never below), marked "${FALLBACK_LABEL}". If nothing reaches ${DELTA_THRESHOLDS.floor}, no contract.`,
     `- A crossed, empty, stale or wide (over 15% of mid) quote is never chosen.`,
     "",
     "## Plain answer",
