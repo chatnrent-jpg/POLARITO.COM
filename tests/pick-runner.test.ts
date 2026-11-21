@@ -248,7 +248,7 @@ describe("rejected close", () => {
     const res = await closeLivePosition(closeDeps(t), "NVDA");
     assert.equal(res.ok, false);
     assert.equal(t.broker.positions.length, 1);
-    assert.ok(t.audit.some((a) => a.source === "live-close" && a.outcome === "error"));
+    assert.ok(t.audit.some((a) => a.source === "live-manual-close" && a.outcome === "error"));
     await tick(t);
     assert.equal(t.broker.orders.filter((o) => o.clientOrderId.includes("-e0")).length, 1);
   });
@@ -528,7 +528,7 @@ describe("closeLivePosition", () => {
     assert.equal(res.ok && res.status, "observed");
     assert.equal(res.ok && res.flat, null);
     assert.equal(t.broker.submitted.length, 0);
-    assert.ok(t.audit.some((a) => a.source === "live-close" && /Would close long 1 NVDA/.test(a.reason)));
+    assert.ok(t.audit.some((a) => a.source === "live-manual-close" && /Would close long 1 NVDA/.test(a.reason)));
   });
 
   it("refuses with the kill switch on, bad tickers, and says so when there is nothing to close", async () => {
