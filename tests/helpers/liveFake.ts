@@ -10,8 +10,8 @@ import type {
   MarketOrderRequest,
   Result,
 } from "../../src/lib/broker/types";
-import type { LiveSettings } from "../../src/lib/broker/liveConfig";
-import { liveSettings } from "../../src/lib/broker/liveConfig";
+import type { LiveSettings } from "../../src/lib/liveSettings";
+import { liveSettings } from "../../src/lib/liveSettings";
 import type { PickDeps } from "../../src/lib/pickRunner";
 import type { Bar } from "../../src/lib/polarity";
 

@@ -37,7 +37,7 @@
 import { buildAuditRecord, type AuditDraft, type AuditRecord } from "@/lib/audit";
 import { buildAutoSimInput, isStale, sideForPolarity } from "@/lib/autoDecision";
 import { tradingGate, type PaperBrokerConfig } from "@/lib/broker/config";
-import { LIVE_SHORT_MIN_EQUITY, type LiveSettings } from "@/lib/broker/liveConfig";
+import { LIVE_SHORT_MIN_EQUITY, type LiveSettings } from "@/lib/liveSettings";
 import { placeLiveClose, placeLiveEntry, type LiveOrderResult } from "@/lib/broker/liveExecute";
 import { closeBreakerTripped, deriveDayState, entriesTodayFor, entryNumberFor, MAX_CLOSE_ATTEMPTS, type DayState } from "@/lib/broker/liveOrders";
 import { parseOccSymbol } from "@/lib/broker/options";

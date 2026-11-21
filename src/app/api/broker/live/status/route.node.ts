@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { deriveDayState } from "@/lib/broker/liveOrders";
-import { createLiveBroker, liveBrokerConfig, liveOptedIn, liveSettings } from "@/lib/broker/liveConfig";
+import { createLiveBroker, liveBrokerConfig, liveOptedIn } from "@/lib/broker/liveConfig";
+import { liveSettings } from "@/lib/liveSettings";
 import { tradingGate } from "@/lib/broker/config";
 import { createAutoStore, readAutoState } from "@/lib/liveAutoStore";
 import { LIVE_LIMITS, liveLimitsView, slotUse } from "@/lib/liveLimits";

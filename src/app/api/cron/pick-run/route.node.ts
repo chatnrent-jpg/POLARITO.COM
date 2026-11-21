@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { logAudit } from "@/lib/audit";
-import { createLiveBroker, liveBrokerConfig, liveOptedIn, liveSettings } from "@/lib/broker/liveConfig";
+import { createLiveBroker, liveBrokerConfig, liveOptedIn } from "@/lib/broker/liveConfig";
+import { liveSettings } from "@/lib/liveSettings";
 import { createAutoStore, readAutoState } from "@/lib/liveAutoStore";
 import { cronAuthorized } from "@/lib/cronAuth";
 import { fetchRealMarketData } from "@/lib/marketApi";
