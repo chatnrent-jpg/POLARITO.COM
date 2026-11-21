@@ -7,6 +7,7 @@ import type { BrokerErrorCode, Result } from "@/lib/broker/types";
 import type { ReadOnlyClient, ReadOnlyHost } from "@/lib/alpacaReadOnly";
 import {
   DEFAULT_MODEL,
+  assertContractRules,
   MIN_ABS_DELTA,
   MIN_DAYS_TO_EXPIRY,
   buildRow,
@@ -17,7 +18,7 @@ import {
   type PricingModel,
   type RawOptionSnapshot,
 } from "@/lib/optionsSelect";
-import { addDays, parseOccSymbol } from "@/lib/broker/options";
+import { addDays, daysBetween, parseOccSymbol } from "@/lib/broker/options";
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const num = (v: unknown): number | null => {
@@ -44,6 +45,8 @@ export type AccountSummary = {
   optionsApprovedLevel: number | null;
   optionsTradingLevel: number | null;
   multiplier: number | null;
+  /** Names (never values other than "null") of the option-related fields Alpaca sent, so the report can say what was missing. */
+  optionsFieldsSeen: string[];
 };
 
 /** Only the fields Henry needs. The account number and id are never copied. */
@@ -60,6 +63,10 @@ export function parseAccountSummary(data: unknown): AccountSummary | null {
     optionsApprovedLevel: num(data.options_approved_level),
     optionsTradingLevel: num(data.options_trading_level),
     multiplier: num(data.multiplier),
+    optionsFieldsSeen: Object.keys(data)
+      .filter((k) => /option/i.test(k))
+      .sort()
+      .map((k) => (data[k] === null || data[k] === undefined ? `${k} (null)` : k)),
   };
 }
 
@@ -124,9 +131,9 @@ export async function listExpirations(
       if (isRecord(c) && c.tradable === true && typeof c.expiration_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(c.expiration_date)) found.add(c.expiration_date);
     }
     pageToken = typeof d.next_page_token === "string" && d.next_page_token ? d.next_page_token : null;
-    if (!pageToken) break;
+    if (!pageToken) return { ok: true, value: [...found].sort() };
   }
-  return { ok: true, value: [...found].sort() };
+  return fail("MALFORMED", "Too many pages of option contracts; refusing to use a partial list.");
 }
 
 export function parseSnapshot(symbol: string, snap: unknown): RawOptionSnapshot {
@@ -171,17 +178,36 @@ export async function readSnapshots(
     if (res.value.status !== 200 || !isRecord(d) || !isRecord(d.snapshots)) return fail("MALFORMED", "Unexpected option snapshots response.");
     for (const [sym, snap] of Object.entries(d.snapshots)) out.push(parseSnapshot(sym, snap));
     pageToken = typeof d.next_page_token === "string" && d.next_page_token ? d.next_page_token : null;
-    if (!pageToken) break;
+    if (!pageToken) return { ok: true, value: out };
   }
-  return { ok: true, value: out };
+  return fail("MALFORMED", "Too many pages of option snapshots; refusing to use a partial chain.");
 }
+
+/** Information only: what a LATER qualifying expiry would offer. It is never selected (the nearest listed expiry is the only one used). */
+export type LaterExpiry = {
+  expiration: string;
+  daysToExpiry: number;
+  rowsBuilt: number;
+  /** Contracts at this expiry that meet every hard rule (|delta| >= 0.80, spread, quote). */
+  meetingRules: number;
+  /** The row with the highest |delta| at this expiry, whatever the other rules say. */
+  highestAbsDelta: ChainRow | null;
+  error: string | null;
+};
 
 export type SideReport = {
   type: OptionType;
   listedExpirations: string[];
   pick: PickResult;
-  /** Usable rows of the chosen expiry with |delta| between 0.6 and 0.97, nearest to the rule first, for context. */
+  /** Usable rows of the chosen expiry with |delta| between 0.5 and 1.0, closest to the 0.80 rule first, for context. */
   ladder: ChainRow[];
+  /** The usable row with the highest |delta| at the chosen expiry, whether or not it meets the other rules. */
+  highestAbsDelta: ChainRow | null;
+  /** The strike window requested, and what the usable rows actually covered. */
+  window: { low: number; high: number };
+  strikesRead: { count: number; min: number | null; max: number | null };
+  /** Filled only when the nearest expiry gave no contract: what later qualifying expiries offer (information only). */
+  later: LaterExpiry[];
   rowsBuilt: number;
   rejected: Record<string, number>;
   error: string | null;
@@ -198,15 +224,33 @@ export type ChainOptions = {
   model?: PricingModel;
 };
 
-const strikeRange = (type: OptionType, spot: number): { low: number; high: number } =>
-  type === "call" ? { low: spot * 0.5, high: spot * 1.0 } : { low: spot * 1.0, high: spot * 1.7 };
+/** Deep in the money: calls below the price, puts above it. The put side reaches 3x the price so a far strike is never cut off. */
+export const strikeRange = (type: OptionType, spot: number): { low: number; high: number } =>
+  type === "call" ? { low: spot * 0.5, high: spot * 1.0 } : { low: spot * 1.0, high: spot * 3.0 };
+
+const LATER_EXPIRIES_MAX = 4;
+
+function buildRows(snaps: ReadonlyArray<RawOptionSnapshot>, spot: number, today: string, now: Date, model: PricingModel, rejected?: Record<string, number>): ChainRow[] {
+  const rows: ChainRow[] = [];
+  for (const raw of snaps) {
+    const r = buildRow(raw, spot, today, now, model);
+    if (r.ok) rows.push(r.row);
+    else if (rejected) {
+      const key = r.reason.replace(/[0-9]+(\.[0-9]+)?/g, "#");
+      rejected[key] = (rejected[key] ?? 0) + 1;
+    }
+  }
+  return rows;
+}
+
+const highest = (rows: readonly ChainRow[]): ChainRow | null => rows.reduce<ChainRow | null>((m, r) => (m === null || Math.abs(r.delta) > Math.abs(m.delta) ? r : m), null);
 
 /** One side (call or put): nearest listed expiry >= 365 days, then the delta >= 0.80 pick. Never throws. */
 export async function readSide(client: ReadOnlyClient, type: OptionType, o: ChainOptions): Promise<SideReport> {
   const model = o.model ?? DEFAULT_MODEL;
-  const base: SideReport = { type, listedExpirations: [], pick: { ok: false, reason: "not run", expiration: null }, ladder: [], rowsBuilt: 0, rejected: {}, error: null };
+  const { low, high } = strikeRange(type, o.spot);
+  const base: SideReport = { type, listedExpirations: [], pick: { ok: false, reason: "not run", expiration: null }, ladder: [], highestAbsDelta: null, window: { low, high }, strikesRead: { count: 0, min: null, max: null }, later: [], rowsBuilt: 0, rejected: {}, error: null };
   try {
-    const { low, high } = strikeRange(type, o.spot);
     const from = earliestExpiry(o.today);
     const to = addDays(from, 400);
     let listed: string[] = [];
@@ -224,20 +268,34 @@ export async function readSide(client: ReadOnlyClient, type: OptionType, o: Chai
     if (probe === null) return { ...base, pick: pickDeepItm([], listed, type, o.today) };
     const snaps = await readSnapshots(client, o.symbol, type, probe, low, high, o.optionsFeed);
     if (!snaps.ok) return { ...base, error: `Reading quotes failed: ${snaps.error}` };
-    const rows: ChainRow[] = [];
-    for (const raw of snaps.value) {
-      const r = buildRow(raw, o.spot, o.today, o.now, model);
-      if (r.ok) rows.push(r.row);
-      else {
-        const key = r.reason.replace(/[0-9]+(\.[0-9]+)?/g, "#");
-        base.rejected[key] = (base.rejected[key] ?? 0) + 1;
-      }
-    }
+    const rows = buildRows(snaps.value, o.spot, o.today, o.now, model, base.rejected);
     base.rowsBuilt = rows.length;
     base.pick = pickDeepItm(rows, listed, type, o.today);
+    base.highestAbsDelta = highest(rows);
+    const strikes = rows.map((r) => r.strike);
+    base.strikesRead = { count: rows.length, min: strikes.length ? Math.min(...strikes) : null, max: strikes.length ? Math.max(...strikes) : null };
     base.ladder = rows
-      .filter((r) => Math.abs(r.delta) >= 0.6 && Math.abs(r.delta) <= 0.97)
-      .sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta));
+      .filter((r) => Math.abs(r.delta) >= 0.5 && Math.abs(r.delta) <= 1)
+      .sort((a, b) => Math.abs(Math.abs(a.delta) - MIN_ABS_DELTA) - Math.abs(Math.abs(b.delta) - MIN_ABS_DELTA) || a.strike - b.strike);
+
+    if (!base.pick.ok && base.pick.expiration !== null) {
+      for (const exp of listed.filter((e) => e >= from && e !== probe).slice(0, LATER_EXPIRIES_MAX)) {
+        const res = await readSnapshots(client, o.symbol, type, exp, low, high, o.optionsFeed);
+        if (!res.ok) {
+          base.later.push({ expiration: exp, daysToExpiry: daysBetween(o.today, exp), rowsBuilt: 0, meetingRules: 0, highestAbsDelta: null, error: res.error });
+          continue;
+        }
+        const later = buildRows(res.value, o.spot, o.today, o.now, model);
+        base.later.push({
+          expiration: exp,
+          daysToExpiry: daysBetween(o.today, exp),
+          rowsBuilt: later.length,
+          meetingRules: later.filter((r) => assertContractRules(r, type, o.today) === null).length,
+          highestAbsDelta: highest(later),
+          error: null,
+        });
+      }
+    }
     return base;
   } catch {
     return { ...base, error: "Unexpected error while reading the chain." };
