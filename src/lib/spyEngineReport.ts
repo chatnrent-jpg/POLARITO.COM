@@ -8,13 +8,15 @@ import type { EngineConfig, EngineResult } from "@/lib/spyEngine";
 const m = (n: number | null): string => (n === null ? "n/a" : `${(n / 1e6).toFixed(1)}M`);
 
 function row(r: LongReading, mark: string): string {
-  return `| ${LONG_TIMEFRAME_NAMES[r.timeframe]}${mark} | **${r.label}** | ${r.periodStart} | ${m(r.netVolume)} | ${m(r.upVolume)} | ${m(r.downVolume)} | ${r.asOf} | ${r.throughDate}${r.lastBarAt ? ` / ${r.lastBarAt}` : ""} | ${r.sessions || "n/a"} | ${r.reason ?? ""} |`;
+  const candle = r.kind ? `${r.kind}${r.open !== null && r.close !== null ? ` (${r.open.toFixed(2)} -> ${r.close.toFixed(2)})` : ""}` : "n/a";
+  const net = r.netSign === null ? "n/a" : `${m(r.netVolume)} (${r.netSign > 0 ? "positive" : r.netSign < 0 ? "negative" : "zero"})`;
+  return `| ${LONG_TIMEFRAME_NAMES[r.timeframe]}${mark} | ${candle} | ${net} | ${r.agreement ?? "n/a"} | **${r.label}** | ${r.periodStart} | ${r.asOf} | ${r.throughDate}${r.lastBarAt ? ` / ${r.lastBarAt}` : ""} | ${r.sessions || "n/a"} | ${r.reason ?? ""} |`;
 }
 
 export function renderEngineReport(result: EngineResult, config: EngineConfig): string {
   const L: string[] = ["# SPY options dry run", "", "DRY RUN: no order is sent and none can be: this job only reads market data.", ""];
   L.push(
-    `Decision timeframe: ${LONG_TIMEFRAME_NAMES[config.timeframe]} (marked with *). Net volume method: ${config.method}. Rules: expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${MIN_ABS_DELTA}; calls on Drive, puts on Reverse; one position at a time; max loss = premium; roll or exit only when the decision timeframe flips.`,
+    `Decision timeframe: ${LONG_TIMEFRAME_NAMES[config.timeframe]} (marked with *). Net volume method: ${config.method}. A reading counts only when candle colour and net volume match (green + positive = Drive, red + negative = Reverse, otherwise Neutral). On Neutral with a position held: ${config.onNeutral === "hold" ? "hold it (no exit, no new entry)" : "exit it"}. Rules: expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${MIN_ABS_DELTA}; calls on Drive, puts on Reverse; one position at a time; max loss = premium; roll or exit only when the decision timeframe flips.`,
     "",
   );
   if (result.decision) L.push(`## Decision: ${result.decision.action.replace("_", " ")}`, "", result.decision.reason, "");
@@ -22,7 +24,7 @@ export function renderEngineReport(result: EngineResult, config: EngineConfig): 
     L.push(
       "## Readings (period to date, one value per period)",
       "",
-      "| Timeframe | Reading | Period start | Net volume | Up volume | Down volume | As of | Newest bar | Sessions | Why unavailable |",
+      "| Timeframe | Candle | Net volume | Match | Reading | Period start | As of | Newest bar | Sessions | Why unavailable |",
       "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
       ...LONG_TIMEFRAMES.map((tf) => row(result.readings![tf], tf === config.timeframe ? " *" : "")),
       "",
