@@ -193,11 +193,19 @@ export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
           {auto.reason !== "Auto is ON." && auto.reason !== "Auto is OFF." ? <p className="mt-1 text-sm text-amber-300">{auto.reason}</p> : null}
         </div>
       ) : null}
-      {status.day ? (
+      {status.day || status.limits ? (
         <p className="text-sm text-slate-400">
-          {status.day.lockedTicker ? `Today's stock: ${status.day.lockedTicker}. ` : "No entry yet today. "}
-          Entries today: {status.day.entries}.
-          {status.day.stoppedToday ? " Stopped out: no re-entry today." : ""}
+          {status.limits ? (
+            <>
+              Positions: {positions.length} of {status.limits.maxPositions} (each up to {status.limits.perPositionCapPct}% of equity, long only).{" "}
+              {positions.length > status.limits.maxPositions ? (
+                <span className="font-semibold text-red-300">More than {status.limits.maxPositions} positions are open: close the extra ones. </span>
+              ) : null}
+            </>
+          ) : null}
+          {status.day
+            ? `${status.day.enteredTickers && status.day.enteredTickers.length > 0 ? `Entered today: ${status.day.enteredTickers.join(", ")}. ` : "No entry yet today. "}Entries today: ${status.day.entries}.${status.day.stoppedToday ? " Stopped out: no re-entry today." : ""}`
+            : null}
         </p>
       ) : null}
       {positions.length === 0 ? (
@@ -258,9 +266,9 @@ export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
                   <label className="flex items-start gap-2 text-slate-200">
                     <input type="checkbox" checked={alsoAutoOff} onChange={(e) => setAlsoAutoOff(e.target.checked)} className="mt-1" />
                     <span>
-                      Then turn Live Auto OFF once the position is flat. Auto is ON and would otherwise buy {p.ticker} again on its next
-                      tick (about 10 seconds) if its reading is still aligned. Auto OFF is only accepted when the account is flat with no
-                      working orders; if it is refused, Auto stays ON.
+                      Then turn Live Auto OFF once the account is flat. Auto is ON: it will not buy {p.ticker} again today if it entered it
+                      today, but it would fill the freed slot with the next-ranked stock on its next tick (about 10 seconds). Auto OFF is only
+                      accepted when the account is flat with no working orders (your other positions count); if it is refused, Auto stays ON.
                     </span>
                   </label>
                 ) : null}

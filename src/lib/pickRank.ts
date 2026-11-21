@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the live "one stock a day" pick. No I/O. The polarity
+ * Pure helpers for the live pick (up to LIVE_LIMITS.maxPositions stocks at a time). No I/O. The polarity
  * engine is only READ here: a stock's reading is the latest DayResult the
  * engine already produced; nothing is recomputed or filtered.
  *
@@ -16,6 +16,9 @@ import { assessEntry } from "@/lib/risk";
 
 /** Tickers that are the same company. Keep short; ties inside a group are decided by liquidity. */
 export const COMPANY_GROUPS: readonly (readonly string[])[] = [["GOOGL", "GOOG"]];
+
+/** GOOGL and GOOG share one key; every other ticker is its own company. */
+export const companyKey = (ticker: string): string => COMPANY_GROUPS.find((g) => g.includes(ticker))?.[0] ?? ticker;
 
 export type Reading = {
   ticker: string;
@@ -117,6 +120,15 @@ export function sizeLiveEntry(a: SizeArgs, side: "long" | "short"): { quantity: 
   } catch (e) {
     return { quantity: 0, reason: e instanceof Error ? e.message : "Unusable price.", notes: [] };
   }
+  const capNotional = (a.equity * a.maxPositionPct) / 100;
+  if (Number.isFinite(capNotional) && Number.isFinite(price) && price > 0 && Math.floor(capNotional / price) < 1) {
+    const dollars = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return {
+      quantity: 0,
+      reason: `rounds to zero shares: one share costs ${dollars(price)} but the per-position cap is ${dollars(capNotional)} (${a.maxPositionPct}% of ${dollars(a.equity)}).`,
+      notes: [],
+    };
+  }
   const assessment = assessEntry({
     closed: [{ realizedPnl: a.equity - a.lastEquity, exitDate: a.today }],
     startingCash: a.lastEquity,
@@ -144,10 +156,42 @@ export type WalkResult = {
   aside: string | null;
 };
 
+export type ReadingCheck =
+  | { ok: true; side: "long" | "short" }
+  | { ok: false; skip: string; aside?: string };
+
 /**
- * Walk the ranked list and take the first eligible candidate. Order of checks per share class:
- * bars ready and today's, not Neutral, side allowed, asset flags, at least one share under the cap and cash.
- * A failing class is followed by the company's other class (once) before the next company.
+ * Is one reading tradable right now? Order of checks: bars ready and today's, not Neutral, side allowed,
+ * asset flags. Sizing is the caller's next step. `aside` is set when the long-only fallback says to stop
+ * the whole walk instead of trading a weaker Drive stock.
+ */
+export async function checkReading(
+  r: Reading,
+  ctx: {
+    today: string;
+    shortBlocked: string | null;
+    longOnlyFallback: "aside" | "next";
+    checkAsset: AssetCheck;
+  },
+): Promise<ReadingCheck> {
+  if (!r.ready) return { ok: false, skip: "not enough history." };
+  if (r.barDate !== ctx.today) return { ok: false, skip: `latest bar (${r.barDate}) is not today (${ctx.today}).` };
+  if (r.polarity === 0) return { ok: false, skip: "Neutral (0)." };
+  const side = r.polarity === 1 ? "long" : "short";
+  if (side === "short" && ctx.shortBlocked) {
+    const skip = `Reverse (-1) but ${ctx.shortBlocked}`;
+    return ctx.longOnlyFallback === "aside"
+      ? { ok: false, skip, aside: `${r.ticker} reads Reverse and ${ctx.shortBlocked} Standing aside rather than trading a weaker Drive stock.` }
+      : { ok: false, skip };
+  }
+  const assetProblem = await ctx.checkAsset(r.ticker, side);
+  if (assetProblem) return { ok: false, skip: assetProblem };
+  return { ok: true, side };
+}
+
+/**
+ * Walk the ranked list and take the first eligible candidate. A failing class is followed by the company's
+ * other class (once) before the next company.
  */
 export async function walkCandidates(
   ranked: readonly RankedCandidate[],
@@ -163,39 +207,18 @@ export async function walkCandidates(
   const skips: string[] = [];
   for (const cand of ranked) {
     for (const r of cand.members) {
-      const skip = (why: string) => skips.push(`${r.ticker}: ${why}`);
-      if (!r.ready) {
-        skip("not enough history.");
+      const checked = await checkReading(r, ctx);
+      if (!checked.ok) {
+        skips.push(`${r.ticker}: ${checked.skip}`);
+        if (checked.aside) return { pick: null, skips, aside: checked.aside };
         continue;
       }
-      if (r.barDate !== ctx.today) {
-        skip(`latest bar (${r.barDate}) is not today (${ctx.today}).`);
-        continue;
-      }
-      if (r.polarity === 0) {
-        skip("Neutral (0).");
-        continue;
-      }
-      const side = r.polarity === 1 ? "long" : "short";
-      if (side === "short" && ctx.shortBlocked) {
-        if (ctx.longOnlyFallback === "aside") {
-          skip(`Reverse (-1) but ${ctx.shortBlocked}`);
-          return { pick: null, skips, aside: `${r.ticker} reads Reverse and ${ctx.shortBlocked} Standing aside rather than trading a weaker Drive stock.` };
-        }
-        skip(`Reverse (-1) but ${ctx.shortBlocked}`);
-        continue;
-      }
-      const assetProblem = await ctx.checkAsset(r.ticker, side);
-      if (assetProblem) {
-        skip(assetProblem);
-        continue;
-      }
-      const sized = ctx.size(r, side);
+      const sized = ctx.size(r, checked.side);
       if (sized.quantity < 1) {
-        skip(sized.reason ?? "no room for one share.");
+        skips.push(`${r.ticker}: ${sized.reason ?? "no room for one share."}`);
         continue;
       }
-      return { pick: { reading: r, side, quantity: sized.quantity, notes: sized.notes }, skips, aside: null };
+      return { pick: { reading: r, side: checked.side, quantity: sized.quantity, notes: sized.notes }, skips, aside: null };
     }
   }
   return { pick: null, skips, aside: null };

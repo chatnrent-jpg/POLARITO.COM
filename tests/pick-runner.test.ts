@@ -38,26 +38,26 @@ function seedHeld(t: T, ticker: string, side: "long" | "short" = "long", quantit
 }
 const closeDeps = (t: T) => ({ broker: t.broker as FakeLiveBroker, config: t.deps.config, audit: t.deps.audit, now: t.deps.now, sleep: t.deps.sleep });
 
-describe("the pick picks one stock and enters it once", () => {
-  it("enters the strongest reading with id pol-{date}-e01-{TICKER}, 1 share, a buy", async () => {
+describe("the pick fills the free slots from the ranking and enters each stock once", () => {
+  it("enters the strongest readings with ids pol-{date}-eNN-{TICKER} (one per ticker), 1 share each, buys; a stock too dear for the cap is skipped", async () => {
     const t = pickSetup({ specs: SPECS() });
     const r = await tick(t);
     assert.ok(r.ok);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-NVDA"]);
-    assert.deepEqual([t.broker.submitted[0].side, t.broker.submitted[0].quantity, t.broker.submitted[0].timeInForce], ["buy", 1, "day"]);
-    const rec = t.audit.at(-1)!;
-    assert.equal(rec.source, "pick-runner");
-    assert.equal(rec.outcome, "entered");
-    assert.match(rec.notes[0], /^Ranked: NVDA .*WMT|Ranked: NVDA/);
+    assert.deepEqual(ids(t), ["pol-20261119-e01-NVDA", "pol-20261119-e02-WMT"]);
+    assert.deepEqual(t.broker.submitted.map((o) => [o.side, o.quantity, o.timeInForce]), [["buy", 1, "day"], ["buy", 1, "day"]]);
+    const first = t.audit.find((a) => a.outcome === "entered")!;
+    assert.equal(first.source, "pick-runner");
+    assert.match(first.notes[0], /^Ranked: NVDA .*WMT/);
+    assert.ok(t.audit.some((a) => a.outcome === "aside" && a.notes.some((n) => /^AAPL: rounds to zero shares/.test(n))));
   });
 
-  it("never adds on the next tick: a held, aligned stock is left alone", async () => {
-    const t = pickSetup({ specs: SPECS() });
+  it("never adds on the next tick: held, aligned stocks are left alone and a stock already entered today is not re-entered", async () => {
+    const t = pickSetup({ specs: { NVDA: SPECS().NVDA, WMT: SPECS().WMT } });
     await tick(t);
     await tick(t);
     await tick(t);
-    assert.equal(t.broker.submitted.length, 1);
-    assert.equal(t.audit.at(-1)?.outcome, "held");
+    assert.equal(t.broker.submitted.length, 2);
+    assert.ok(t.audit.slice(-3).some((a) => a.outcome === "held" && /Polarity unchanged/.test(a.reason)));
   });
 
   it("while the first order is still working a second tick sends nothing", async () => {
@@ -146,26 +146,27 @@ describe("live switched off or observe-only", () => {
   });
 });
 
-describe("close, then re-enter the same day, with real orders", () => {
-  it("manual close sends a real sell as c01-a1, then the automation re-enters as e02 in the same stock", async () => {
+const ONE = (): Record<string, BarSpec> => ({ NVDA: SPECS().NVDA });
+
+describe("close, then the slot goes to the next stock (one automatic entry per ticker per day)", () => {
+  it("a manual close sends a real sell as c01-a1; the same day the automation does NOT re-enter that ticker, it fills the slot with the next-ranked one", async () => {
     const t = pickSetup({ specs: SPECS() });
     await tick(t);
     const closed = await closeLivePosition(closeDeps(t), "NVDA");
     assert.ok(closed.ok);
     assert.equal(closed.ok && closed.status, "submitted");
     assert.equal(closed.ok && closed.flat, true);
-    // Alpaca is now stronger elsewhere: the day stays locked to NVDA.
     t.specs.WMT.mult = 40;
     await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-NVDA", "pol-20261119-c01-a1-NVDA", "pol-20261119-e02-NVDA"]);
-    assert.deepEqual(t.broker.submitted.map((o) => o.side), ["buy", "sell", "buy"]);
-    assert.equal(t.broker.positions.length, 1);
+    assert.deepEqual(ids(t), ["pol-20261119-e01-NVDA", "pol-20261119-e02-WMT", "pol-20261119-c01-a1-NVDA"]);
+    assert.deepEqual(t.broker.positions.map((p) => p.ticker), ["WMT"]);
     await tick(t);
-    assert.equal(t.broker.submitted.length, 3, "no double entry");
+    assert.equal(t.broker.submitted.length, 3, "no re-entry of NVDA and no double entry");
+    assert.ok(t.audit.some((a) => a.notes.some((n) => /^NVDA: already entered today/.test(n))));
   });
 
   it("a second Close click on the same position is a no-op (same id)", async () => {
-    const t = pickSetup({ specs: SPECS() });
+    const t = pickSetup({ specs: ONE() });
     await tick(t);
     t.broker.fill = false;
     const first = await closeLivePosition(closeDeps(t), "NVDA");
@@ -176,47 +177,46 @@ describe("close, then re-enter the same day, with real orders", () => {
     assert.equal(t.broker.submitted.length, 2);
   });
 
-  it("the automation closes on Neutral (c01-a1) and re-enters when Drive returns (e02)", async () => {
-    const t = pickSetup({ specs: SPECS() });
+  it("the automation closes a stock on Neutral (c01-a1) and does not re-enter it today even if Drive returns", async () => {
+    const t = pickSetup({ specs: ONE() });
     await tick(t);
     t.specs.NVDA = { kind: "neutral" };
     await tick(t);
     assert.deepEqual(ids(t), ["pol-20261119-e01-NVDA", "pol-20261119-c01-a1-NVDA"]);
     assert.equal(t.broker.positions.length, 0);
     await tick(t);
-    assert.equal(t.broker.submitted.length, 2, "Neutral: stays flat, and does not hop to another stock");
-    assert.match(t.audit.at(-1)!.notes.join(" "), /Neutral/);
+    assert.equal(t.broker.submitted.length, 2, "Neutral: stays flat");
     t.specs.NVDA = { kind: "drive", mult: 12, price: 130 };
     await tick(t);
-    assert.equal(ids(t)[2], "pol-20261119-e02-NVDA");
+    assert.equal(t.broker.submitted.length, 2, "one entry per ticker per day: no same-day re-entry");
+    assert.match(t.audit.at(-1)!.notes.join(" "), /NVDA: already entered today/);
   });
 
-  it("a flip to Reverse closes the long; at $1,000 the short is refused and the day stands aside", async () => {
-    const t = pickSetup({ specs: SPECS() });
+  it("a flip to Reverse closes the long and never opens a short (long only)", async () => {
+    const t = pickSetup({ specs: ONE() });
     await tick(t);
     t.specs.NVDA = { kind: "reverse", mult: 12, price: 130 };
     await tick(t);
     assert.deepEqual(ids(t), ["pol-20261119-e01-NVDA", "pol-20261119-c01-a1-NVDA"]);
     assert.equal(t.broker.positions.length, 0);
-    assert.match(t.audit.at(-1)!.reason, /Standing aside|shorting needs/);
-  });
-
-  it("re-entry is unlimited: ten close/re-enter cycles all go through, decided only by polarity", async () => {
-    const t = pickSetup({ specs: SPECS() });
     await tick(t);
-    for (let i = 0; i < 10; i++) {
-      const closed = await closeLivePosition(closeDeps(t), "NVDA");
-      assert.ok(closed.ok && closed.status === "submitted");
-      await tick(t);
-      assert.equal(t.broker.positions.length, 1, `cycle ${i}`);
-    }
-    assert.equal(t.broker.submitted.length, 21);
-    assert.equal(t.broker.submitted.at(-1)!.clientOrderId, "pol-20261119-e11-NVDA");
-    assert.ok(!t.audit.some((a) => /entry cap/i.test(a.reason)));
+    assert.equal(t.broker.submitted.length, 2);
   });
 
-  it("rejected entries never block re-entry (the entry number just moves on)", async () => {
-    const t = pickSetup({ specs: SPECS() });
+  it("the ticker limit is per day: the next session enters it again (a new date in the id)", async () => {
+    const t = pickSetup({ specs: ONE() });
+    await tick(t);
+    await closeLivePosition(closeDeps(t), "NVDA");
+    await tick(t);
+    assert.equal(t.broker.submitted.length, 2);
+    t.setNow(new Date("2026-11-20T20:00:00Z"));
+    for (const k of Object.keys(t.specs)) t.specs[k] = { ...t.specs[k], last: "2026-11-20" };
+    await tick(t);
+    assert.equal(t.broker.submitted.at(-1)!.clientOrderId, "pol-20261120-e01-NVDA");
+  });
+
+  it("rejected or canceled entries do not use up the ticker's automatic entry (the entry number just moves on)", async () => {
+    const t = pickSetup({ specs: ONE() });
     for (const n of [1, 2, 3, 4]) {
       t.broker.orders.push({ ...filled(`pol-20261119-e0${n}-NVDA`, "NVDA"), status: n % 2 ? "rejected" : "canceled" });
     }
@@ -225,24 +225,23 @@ describe("close, then re-enter the same day, with real orders", () => {
   });
 
   it("the next entry number comes from the broker's orders, so a restart cannot reuse an id", async () => {
-    const t = pickSetup({ specs: SPECS() });
+    const t = pickSetup({ specs: ONE() });
     t.broker.orders.push({ ...filled("pol-20261119-e01-NVDA", "NVDA"), status: "canceled" });
     await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e02-NVDA"], "locked to the stock of e01");
+    assert.deepEqual(ids(t), ["pol-20261119-e02-NVDA"]);
   });
 
-  it("a day-locked stock that is no longer on the watchlist stands the day aside", async () => {
+  it("a stock entered today that has since left the watchlist does not block the others", async () => {
     const t = pickSetup({ specs: { WMT: { kind: "drive" } } });
     t.broker.orders.push({ ...filled("pol-20261119-e01-NVDA", "NVDA"), status: "canceled" });
     await tick(t);
-    assert.equal(t.broker.submitted.length, 0);
-    assert.match(t.audit.at(-1)!.reason, /no longer on the watchlist/);
+    assert.deepEqual(ids(t), ["pol-20261119-e02-WMT"]);
   });
 });
 
 describe("rejected close", () => {
   it("shows no closed state: the position stays, nothing re-enters, and the error is audited", async () => {
-    const t = pickSetup({ specs: SPECS() });
+    const t = pickSetup({ specs: ONE() });
     await tick(t);
     t.broker.rejectNext.push({ code: "REJECTED", error: "Alpaca live API returned 403: wash trade" });
     const res = await closeLivePosition(closeDeps(t), "NVDA");
@@ -312,13 +311,13 @@ describe("1% stop-out", () => {
   });
 
   it("just inside the stop it still follows the signal", async () => {
-    const t = pickSetup({ specs: SPECS(), account: { equity: 990.5 } });
+    const t = pickSetup({ specs: ONE(), account: { equity: 990.5 } });
     await tick(t);
     assert.equal(t.broker.submitted.length, 1);
   });
 
   it("a manual close at a loss that takes the day to -1% keeps the automation out", async () => {
-    const t = pickSetup({ specs: SPECS() });
+    const t = pickSetup({ specs: ONE() });
     await tick(t);
     await closeLivePosition(closeDeps(t), "NVDA");
     t.broker.account = { ...ACCOUNT_1K, equity: 989 };
@@ -326,13 +325,15 @@ describe("1% stop-out", () => {
     assert.equal(t.broker.submitted.length, 2);
   });
 
-  it("a small manual loss that leaves the day above -1% still allows re-entry", async () => {
-    const t = pickSetup({ specs: SPECS() });
+  it("a small manual loss that leaves the day above -1% does not stop anything (but the closed ticker is not re-entered today)", async () => {
+    const t = pickSetup({ specs: { NVDA: SPECS().NVDA, WMT: SPECS().WMT } });
     await tick(t);
     await closeLivePosition(closeDeps(t), "NVDA");
     t.broker.account = { ...ACCOUNT_1K, equity: 995 };
     await tick(t);
     assert.equal(t.broker.submitted.length, 3);
+    assert.ok(!ids(t).some((id) => /-s\d\d-/.test(id)), "no stop-out");
+    assert.deepEqual(t.broker.positions.map((p) => p.ticker), ["WMT"]);
   });
 
   it("the loss-only backstop stops out but never enters or follows the signal", async () => {
@@ -376,7 +377,8 @@ describe("affordability and the cap", () => {
     const t = pickSetup({ specs: SPECS() });
     t.broker.assets.set("NVDA", { symbol: "NVDA", status: "active", tradable: false, shortable: false, borrowStatus: null });
     await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-AAPL"]);
+    assert.deepEqual(ids(t), ["pol-20261119-e01-WMT"]);
+    assert.ok(t.audit.some((a) => a.notes.some((n) => /^NVDA: asset is not tradable/.test(n))));
   });
 
   it("unmanaged positions outside the watchlist are never touched, even at the stop", async () => {
@@ -394,13 +396,14 @@ describe("GOOGL and GOOG are one candidate", () => {
     GOOG: { kind: "drive" as const, mult: 12, price: 270 },
     NVDA: { kind: "drive" as const, mult: 5, price: 130 },
   });
+  const entries = (t: T) => ids(t).filter((id) => /-e\d\d-/.test(id));
 
-  it("an exact tie trades GOOG (alphabetical) and only one share class", async () => {
+  it("an exact tie trades GOOG (alphabetical), only one share class, and uses one slot", async () => {
     const t = pickSetup({ specs: twin() });
     await tick(t);
     await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-GOOG"]);
-    assert.equal(t.broker.positions.length, 1);
+    assert.deepEqual(entries(t), ["pol-20261119-e01-GOOG", "pol-20261119-e02-NVDA"]);
+    assert.deepEqual(t.broker.positions.map((p) => p.ticker).sort(), ["GOOG", "NVDA"]);
   });
 
   it("the more liquid class wins the tie", async () => {
@@ -408,23 +411,23 @@ describe("GOOGL and GOOG are one candidate", () => {
     specs.GOOGL = { kind: "drive", mult: 12, price: 270, baseVolume: 5_000 } as never;
     const t = pickSetup({ specs });
     await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-GOOGL"]);
+    assert.equal(entries(t)[0], "pol-20261119-e01-GOOGL");
   });
 
-  it("re-entry stays in the same class even when the other class now reads stronger", async () => {
+  it("after the company is closed the other class is not entered either (one entry per company per day)", async () => {
     const t = pickSetup({ specs: twin() });
     await tick(t);
     await closeLivePosition(closeDeps(t), "GOOG");
     t.specs.GOOGL.mult = 60;
     await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-GOOG", "pol-20261119-c01-a1-GOOG", "pol-20261119-e02-GOOG"]);
+    assert.deepEqual(entries(t), ["pol-20261119-e01-GOOG", "pol-20261119-e02-NVDA"]);
   });
 
   it("if the chosen class is not tradable the other class is used once, before the next company", async () => {
     const t = pickSetup({ specs: twin() });
     t.broker.assets.set("GOOG", { symbol: "GOOG", status: "active", tradable: false, shortable: false, borrowStatus: null });
     await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-GOOGL"]);
+    assert.deepEqual(entries(t), ["pol-20261119-e01-GOOGL", "pol-20261119-e02-NVDA"]);
   });
 
   it("when one class is Neutral the other class trades", async () => {
@@ -432,11 +435,11 @@ describe("GOOGL and GOOG are one candidate", () => {
     specs.GOOG = { kind: "neutral" } as never;
     const t = pickSetup({ specs });
     await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-GOOGL"]);
+    assert.equal(entries(t)[0], "pol-20261119-e01-GOOGL");
   });
 });
 
-describe("long-only at $1,000, shorting gated on $2,000", () => {
+describe("long only at any equity", () => {
   const downOnTop = () => ({ DOWN: { kind: "reverse" as const, mult: 20, price: 130 }, UP: { kind: "drive" as const, mult: 5, price: 128 } });
 
   it("default fallback: a Reverse name on top means the day stands aside (no weaker Drive stock)", async () => {
@@ -462,12 +465,16 @@ describe("long-only at $1,000, shorting gated on $2,000", () => {
 
   const rich = { equity: 2_000, lastEquity: 2_000, cash: 2_000, buyingPower: 4_000, shortingEnabled: true, multiplier: 2 };
 
-  it("at $2,000 with shorting enabled and an easy-to-borrow asset a Reverse reading sells short", async () => {
+  it("even at $2,000 with shorting enabled and an easy-to-borrow asset a Reverse reading is never sold short", async () => {
     const t = pickSetup({ specs: downOnTop(), account: rich });
     t.broker.assets.set("DOWN", { symbol: "DOWN", status: "active", tradable: true, shortable: true, borrowStatus: "easy_to_borrow" });
     await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-DOWN"]);
-    assert.deepEqual([t.broker.submitted[0].side, t.broker.positions[0]?.side], ["sell", "short"]);
+    assert.equal(t.broker.submitted.length, 0, "default fallback: stand aside");
+    const next = pickSetup({ specs: downOnTop(), account: rich, env: { POLARITO_LIVE_LONG_ONLY_FALLBACK: "next" } });
+    next.broker.assets.set("DOWN", { symbol: "DOWN", status: "active", tradable: true, shortable: true, borrowStatus: "easy_to_borrow" });
+    await tick(next);
+    assert.deepEqual(ids(next), ["pol-20261119-e01-UP"]);
+    assert.ok(next.broker.submitted.every((o) => o.side === "buy"));
   });
 
   it("a short on an asset that is not shortable or not easy to borrow is skipped", async () => {
@@ -488,15 +495,15 @@ describe("long-only at $1,000, shorting gated on $2,000", () => {
     assert.equal(t.broker.submitted.length, 0);
   });
 
-  it("a flip at $2,000 closes the long and enters the short in the same stock", async () => {
+  it("a flip at $2,000 closes the long and does not open the short", async () => {
     const t = pickSetup({ specs: { DOWN: { kind: "drive", mult: 9, price: 130 } }, account: rich });
     t.broker.assets.set("DOWN", { symbol: "DOWN", status: "active", tradable: true, shortable: true, borrowStatus: "easy_to_borrow" });
     await tick(t);
     t.specs.DOWN = { kind: "reverse", mult: 9, price: 130 };
     await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-e01-DOWN", "pol-20261119-c01-a1-DOWN", "pol-20261119-e02-DOWN"]);
-    assert.deepEqual(t.broker.submitted.map((o) => o.side), ["buy", "sell", "sell"]);
-    assert.equal(t.broker.positions[0].side, "short");
+    assert.deepEqual(ids(t), ["pol-20261119-e01-DOWN", "pol-20261119-c01-a1-DOWN"]);
+    assert.deepEqual(t.broker.submitted.map((o) => o.side), ["buy", "sell"]);
+    assert.equal(t.broker.positions.length, 0);
   });
 });
 
@@ -512,7 +519,7 @@ describe("end of day", () => {
   });
 
   it("can be switched off to hold overnight", async () => {
-    const t = pickSetup({ specs: SPECS(), now: new Date("2026-11-19T20:56:00Z"), env: { POLARITO_LIVE_FLATTEN_AT: "off" } });
+    const t = pickSetup({ specs: ONE(), now: new Date("2026-11-19T20:56:00Z"), env: { POLARITO_LIVE_FLATTEN_AT: "off" } });
     seedHeld(t, "NVDA");
     await tick(t);
     assert.equal(t.broker.submitted.length, 0);

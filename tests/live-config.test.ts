@@ -157,7 +157,8 @@ describe("liveSettings", () => {
     assert.ok(r.ok);
     assert.deepEqual(r.settings.watchlist, WATCH.split(","));
     assert.equal(r.settings.quantity, 1);
-    assert.equal(r.settings.maxPositionPct, 50);
+    assert.equal(r.settings.maxPositionPct, 33);
+    assert.equal(r.settings.maxPositions, 3);
     assert.equal(r.settings.dailyLossPct, 1);
     assert.equal("maxEntries" in r.settings, false, "there is no daily entry cap");
     assert.equal(r.settings.pickStartMinutes, 600);
@@ -184,6 +185,7 @@ describe("liveSettings", () => {
     const base = { POLARITO_LIVE_WATCHLIST: "WMT" };
     assert.equal(liveSettings({ ...base, POLARITO_LIVE_QTY: "0" }).ok, false);
     assert.equal(liveSettings({ ...base, POLARITO_LIVE_MAX_POSITION_PCT: "150" }).ok, false);
+    assert.equal(liveSettings({ ...base, POLARITO_LIVE_MAX_POSITION_PCT: "50" }).ok, false, "the 33% limit can only be lowered");
     assert.equal(liveSettings({ ...base, POLARITO_LIVE_MAX_ENTRIES: "1" }).ok, true, "the old cap variable is ignored");
     assert.equal(liveSettings({ ...base, POLARITO_LIVE_PICK_START: "9:00" }).ok, false);
     assert.equal(liveSettings({ ...base, POLARITO_LIVE_PICK_START: "ten" }).ok, false);

@@ -63,8 +63,8 @@ const fieldCls =
  * orders are possible (POLARITO_LIVE_ACCOUNT=1 and POLARITO_LIVE_TRADING_ENABLED=1, kill switch off,
  * keys present) the same ticket sends a REAL long market buy through
  * POST /api/broker/live/buy instead, and nothing is written to the simulated ledger. Long only: a
- * Short is refused in live mode. The server applies the real risk rules (watchlist, 50% cap, cash,
- * stop-out lockout, market hours, one stock at a time) and may send fewer shares than asked. When live is on but
+ * Short is refused in live mode. The server applies the real risk rules (watchlist, 33% per-position cap, up to 3
+ * positions at once, cash, stop-out lockout, market hours) and may send fewer shares than asked. When live is on but
  * orders are off, or the live account cannot be read, the ticket is locked with the reason (it never falls back to
  * the simulated ledger).
  */

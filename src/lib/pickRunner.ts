@@ -1,43 +1,53 @@
 /**
- * Live "one stock a day" runner (real cash; ships switched off).
+ * Live pick runner: up to LIVE_LIMITS.maxPositions (3) stocks at a time, real cash; ships switched off.
  *
- * Each tick (the GitHub loop calls it about every 10 seconds) it reads the live
- * Alpaca account, positions, working orders and TODAY's orders, derives the day's
- * state from those orders alone (liveOrders.ts), and then:
+ * State flow (one direction): Alpaca account + positions + working orders + today's orders -> DayState ->
+ * rails -> held positions follow their own polarity -> free slots are filled from the ranked watchlist.
+ *
+ * Each tick (the GitHub loop calls it about every 10 seconds) it reads the live Alpaca account, positions,
+ * working orders and TODAY's orders, derives the day's state from those orders alone (liveOrders.ts), and then:
  *
  *   1. stops if anything cannot be read or validated (Justice: no trade on bad data);
  *   2. skips while any order is still working;
- *   3. stop-out: account down dailyLossPct on the day => flatten with the stop id
- *      and stand aside until the next session (no re-entry, by automation or by hand);
+ *   3. stop-out: the WHOLE account down dailyLossPct on the day (equity vs Alpaca's last_equity, summed over
+ *      every stock) => flatten every position with the stop id and stand aside until the next session;
  *   4. end of day: flatten at flattenAt and stop entering;
  *   5. Auto gate: unless the persisted live Auto switch is ON (liveAutoStore.ts, default OFF,
  *      fail-closed), every signal-driven step below is only LOGGED as "would ..." and no
  *      order is sent. Steps 3 and 4 (and the loss-only backstop) are not gated;
- *   6. a held stock follows its own polarity (Neutral closes, a flip closes then enters
- *      the other side), exactly the rule the dashboard sim uses;
- *   7. when flat, the first entry of the day is the first ELIGIBLE name in the ranking
- *      (pickRank.ts); once an entry exists the day is locked to that one stock and
- *      later re-entries are for it only. Re-entry has no count limit: it is decided by
- *      market polarity alone. Only a stop-out or a 3-attempt close failure stops it.
+ *   6. each held watchlist stock follows its own polarity: Neutral or Reverse closes it (long only, so a
+ *      Reverse never opens a short);
+ *   7. free slots (maxPositions minus held positions minus working orders) are filled one order at a time
+ *      from the ranking (pickRank.ts), best first. Each entry is sized by the shared risk engine to at most
+ *      perPositionCapPct of equity in whole shares (a stock that rounds to zero shares is skipped and the note
+ *      says so), under the total exposure cap and cash. Before every entry after the first, the account,
+ *      positions and working orders are re-read, and the entry waits for the previous fill, so two entries
+ *      can never be sized against stale cash or push the account past the slot limit.
+ *
+ * Re-entry rule (per ticker): the automatic pick enters a ticker at most once per New York day
+ * (LIVE_LIMITS.maxAutoEntriesPerTickerPerDay). After a signal-driven close (Neutral or Reverse) that ticker
+ * stays out until the next session; its slot goes to the next-ranked candidate that has not been entered today.
+ * A stop-out ends all entries for the day. Entries start at pickStart (default 10:00 New York).
  *
  * It adds no signal logic: polarity comes from computePolaritySeries /
  * buildAutoSimInput (the dashboard's own call chain) and the wanted side from
- * sideForPolarity. Sizing uses the shared risk engine with the live cap.
- * Only watchlist stocks are ever managed; other positions are left alone.
+ * sideForPolarity. Only watchlist stocks are ever managed; other positions are left alone
+ * (they still use up a slot and count toward exposure and cash).
  */
 import { buildAuditRecord, type AuditDraft, type AuditRecord } from "@/lib/audit";
 import { buildAutoSimInput, isStale, sideForPolarity } from "@/lib/autoDecision";
 import { tradingGate, type PaperBrokerConfig } from "@/lib/broker/config";
 import { LIVE_SHORT_MIN_EQUITY, type LiveSettings } from "@/lib/broker/liveConfig";
 import { placeLiveClose, placeLiveEntry, type LiveOrderResult } from "@/lib/broker/liveExecute";
-import { closeBreakerTripped, deriveDayState, entryNumberFor, MAX_CLOSE_ATTEMPTS, type DayState } from "@/lib/broker/liveOrders";
+import { closeBreakerTripped, deriveDayState, entriesTodayFor, entryNumberFor, MAX_CLOSE_ATTEMPTS, type DayState } from "@/lib/broker/liveOrders";
 import { parseOccSymbol } from "@/lib/broker/options";
 import type { BrokerAccount, BrokerPosition, LiveBroker } from "@/lib/broker/types";
 import { sessionOpen } from "@/lib/mirrorRunner";
 import { newYorkClock, type RunReport, type TickerReport } from "@/lib/paperRunner";
 import { computePolaritySeries, type Bar, type DayResult } from "@/lib/polarity";
 import type { AutoState } from "@/lib/liveAutoStore";
-import { rankCandidates, sizeLiveEntry, toReading, walkCandidates, type Reading } from "@/lib/pickRank";
+import { LIVE_LIMITS, slotUse } from "@/lib/liveLimits";
+import { checkReading, companyKey, rankCandidates, sizeLiveEntry, toReading, type Reading } from "@/lib/pickRank";
 
 export type PickDeps = {
   broker: LiveBroker;
@@ -136,7 +146,8 @@ export async function runPickTick(
 
     const positionsRes = await deps.broker.getPositions();
     if (!positionsRes.ok) return fail(`Cannot read broker positions: ${positionsRes.error}`);
-    let stock = positionsRes.value.filter(isStockPosition);
+    let allPositions = positionsRes.value;
+    let stock = allPositions.filter(isStockPosition);
 
     const openRes = await deps.broker.listOpenOrders();
     if (!openRes.ok) return fail(`Cannot read working orders: ${openRes.error}`);
@@ -242,9 +253,43 @@ export async function runPickTick(
       return entry;
     };
 
-    const attemptEntry = async (tickers: readonly string[], why: string): Promise<void> => {
+    const longOnlyReason: string | null = LIVE_LIMITS.longOnly ? "this live account trades long only (no shorts)." : shortBlockedReason(account);
+    const maxPositions = settings.maxPositions;
+
+    let lastEntered: string | null = null;
+    /**
+     * Wait for the entry just sent to show as a position, then re-read account, positions and working orders.
+     * Returns a reason to stop, or null when it is safe to size the next entry.
+     */
+    const refreshAfterEntry = async (): Promise<string | null> => {
+      let filled = false;
+      for (let i = 0; i < FLAT_CHECKS && !filled; i++) {
+        const again = await deps.broker.getPositions();
+        if (again.ok) {
+          allPositions = again.value;
+          stock = again.value.filter(isStockPosition);
+          filled = lastEntered !== null && again.value.some((p) => p.ticker === lastEntered);
+        }
+        if (!filled) await sleep(FLAT_CHECK_MS);
+      }
+      if (!filled) return `The ${lastEntered ?? "previous"} entry is not filled yet.`;
+      const acc = await deps.broker.getAccount();
+      if (!acc.ok) return `Cannot re-read the account after the entry: ${acc.error}.`;
+      if (!(acc.value.equity > 0) || !(acc.value.lastEquity > 0)) return "Broker equity is not usable after the entry.";
+      const open = await deps.broker.listOpenOrders();
+      if (!open.ok) return `Cannot re-read working orders: ${open.error}.`;
+      if (open.value.length > 0) return `A ${open.value[0].ticker} order (${open.value[0].clientOrderId}) is still working.`;
+      account = acc.value;
+      return null;
+    };
+
+    /**
+     * Fill free slots, one order at a time, from the ranked `tickers`. Live ticks wait for each fill and re-read
+     * the account before the next order; dry and observe-only ticks plan against what they would have bought.
+     */
+    const attemptEntries = async (tickers: readonly string[], why: string, preNotes: string[]): Promise<void> => {
       const readings: Reading[] = [];
-      const skips: string[] = [];
+      const skips: string[] = [...preNotes];
       for (const t of tickers) {
         const a = await analyze(t);
         if ("error" in a) skips.push(`${t}: ${a.error}`);
@@ -252,35 +297,73 @@ export async function runPickTick(
       }
       const ranked = rankCandidates(readings);
       const rankLine = `Ranked: ${ranked.map((c) => `${c.key} ${c.score.toFixed(2)}`).join(", ") || "none"}.`;
-      const reserved = () => stock.reduce((s, p) => s + p.quantity * p.avgEntryPrice, 0);
-      const shortBlocked = shortBlockedReason(account);
 
-      const walked = await walkCandidates(ranked, {
-        today,
-        shortBlocked,
-        longOnlyFallback: settings.longOnlyFallback,
-        checkAsset: async (ticker, side) => {
-          const asset = await deps.broker.getAsset(ticker);
-          if (!asset.ok) return `asset check failed (${asset.error}).`;
-          if (!asset.value) return "asset not found at Alpaca.";
-          if (asset.value.status.toLowerCase() !== "active") return `asset is ${asset.value.status}, not active.`;
-          if (!asset.value.tradable) return "asset is not tradable.";
-          if (side === "short") {
-            if (!asset.value.shortable) return "asset is not shortable.";
-            if (asset.value.borrowStatus === null || !EASY_BORROW.test(asset.value.borrowStatus)) {
-              return `borrow status is ${asset.value.borrowStatus ?? "unknown"}, not easy to borrow.`;
+      const plannedTickers: string[] = [];
+      let plannedNotional = 0;
+      const reserved = () => stock.reduce((sum, p) => sum + p.quantity * p.avgEntryPrice, 0) + plannedNotional;
+      const slotsFree = () => slotUse([...allPositions, ...plannedTickers.map((ticker) => ({ ticker }))], [], maxPositions).free;
+      const slotsAtStart = slotsFree();
+
+      let placed = 0;
+      let asideMsg: string | null = null;
+      let stopped = false;
+
+      const checkAsset = async (ticker: string, side: "long" | "short") => {
+        const asset = await deps.broker.getAsset(ticker);
+        if (!asset.ok) return `asset check failed (${asset.error}).`;
+        if (!asset.value) return "asset not found at Alpaca.";
+        if (asset.value.status.toLowerCase() !== "active") return `asset is ${asset.value.status}, not active.`;
+        if (!asset.value.tradable) return "asset is not tradable.";
+        if (side === "short") {
+          if (!asset.value.shortable) return "asset is not shortable.";
+          if (asset.value.borrowStatus === null || !EASY_BORROW.test(asset.value.borrowStatus)) {
+            return `borrow status is ${asset.value.borrowStatus ?? "unknown"}, not easy to borrow.`;
+          }
+        }
+        return null;
+      };
+
+      for (const cand of ranked) {
+        if (stopped) break;
+        if (slotsFree() <= 0) {
+          skips.push(`${cand.key}: all ${maxPositions} position slots are in use.`);
+          break;
+        }
+        for (const reading of cand.members) {
+          const checked = await checkReading(reading, { today, shortBlocked: longOnlyReason, longOnlyFallback: settings.longOnlyFallback, checkAsset });
+          if (!checked.ok) {
+            skips.push(`${reading.ticker}: ${checked.skip}`);
+            if (checked.aside) {
+              asideMsg = checked.aside;
+              stopped = true;
+              break;
+            }
+            continue;
+          }
+          const side = checked.side;
+
+          // Live: the previous entry must have filled, and the account is read again before the next order.
+          if (!signalDry && placed > 0) {
+            const again = await refreshAfterEntry();
+            if (again) {
+              record({ ticker: reading.ticker, outcome: "held", reason: `${again} The next entry waits for the next tick.` });
+              stopped = true;
+              break;
+            }
+            if (slotsFree() <= 0) {
+              skips.push(`${reading.ticker}: all ${maxPositions} position slots are in use.`);
+              stopped = true;
+              break;
             }
           }
-          return null;
-        },
-        size: (r, side) =>
-          sizeLiveEntry(
+
+          const sized = sizeLiveEntry(
             {
-              price: r.price,
+              price: reading.price,
               equity: account.equity,
               lastEquity: account.lastEquity,
-              cash: account.cash,
-              buyingPower: account.buyingPower,
+              cash: account.cash - plannedNotional,
+              buyingPower: account.buyingPower - plannedNotional,
               reservedNotional: reserved(),
               today,
               quantity: settings.quantity,
@@ -288,142 +371,135 @@ export async function runPickTick(
               dailyLossPct: settings.dailyLossPct,
             },
             side,
-          ),
-      });
-      const allNotes = [rankLine, ...skips, ...walked.skips];
-
-      if (walked.aside) {
-        record({ ticker: PICK_LABEL, outcome: "aside", reason: walked.aside, notes: allNotes });
-        return;
-      }
-      if (!walked.pick) {
-        record({ ticker: PICK_LABEL, outcome: "aside", reason: `No eligible candidate right now. ${why}`.trim(), notes: allNotes });
-        return;
-      }
-      const { reading, side, quantity } = walked.pick;
-      const base = {
-        ticker: reading.ticker,
-        signalDate: reading.barDate,
-        polarity: reading.polarity,
-        ready: reading.ready,
-        side,
-        quantity,
-        price: reading.price,
-        notes: [...allNotes, ...walked.pick.notes],
-      };
-      if (signalDry) {
-        record({ ...base, outcome: "dry-run", reason: `Would enter ${side} ${quantity} ${reading.ticker} as entry ${state.maxEntry + 1}. ${why}${autoOffNote()}`.trim() });
-        return;
-      }
-      const res = await placeLiveEntry({
-        broker: deps.broker,
-        config: deps.config,
-        date: today,
-        nn: state.maxEntry + 1,
-        ticker: reading.ticker,
-        side,
-        quantity,
-        polarity: reading.polarity,
-        signalDate: reading.barDate,
-      });
-      if (!res.ok) {
-        record({ ...base, outcome: res.code === "BROKER" ? "error" : "blocked", reason: res.error, clientOrderId: res.clientOrderId });
-      } else if (res.status === "submitted") {
-        record({ ...base, outcome: "entered", reason: `${res.message} ${why}`.trim(), orderId: res.order.id, clientOrderId: res.clientOrderId });
-      } else {
-        record({ ...base, outcome: "held", reason: res.message, clientOrderId: res.clientOrderId, orderId: res.order?.id });
-      }
-    };
-
-    const entryBlocker = (): string | null => {
-      if (state.stoppedToday) return "Stopped out today. No re-entry until the next session.";
-      if (state.lockTicker && !settings.watchlist.includes(state.lockTicker)) {
-        return `Today's stock ${state.lockTicker} is no longer on the watchlist. Standing aside.`;
-      }
-      if (!state.lockTicker && ny.minutes < settings.pickStartMinutes) {
-        return `Pick starts at ${clock(settings.pickStartMinutes)} New York.`;
-      }
-      return null;
-    };
-
-    // A held watchlist stock follows its own polarity.
-    if (managed.length > 0) {
-      for (const pos of managed) {
-        const nn = entryNumberFor(state, pos.ticker);
-        if (closeBreakerTripped(state, pos.ticker, nn)) {
-          record({
-            ticker: pos.ticker,
-            outcome: "error",
-            reason: `${MAX_CLOSE_ATTEMPTS} close attempts for ${pos.ticker} failed. Circuit breaker: no new entries. Close it in Alpaca's own dashboard.`,
-            side: pos.side,
-          });
-          continue;
-        }
-        const a = await analyze(pos.ticker);
-        if ("error" in a) {
-          record({ ticker: pos.ticker, outcome: "skipped", reason: `Could not read bars for the held ${pos.ticker}: ${a.error} Holding.`, side: pos.side });
-          continue;
-        }
-        const input = buildAutoSimInput(pos.ticker, a.series, "signal-close");
-        const sig = input ? { signalDate: input.signal.date, polarity: input.signal.polarity, ready: input.signal.ready } : {};
-        if (!input || input.fill.date !== today || isStale(input.fill.date, now)) {
-          record({ ticker: pos.ticker, ...sig, outcome: "skipped", reason: `Latest bar is not today's (${today}). No trade on stale data. Holding.`, side: pos.side });
-          continue;
-        }
-        const wanted = sideForPolarity(input.signal);
-        if (wanted === pos.side) {
-          record({ ticker: pos.ticker, ...sig, outcome: "held", reason: `Already ${pos.side} ${pos.quantity} ${pos.ticker}. Polarity unchanged.`, side: pos.side, quantity: pos.quantity });
-          continue;
-        }
-        const why =
-          wanted === null
-            ? input.signal.ready ? "Polarity went to 0 (Neutral). Closed the position." : "Not enough history yet. Closed the position."
-            : `Polarity flipped. Closed the ${pos.side} and going ${wanted}.`;
-        const closed = await closeManaged(pos, "close", why, sig, signalDry);
-        if (!closed || wanted === null) continue;
-
-        // Flip: enter the other side of the SAME stock once the close shows as filled.
-        const blocker = entryBlocker();
-        if (blocker) {
-          record({ ticker: pos.ticker, ...sig, outcome: "aside", reason: blocker });
-          continue;
-        }
-        if (signalDry) {
-          await attemptEntry([pos.ticker], "Flip entry.");
-          continue;
-        }
-        let flat = false;
-        for (let i = 0; i < FLAT_CHECKS && !flat; i++) {
-          const again = await deps.broker.getPositions();
-          if (again.ok) {
-            flat = !again.value.some((p) => p.ticker === pos.ticker);
-            if (flat) stock = again.value.filter(isStockPosition);
+          );
+          if (sized.quantity < 1) {
+            skips.push(`${reading.ticker}: ${sized.reason ?? "no room for one share."}`);
+            continue;
           }
-          if (!flat) await sleep(FLAT_CHECK_MS);
+
+          const nn = state.maxEntry + 1 + placed;
+          const base = {
+            ticker: reading.ticker,
+            signalDate: reading.barDate,
+            polarity: reading.polarity,
+            ready: reading.ready,
+            side,
+            quantity: sized.quantity,
+            price: reading.price,
+            notes: [...(placed === 0 ? [rankLine] : []), ...sized.notes],
+          };
+          if (signalDry) {
+            record({ ...base, outcome: "dry-run", reason: `Would enter ${side} ${sized.quantity} ${reading.ticker} as entry ${nn}. ${why}${autoOffNote()}`.trim() });
+            plannedTickers.push(reading.ticker);
+            plannedNotional += sized.quantity * reading.price;
+            placed++;
+            break;
+          }
+          const res = await placeLiveEntry({
+            broker: deps.broker,
+            config: deps.config,
+            date: today,
+            nn,
+            ticker: reading.ticker,
+            side,
+            quantity: sized.quantity,
+            polarity: reading.polarity,
+            signalDate: reading.barDate,
+          });
+          if (!res.ok) {
+            record({ ...base, outcome: res.code === "BROKER" ? "error" : "blocked", reason: res.error, clientOrderId: res.clientOrderId });
+            stopped = true;
+            break;
+          }
+          if (res.status === "submitted") {
+            record({ ...base, outcome: "entered", reason: `${res.message} ${why}`.trim(), orderId: res.order.id, clientOrderId: res.clientOrderId });
+          } else {
+            record({ ...base, outcome: "held", reason: res.message, clientOrderId: res.clientOrderId, orderId: res.order?.id });
+          }
+          placed++;
+          lastEntered = reading.ticker;
+          break;
         }
-        if (!flat) {
-          record({ ticker: pos.ticker, ...sig, outcome: "held", reason: `The ${pos.ticker} close is not filled yet. The next tick enters the ${wanted} (the signal is unchanged).` });
-          continue;
-        }
-        const fresh = await deps.broker.getAccount();
-        if (!fresh.ok) {
-          record({ ticker: pos.ticker, ...sig, outcome: "skipped", reason: `Cannot re-read the account after the close: ${fresh.error} Next tick decides again.` });
-          continue;
-        }
-        account = fresh.value;
-        await attemptEntry([pos.ticker], "Flip entry.");
       }
+
+      const allNotes = [rankLine, ...skips];
+      if (placed === 0) {
+        record({ ticker: PICK_LABEL, outcome: "aside", reason: asideMsg ?? `No eligible candidate right now. ${why}`.trim(), notes: allNotes });
+        return;
+      }
+      if (skips.length > 0 || asideMsg) {
+        record({
+          ticker: PICK_LABEL,
+          outcome: "aside",
+          reason: `${signalDry ? "Would enter" : "Entered"} ${placed} of ${slotsAtStart} open slot${slotsAtStart === 1 ? "" : "s"}. ${asideMsg ?? `${skips.length} passed over (reasons in notes).`}`,
+          notes: skips,
+        });
+      }
+    };
+
+    // Each held watchlist stock follows its own polarity. Long only: Neutral and Reverse both just close it.
+    let breaker = false;
+    for (const pos of managed) {
+      const nn = entryNumberFor(state, pos.ticker);
+      if (closeBreakerTripped(state, pos.ticker, nn)) {
+        breaker = true;
+        record({
+          ticker: pos.ticker,
+          outcome: "error",
+          reason: `${MAX_CLOSE_ATTEMPTS} close attempts for ${pos.ticker} failed. Circuit breaker: no new entries. Close it in Alpaca's own dashboard.`,
+          side: pos.side,
+        });
+        continue;
+      }
+      const a = await analyze(pos.ticker);
+      if ("error" in a) {
+        record({ ticker: pos.ticker, outcome: "skipped", reason: `Could not read bars for the held ${pos.ticker}: ${a.error} Holding.`, side: pos.side });
+        continue;
+      }
+      const input = buildAutoSimInput(pos.ticker, a.series, "signal-close");
+      const sig = input ? { signalDate: input.signal.date, polarity: input.signal.polarity, ready: input.signal.ready } : {};
+      if (!input || input.fill.date !== today || isStale(input.fill.date, now)) {
+        record({ ticker: pos.ticker, ...sig, outcome: "skipped", reason: `Latest bar is not today's (${today}). No trade on stale data. Holding.`, side: pos.side });
+        continue;
+      }
+      const wanted = sideForPolarity(input.signal);
+      if (wanted === pos.side) {
+        record({ ticker: pos.ticker, ...sig, outcome: "held", reason: `Already ${pos.side} ${pos.quantity} ${pos.ticker}. Polarity unchanged.`, side: pos.side, quantity: pos.quantity });
+        continue;
+      }
+      const why =
+        wanted === null
+          ? input.signal.ready ? "Polarity went to 0 (Neutral). Closed the position." : "Not enough history yet. Closed the position."
+          : `Polarity flipped to ${wanted === "short" ? "Reverse" : "Drive"}. Closed the ${pos.side}; this account is long only, so nothing is opened the other way.`;
+      await closeManaged(pos, "close", why, sig, signalDry);
+    }
+    if (breaker) return done();
+
+    if (ny.minutes < settings.pickStartMinutes) {
+      record({ ticker: PICK_LABEL, outcome: "aside", reason: `Pick starts at ${clock(settings.pickStartMinutes)} New York.`, notes });
       return done();
     }
 
-    // Flat in every watchlist stock: re-enter the day's stock, or pick one.
-    const blocker = entryBlocker();
-    if (blocker) {
-      record({ ticker: state.lockTicker ?? PICK_LABEL, outcome: "aside", reason: blocker, notes });
+    // Free slots: every watchlist stock that is not held and has not used its automatic entry today.
+    const heldKeys = new Set(allPositions.map((p) => companyKey(p.ticker)));
+    const preNotes: string[] = [];
+    const candidates: string[] = [];
+    for (const t of settings.watchlist) {
+      const key = companyKey(t);
+      if (heldKeys.has(key)) {
+        preNotes.push(`${t}: already held.`);
+      } else if (entriesTodayFor(state, (x) => companyKey(x) === key) >= LIVE_LIMITS.maxAutoEntriesPerTickerPerDay) {
+        preNotes.push(`${t}: already entered today (the pick enters a ticker once a day; after a close it waits for the next session).`);
+      } else {
+        candidates.push(t);
+      }
+    }
+    const free = slotUse(allPositions, [], maxPositions);
+    if (free.free <= 0) {
+      record({ ticker: PICK_LABEL, outcome: "held", reason: `All ${maxPositions} position slots are in use (${[...free.companies].join(", ")}). No new entries.`, notes });
       return done();
     }
-    const candidates = state.lockTicker ? [state.lockTicker] : settings.watchlist;
-    await attemptEntry(candidates, state.lockTicker ? `Re-entry in today's stock ${state.lockTicker}.` : "");
+    await attemptEntries(candidates, "", preNotes);
     return done();
   } catch (e) {
     return fail(`Unexpected pick failure: ${e instanceof Error ? e.name : "unknown"}`);

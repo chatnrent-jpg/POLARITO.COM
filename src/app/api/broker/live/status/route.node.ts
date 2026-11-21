@@ -3,6 +3,7 @@ import { deriveDayState } from "@/lib/broker/liveOrders";
 import { createLiveBroker, liveBrokerConfig, liveOptedIn, liveSettings } from "@/lib/broker/liveConfig";
 import { tradingGate } from "@/lib/broker/config";
 import { createAutoStore, readAutoState } from "@/lib/liveAutoStore";
+import { LIVE_LIMITS, liveLimitsView, slotUse } from "@/lib/liveLimits";
 import { newYorkClock } from "@/lib/paperRunner";
 import { isStockPosition } from "@/lib/pickRunner";
 
@@ -52,6 +53,7 @@ export async function GET() {
     const state = deriveDayState(orders.value, newYorkClock(now).date);
     const auto = await readAutoState(createAutoStore(process.env));
     const settings = liveSettings(process.env);
+    const slots = slotUse(positions.value, openOrders.value, settings.ok ? settings.settings.maxPositions : LIVE_LIMITS.maxPositions);
     return Response.json(
       {
         ok: true,
@@ -62,11 +64,12 @@ export async function GET() {
         manual: settings.ok
           ? { watchlist: settings.settings.watchlist, defaultQuantity: settings.settings.quantity }
           : { watchlist: [] as string[], defaultQuantity: 1, error: settings.error },
-        limits: settings.ok ? { maxPositionPct: settings.settings.maxPositionPct, dailyLossPct: settings.settings.dailyLossPct } : undefined,
+        limits: liveLimitsView(settings.ok ? settings.settings : null, slots.used),
         day: {
           date: state.date,
           entries: state.entryCount,
           lockedTicker: state.lockTicker,
+          enteredTickers: state.enteredTickers,
           stoppedToday: state.stoppedToday,
         },
       },

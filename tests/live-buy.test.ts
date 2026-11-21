@@ -68,15 +68,15 @@ describe("manual buy: success and sizing", () => {
     assert.deepEqual([a.source, a.outcome, a.ticker, a.side, a.quantity, a.clientOrderId], ["live-manual-buy", "entered", "NVDA", "long", 1, "pol-20261119-m01-NVDA"]);
   });
 
-  it("is reduced to the 50% per-position cap, never above it, and says so", async () => {
-    const s = setup(); // $1,000 equity, NVDA at $130 => 3 shares under $500
+  it("is reduced to the 33% per-position cap, never above it, and says so", async () => {
+    const s = setup(); // $1,000 equity, 33% = $330, NVDA at $130 => 2 shares ($260)
     const r = await s.buy("NVDA", 10);
     assert.ok(r.ok);
-    assert.equal(r.quantity, 3);
+    assert.equal(r.quantity, 2);
     assert.equal(r.requestedQuantity, 10);
     assert.equal(r.reduced, true);
-    assert.match(r.message, /Reduced from 10 to 3/);
-    assert.equal(s.broker.submitted[0].quantity, 3);
+    assert.match(r.message, /Reduced from 10 to 2/);
+    assert.equal(s.broker.submitted[0].quantity, 2);
   });
 
   it("is reduced by available cash", async () => {
@@ -87,7 +87,7 @@ describe("manual buy: success and sizing", () => {
   });
 
   it("is refused when not even one share fits the cap", async () => {
-    const s = setup(); // BIG at $900 > 50% of $1,000
+    const s = setup(); // BIG at $900 > 33% of $1,000
     const r = await s.buy("BIG", 1);
     assert.deepEqual([r.ok, !r.ok && r.code], [false, "RISK"]);
     assert.deepEqual(s.broker.submitted, []);
@@ -198,25 +198,33 @@ describe("manual buy: daily lockout", () => {
   });
 });
 
-describe("manual buy: one stock at a time", () => {
-  it("refuses with a position in a different ticker", async () => {
+describe("manual buy: up to 3 stocks at a time", () => {
+  it("allows a second and a third stock, and refuses the fourth with MAX_POSITIONS", async () => {
     const s = setup({ positions: [longPos("AAPL")] });
-    const r = await s.buy("NVDA", 1);
-    assert.deepEqual([r.ok, !r.ok && r.code], [false, "OTHER_POSITION"]);
-    assert.deepEqual(s.broker.submitted, []);
+    assert.equal((await s.buy("NVDA", 1)).ok, true);
+    assert.equal((await s.buy("GOOGL", 1)).ok, true);
+    assert.equal(s.broker.positions.length, 3);
+    const r = await s.buy("BIG", 1);
+    assert.deepEqual([r.ok, !r.ok && r.code], [false, "MAX_POSITIONS"]);
+    assert.match(!r.ok ? r.error : "", /3 of 3 position slots are in use/);
+    assert.equal(s.broker.submitted.length, 2);
+    assert.equal(lastAudit(s.audit).outcome, "blocked");
   });
 
-  it("refuses with a working order in a different ticker", async () => {
-    const s = setup();
-    s.broker.orders.push(order("someone-else-1", "accepted", "AAPL"));
+  it("a working order in another stock uses a slot", async () => {
+    const s = setup({ positions: [longPos("AAPL"), longPos("GOOGL")] });
+    s.broker.orders.push(order("someone-else-1", "accepted", "BIG"));
     const r = await s.buy("NVDA", 1);
-    assert.deepEqual([r.ok, !r.ok && r.code], [false, "OTHER_ORDER"]);
+    assert.deepEqual([r.ok, !r.ok && r.code], [false, "MAX_POSITIONS"]);
+    const ok = setup({ positions: [longPos("AAPL")] });
+    ok.broker.orders.push(order("someone-else-1", "accepted", "GOOGL"));
+    assert.equal((await ok.buy("NVDA", 1)).ok, true, "1 position + 1 working order + this buy = 3");
   });
 
-  it("refuses an option position anywhere in the account", async () => {
-    const s = setup({ positions: [{ ticker: "AAPL261218C00200000", side: "long", quantity: 1, avgEntryPrice: 5 }] });
+  it("an option position anywhere in the account uses a slot", async () => {
+    const s = setup({ positions: [longPos("AAPL"), { ticker: "AAPL261218C00200000", side: "long", quantity: 1, avgEntryPrice: 5 }, longPos("GOOGL")] });
     const r = await s.buy("NVDA", 1);
-    assert.deepEqual([r.ok, !r.ok && r.code], [false, "OTHER_POSITION"]);
+    assert.deepEqual([r.ok, !r.ok && r.code], [false, "MAX_POSITIONS"]);
   });
 
   it("does not add to a position already held or stack on a working order in the same stock", async () => {
@@ -230,51 +238,67 @@ describe("manual buy: one stock at a time", () => {
     assert.deepEqual([...held.broker.submitted, ...working.broker.submitted], []);
   });
 
-  it("treats GOOGL and GOOG as one company", async () => {
+  it("treats GOOGL and GOOG as one company (one slot, no second class)", async () => {
     assert.equal(companyKey("GOOG"), companyKey("GOOGL"));
     const s = setup({ positions: [longPos("GOOG")] });
     const r = await s.buy("GOOGL", 1);
     assert.deepEqual([r.ok, !r.ok && r.code], [false, "HELD"]);
-    const other = setup({ positions: [longPos("GOOGL")] });
-    const o = await other.buy("NVDA", 1);
-    assert.deepEqual([o.ok, !o.ok && o.code], [false, "OTHER_POSITION"]);
+    const other = setup({ positions: [longPos("GOOGL"), longPos("AAPL")] });
+    assert.equal((await other.buy("NVDA", 1)).ok, true, "GOOGL + AAPL use two slots, NVDA is the third");
+  });
+
+  it("the 33% cap counts the stocks already held: total exposure never passes 100%", async () => {
+    const s = setup({ positions: [longPos("AAPL", 3, 100), longPos("GOOGL", 3, 100)] }); // $600 reserved
+    const r = await s.buy("NVDA", 10); // cap $330 -> 2 shares; exposure room $400 -> still 2
+    assert.ok(r.ok);
+    assert.equal(r.quantity, 2);
+    const tight = setup({ positions: [longPos("AAPL", 4, 100), longPos("GOOGL", 5, 100)] }); // $900 reserved, $100 room
+    const t = await tight.buy("NVDA", 1);
+    assert.deepEqual([t.ok, !t.ok && t.code], [false, "RISK"]);
   });
 });
 
-describe("manual buy with Auto ON", () => {
-  it("is refused while Auto has not picked today's stock", async () => {
+describe("manual buy with Auto ON (replaces the one-stock AUTO_LOCK)", () => {
+  it("is allowed for any watchlist stock, even before Auto has picked anything", async () => {
     const s = setup({ auto: true });
     const r = await s.buy("NVDA", 1);
-    assert.deepEqual([r.ok, !r.ok && r.code], [false, "AUTO_LOCK"]);
+    assert.ok(r.ok);
+    assert.match(r.message, /Live Auto is ON, so it will manage NVDA by polarity/);
+  });
+
+  it("is allowed for a ticker that is not today's first Auto entry, as long as slots and cap hold", async () => {
+    const s = setup({ auto: true });
+    s.broker.orders.push(order("pol-20261119-e01-AAPL", "filled", "AAPL"), order("pol-20261119-c01-a1-AAPL", "filled", "AAPL", "sell"));
+    assert.equal((await s.buy("NVDA", 1)).ok, true);
+  });
+
+  it("is still refused beyond 3 positions with Auto ON", async () => {
+    const s = setup({ auto: true, positions: [longPos("AAPL"), longPos("GOOGL"), longPos("BIG", 1, 100)] });
+    const r = await s.buy("NVDA", 1);
+    assert.deepEqual([r.ok, !r.ok && r.code], [false, "MAX_POSITIONS"]);
     assert.deepEqual(s.broker.submitted, []);
   });
 
-  it("is refused for a different ticker than today's locked stock", async () => {
-    const s = setup({ auto: true });
-    s.broker.orders.push(order("pol-20261119-e01-AAPL", "filled", "AAPL"), order("pol-20261119-c01-a1-AAPL", "filled", "AAPL", "sell"));
-    const r = await s.buy("NVDA", 1);
-    assert.deepEqual([r.ok, !r.ok && r.code], [false, "AUTO_LOCK"]);
-    assert.match(!r.ok ? r.error : "", /today's stock is AAPL/);
-  });
-
-  it("is allowed for the locked stock and takes the next entry number", async () => {
-    const s = setup({ auto: true });
-    s.broker.orders.push(order("pol-20261119-e01-NVDA", "filled", "NVDA"), order("pol-20261119-c01-a1-NVDA", "filled", "NVDA", "sell"));
-    const r = await s.buy("NVDA", 1);
-    assert.ok(r.ok);
-    assert.equal(r.clientOrderId, "pol-20261119-m02-NVDA");
-  });
-
-  it("is allowed for the same company's other share class", async () => {
+  it("is allowed for the same company's other share class when nothing of it is held", async () => {
     const s = setup({ auto: true });
     s.broker.orders.push(order("pol-20261119-e01-GOOG", "filled", "GOOG"), order("pol-20261119-c01-a1-GOOG", "filled", "GOOG", "sell"));
     assert.equal((await s.buy("GOOGL", 1)).ok, true);
   });
 
-  it("with Auto OFF a different ticker is allowed when the account is flat and nothing is working", async () => {
+  it("with Auto OFF a different ticker is allowed when nothing is held or working", async () => {
     const s = setup({ auto: false });
     s.broker.orders.push(order("pol-20261119-e01-AAPL", "filled", "AAPL"), order("pol-20261119-c01-a1-AAPL", "filled", "AAPL", "sell"));
     assert.equal((await s.buy("NVDA", 1)).ok, true);
+  });
+
+  it("Auto then never double-buys: the hand's stock is skipped as held, and Auto fills only the free slots", async () => {
+    const s = setup({ auto: true });
+    assert.ok((await s.buy("NVDA", 1)).ok);
+    const rep = await runPickTick(s.deps, s.settings, { dryRun: false });
+    assert.ok(rep.ok);
+    const autoIds = s.broker.submitted.map((o) => o.clientOrderId).slice(1);
+    assert.equal(s.broker.positions.length, 3, "never more than 3");
+    assert.ok(autoIds.every((id) => !id.endsWith("-NVDA")), autoIds.join(","));
   });
 });
 
@@ -395,7 +419,7 @@ describe("manual orders in the day state", () => {
     const failed = deriveDayState([order("pol-20261119-m01-NVDA", "rejected", "NVDA")], TODAY);
     assert.deepEqual([failed.maxEntry, failed.entryCount, failed.lockTicker], [1, 0, null]);
     const live = deriveDayState([order("pol-20261119-m01-AAPL", "filled", "AAPL"), order("pol-20261119-e02-NVDA", "filled", "NVDA")], TODAY);
-    assert.deepEqual([live.maxEntry, live.entryCount, live.lockTicker], [2, 2, "AAPL"]);
+    assert.deepEqual([live.maxEntry, live.entryCount, live.lockTicker, live.enteredTickers], [2, 2, "AAPL", ["AAPL", "NVDA"]]);
   });
 
   it("the position from a manual buy closes under its own number, round trip after round trip", async () => {
@@ -422,7 +446,9 @@ describe("manual orders in the day state", () => {
     s.setNow(MID_SESSION);
     const rep = await runPickTick(s.deps, s.settings, { dryRun: false });
     assert.ok(rep.ok);
-    assert.deepEqual(s.broker.submitted.map((o) => o.clientOrderId), ["pol-20261119-e02-NVDA"]);
+    const sent = s.broker.submitted.map((o) => o.clientOrderId);
+    assert.deepEqual(sent.map((id) => id.slice(0, 17)), ["pol-20261119-e02-", "pol-20261119-e03-"], "entry numbers continue after the manual m01");
+    assert.ok(new Set(sent).size === sent.length && sent.every((id) => !id.endsWith("-NVDA")), "no collision, and NVDA is not re-entered today");
   });
 
   it("Auto OFF still sends nothing after a manual buy (the runner only logs)", async () => {
