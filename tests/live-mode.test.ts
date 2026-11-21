@@ -273,6 +273,14 @@ describe("live mode has no paper wording or paper calls", () => {
 
   it("simulation-only panels and notes are not rendered in live mode", () => {
     assert.match(read("src/components/AutoSimControls.tsx"), /if \(mode\.kind !== "sim"\) return null;/);
+    const notice = read("src/components/LiveSimNotice.tsx");
+    assert.match(notice, /mode\.kind === "sim"\) return null;/);
+    for (const text of ["Auto · Simulation paused", "The live account is on, so the browser simulation does not run", "Live Auto is the switch in the LIVE account block of the order ticket card."]) {
+      assert.ok(notice.includes(text.replace("\n", " ")), text);
+    }
+    const dash = read("src/components/PolarityDashboard.tsx");
+    assert.ok(dash.lastIndexOf("<LiveSimNotice />") > dash.indexOf("[Dev Mode: Toggle Premium Tier]"), "notice is last, after the dev footer");
+    assert.ok(dash.indexOf("<LiveSimNotice />") > dash.indexOf("<LedgerPanel"), "notice is below the ledger");
     assert.doesNotMatch(read("src/components/AccountSelector.tsx"), /simulated accounts are not used/);
     assert.doesNotMatch(read("src/components/OrderModule.tsx"), /Nothing is written to the simulated ledger while live is on/);
   });

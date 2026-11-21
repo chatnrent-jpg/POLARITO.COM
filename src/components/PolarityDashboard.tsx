@@ -11,6 +11,7 @@ import {
 import AccountSelector from "@/components/AccountSelector";
 import AutoSimControls from "@/components/AutoSimControls";
 import LedgerPanel, { type CurrentMark } from "@/components/LedgerPanel";
+import LiveSimNotice from "@/components/LiveSimNotice";
 import { useLiveMode } from "@/components/LiveModeProvider";
 import LogoutButton from "@/components/LogoutButton";
 import PageRefresher from "@/components/PageRefresher";
@@ -455,6 +456,8 @@ export default function PolarityDashboard() {
           )}
         </footer>
       )}
+
+      <LiveSimNotice />
     </div>
   );
 }

@@ -46,7 +46,7 @@ export default function AutoSimControls({ lastAction }: { lastAction: string | n
     commitQty(qtyDraft);
   }
 
-  // Live is on: this is the browser simulation's control, so it is not shown (Live Auto is in the live block).
+  // Live is on: this is the browser simulation's control, so it is not shown here; LiveSimNotice carries the footer notice.
   if (mode.kind !== "sim") return null;
 
   return (
