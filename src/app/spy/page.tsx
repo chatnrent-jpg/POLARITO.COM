@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { connection } from "next/server";
+import LogoutButton from "@/components/LogoutButton";
 import SpyDesk from "@/components/spy/SpyDesk";
 import { deskEnabled } from "@/lib/spyDesk";
 
@@ -24,7 +25,10 @@ async function Desk() {
 
 export default function SpyPage() {
   return (
-    <main className="flex flex-1 bg-zinc-950 text-zinc-100">
+    <main className="flex flex-1 flex-col bg-zinc-950 text-zinc-100">
+      <div className="flex justify-end px-4 pt-3 sm:px-6">
+        <LogoutButton />
+      </div>
       <Suspense fallback={null}>
         <Desk />
       </Suspense>

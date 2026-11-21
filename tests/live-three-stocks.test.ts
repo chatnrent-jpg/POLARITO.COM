@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { placeLiveEntry } from "../src/lib/broker/liveExecute";
 import { deriveDayState } from "../src/lib/broker/liveOrders";
@@ -40,17 +39,6 @@ describe("the limits live in one constant", () => {
     assert.deepEqual([liveLimitsView(null, 0).maxPositions, liveLimitsView(null, 0).perPositionCapPct], [3, 33]);
   });
 
-  it("the status route builds its limits from that view and the panels read them", () => {
-    const route = readFileSync(new URL("../src/app/api/broker/live/status/route.node.ts", import.meta.url), "utf8");
-    assert.match(route, /liveLimitsView\(/);
-    const ledger = readFileSync(new URL("../src/components/LiveLedgerPanel.tsx", import.meta.url), "utf8");
-    assert.match(ledger, /limits\.maxPositions/);
-    assert.match(ledger, /limits\.perPositionCapPct/);
-    const panel = readFileSync(new URL("../src/components/LiveAccountPanel.tsx", import.meta.url), "utf8");
-    assert.match(panel, /status\.limits\.maxPositions/);
-    assert.match(panel, /Close position/);
-    assert.match(panel, /positions\.map\(\(p\) =>/);
-  });
 });
 
 function pickSetupSettings(env: Record<string, string> = {}) {

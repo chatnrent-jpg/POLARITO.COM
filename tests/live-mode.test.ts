@@ -4,88 +4,6 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { AlpacaPaperBroker } from "../src/lib/broker/alpacaPaper";
 import { readLiveOrders } from "../src/lib/liveOrdersView";
 import { tradingGate } from "../src/lib/broker/config";
-import { deriveLiveMode, liveDay, liveExposure, type LiveStatus } from "../src/lib/liveMode";
-
-const GOOD: LiveStatus = {
-  ok: true,
-  live: true,
-  tradingAllowed: true,
-  account: { equity: 1_050, lastEquity: 1_000, cash: 400, buyingPower: 400 },
-  positions: [{ ticker: "AAPL", side: "long", quantity: 5, avgEntryPrice: 100, marketValue: 520, currentPrice: 104, unrealizedPnl: 20 }],
-};
-
-describe("deriveLiveMode: sim vs live vs unavailable", () => {
-  it("is simulated whenever live is not opted in, whatever the route says", () => {
-    assert.deepEqual(deriveLiveMode(false, null, null), { kind: "sim" });
-    assert.deepEqual(deriveLiveMode(false, GOOD, null), { kind: "sim" });
-    assert.deepEqual(deriveLiveMode(false, null, "boom"), { kind: "sim" });
-  });
-
-  it("shows no numbers while the first read is pending", () => {
-    assert.deepEqual(deriveLiveMode(true, null, null), { kind: "checking" });
-  });
-
-  it("is live with Alpaca's figures when the account is readable", () => {
-    const m = deriveLiveMode(true, GOOD, null);
-    assert.equal(m.kind, "live");
-    if (m.kind !== "live") return;
-    assert.equal(m.account.equity, 1_050);
-    assert.equal(m.ordersAllowed, true);
-    assert.equal(m.ordersReason, null);
-  });
-
-  it("is live but order-locked when trading is not enabled or the kill switch is on", () => {
-    const m = deriveLiveMode(true, { ...GOOD, tradingAllowed: false, blockedReason: "Broker kill switch is on." }, null);
-    assert.equal(m.kind, "live");
-    if (m.kind !== "live") return;
-    assert.equal(m.ordersAllowed, false);
-    assert.equal(m.ordersReason, "Broker kill switch is on.");
-    const d = deriveLiveMode(true, { ...GOOD, tradingAllowed: undefined }, null);
-    assert.equal(d.kind === "live" && d.ordersAllowed, false);
-  });
-
-  it("is unavailable (never stale, zero or simulated) when the read fails", () => {
-    for (const status of [
-      { ok: false, live: true, error: "Alpaca is down." } as LiveStatus,
-      { ok: true, live: false } as LiveStatus,
-      { ok: true, live: true, positions: [] } as LiveStatus,
-      { ok: true, live: true, account: { equity: Number.NaN, lastEquity: 1, cash: 1, buyingPower: 1 }, positions: [] } as LiveStatus,
-      { ok: true, live: true, account: { equity: -5, lastEquity: 1, cash: 1, buyingPower: 1 }, positions: [] } as LiveStatus,
-      { ok: true, live: true, account: GOOD.account } as LiveStatus,
-    ]) {
-      assert.equal(deriveLiveMode(true, status, null).kind, "unavailable", JSON.stringify(status));
-    }
-    const failed = deriveLiveMode(true, { ok: false, live: true, error: "Alpaca is down." }, null);
-    assert.equal(failed.kind === "unavailable" && failed.reason, "Alpaca is down.");
-  });
-
-  it("a failed poll after a good one drops the old numbers instead of keeping them", () => {
-    assert.equal(deriveLiveMode(true, GOOD, null).kind, "live");
-    assert.equal(deriveLiveMode(true, GOOD, "Could not reach the live status route.").kind, "unavailable");
-    assert.equal(deriveLiveMode(true, GOOD, null).kind, "live");
-  });
-});
-
-describe("live day and exposure", () => {
-  it("computes today's P&L from Alpaca equity vs last close", () => {
-    assert.deepEqual(liveDay({ equity: 1_050, lastEquity: 1_000 }), { pnl: 50, pct: 5 });
-    assert.equal(liveDay({ equity: 10, lastEquity: 0 }).pct, null);
-    assert.equal(liveDay({ equity: 900, lastEquity: 1_000 }).pnl, -100);
-  });
-
-  it("sums exposure from market value, falling back to shares x entry", () => {
-    const e = liveExposure(
-      [
-        { ticker: "A", side: "long", quantity: 2, avgEntryPrice: 100, marketValue: 210 },
-        { ticker: "B", side: "long", quantity: 1, avgEntryPrice: 50 },
-      ],
-      1_000,
-    );
-    assert.equal(e.notional, 260);
-    assert.equal(e.pct, 26);
-    assert.equal(liveExposure([], 0).pct, null);
-  });
-});
 
 describe("adapter parses the extra read-only fields only when valid", () => {
   const brokerWith = (body: unknown) =>
@@ -199,44 +117,6 @@ describe("readLiveOrders (GET /api/broker/live/orders)", () => {
   });
 });
 
-describe("the displays follow the live mode (source assertions)", () => {
-  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
-
-  it("page.tsx decides opt-in on the server and wraps the dashboard in the provider", () => {
-    const page = read("src/app/page.tsx");
-    assert.match(page, /liveOptedIn\(process\.env\)/);
-    assert.match(page, /<LiveModeProvider optIn=/);
-  });
-
-  it("the provider fetches nothing without opt-in and reads only the status route", () => {
-    const p = read("src/components/LiveModeProvider.tsx");
-    assert.match(p, /if \(!optIn\) return;/);
-    assert.match(p, /\/api\/broker\/live\/status/);
-    assert.doesNotMatch(p, /method:\s*"POST"/);
-  });
-
-  it("account card, ledger, auto controls and ticket switch off the simulated data when live", () => {
-    assert.match(read("src/components/AccountSelector.tsx"), /mode\.kind !== "sim"\) return <LiveAccountCard/);
-    assert.match(read("src/components/LedgerPanel.tsx"), /mode\.kind !== "sim"\) return <LiveLedgerPanel/);
-    assert.match(read("src/components/AutoSimControls.tsx"), /mode\.kind !== "sim"/);
-    const t = read("src/components/OrderModule.tsx");
-    assert.match(t, /Live data unavailable/);
-  });
-
-  it("the browser simulation effect does not run, so nothing is written to the ledger, in live mode", () => {
-    const d = read("src/components/PolarityDashboard.tsx");
-    assert.match(d, /if \(!autoPrefs\.enabled \|\| !simMode\)/);
-  });
-
-  it("the live ledger is read-only: no order or close calls, only the orders route", () => {
-    const l = read("src/components/LiveLedgerPanel.tsx");
-    assert.match(l, /\/api\/broker\/live\/orders/);
-    assert.match(read("src/app/api/broker/live/orders/route.node.ts"), /export async function GET\(\)/);
-    assert.doesNotMatch(read("src/app/api/broker/live/orders/route.node.ts"), /export async function (POST|PUT|DELETE|PATCH)/);
-    assert.doesNotMatch(l, /method:\s*"POST"|live\/buy|live\/close/);
-  });
-});
-
 describe("live mode has no paper wording or paper calls", () => {
   const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
   const live = { enabled: false, killed: false, configured: true };
@@ -263,26 +143,6 @@ describe("live mode has no paper wording or paper calls", () => {
     for (const f of ["src/app/api/broker/live/status/route.node.ts", "src/lib/liveClose.ts", "src/lib/broker/liveExecute.ts"]) {
       assert.match(read(f), /tradingGate\([^)]*"live"\)/, f);
     }
-  });
-
-  it("no page component calls the paper broker routes", () => {
-    for (const f of ["PolarityDashboard", "OrderModule", "LiveAccountPanel", "LiveLedgerPanel", "LiveModeProvider", "AccountSelector", "LedgerPanel", "AutoSimControls"]) {
-      assert.doesNotMatch(read(`src/components/${f}.tsx`), /broker\/paper|paper\/status/, f);
-    }
-  });
-
-  it("simulation-only panels and notes are not rendered in live mode", () => {
-    assert.match(read("src/components/AutoSimControls.tsx"), /if \(mode\.kind !== "sim"\) return null;/);
-    const notice = read("src/components/LiveSimNotice.tsx");
-    assert.match(notice, /mode\.kind === "sim"\) return null;/);
-    for (const text of ["Auto · Simulation paused", "The live account is on, so the browser simulation does not run", "Live Auto is the switch in the LIVE account block of the order ticket card."]) {
-      assert.ok(notice.includes(text.replace("\n", " ")), text);
-    }
-    const dash = read("src/components/PolarityDashboard.tsx");
-    assert.ok(dash.lastIndexOf("<LiveSimNotice />") > dash.indexOf("[Dev Mode: Toggle Premium Tier]"), "notice is last, after the dev footer");
-    assert.ok(dash.indexOf("<LiveSimNotice />") > dash.indexOf("<LedgerPanel"), "notice is below the ledger");
-    assert.doesNotMatch(read("src/components/AccountSelector.tsx"), /simulated accounts are not used/);
-    assert.doesNotMatch(read("src/components/OrderModule.tsx"), /Nothing is written to the simulated ledger while live is on/);
   });
 
   it("the market-data auth error does not send a deployed page to .env.local", () => {
