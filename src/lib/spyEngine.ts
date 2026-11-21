@@ -30,9 +30,7 @@ import {
   LONG_TIMEFRAME_NAMES,
   computeLongReadings,
   isLongTimeframe,
-  longPeriodStart,
   readingsSummary,
-  type IntradayBar,
   type LongReading,
   type LongReadings,
   type LongTimeframe,
@@ -58,7 +56,6 @@ export type EngineConfig = {
 export type EngineDeps = {
   now(): Date;
   loadDaily(): Promise<Result<Bar[], BrokerErrorCode>>;
-  loadIntraday(start: string): Promise<Result<IntradayBar[], BrokerErrorCode>>;
   readSpot(): Promise<Result<Spot, BrokerErrorCode>>;
   readSide(type: OptionType, spot: number, today: string, now: Date): Promise<SideReport>;
   /** Fresh quote and delta for a contract already held (dry-run position); null when it cannot be read. */
@@ -163,7 +160,7 @@ export function parseEngineState(raw: unknown): { ok: true; state: EngineState }
 export function parseEngineConfig(env: Readonly<Record<string, string | undefined>>): { ok: true; config: EngineConfig } | { ok: false; error: string } {
   const timeframe = (env.SPY_DECISION_TIMEFRAME ?? "M").trim().toUpperCase();
   if (!isLongTimeframe(timeframe)) return { ok: false, error: `SPY_DECISION_TIMEFRAME must be one of M, Q, H, Y (got "${timeframe}"); there is no daily or weekly option` };
-  if (env.SPY_NET_VOLUME_METHOD !== undefined) return { ok: false, error: "SPY_NET_VOLUME_METHOD is no longer supported: there is exactly one net volume method (signed 5-minute volume summed over the whole period)" };
+  if (env.SPY_NET_VOLUME_METHOD !== undefined) return { ok: false, error: "SPY_NET_VOLUME_METHOD is no longer supported: there is exactly one net volume definition (period-to-date daily volume signed by close vs the previous period's last close)" };
   const onNeutral = (env.SPY_ON_NEUTRAL ?? NEUTRAL_POLICY).trim().toLowerCase();
   if (onNeutral !== NEUTRAL_POLICY) return { ok: false, error: `SPY_ON_NEUTRAL, if set, must be "${NEUTRAL_POLICY}": on Neutral the trader decides; there is no automatic exit or entry` };
   const liveBudget = Number(env.SPY_LIVE_BUDGET ?? "1000");
@@ -172,7 +169,8 @@ export function parseEngineConfig(env: Readonly<Record<string, string | undefine
 }
 
 const gear = (p: number | null): string => (p === 1 ? "Drive" : p === -1 ? "Reverse" : p === 0 ? "Neutral" : "Data unavailable");
-const millions = (n: number | null): string => (n === null ? "n/a" : `${(n / 1e6).toFixed(1)}M`);
+/** The raw signed net volume, in full, so it can be compared with the chart. */
+const rawNet = (n: number | null): string => (n === null ? "n/a" : `${n > 0 ? "+" : ""}${Math.round(n).toLocaleString("en-US")}`);
 
 function readingData(r: LongReading): Record<string, unknown> {
   return {
@@ -181,17 +179,17 @@ function readingData(r: LongReading): Record<string, unknown> {
     reading: gear(r.polarity),
     candle: r.kind,
     open: r.open,
+    previousClose: r.previousClose,
     close: r.close,
     netSign: r.netSign,
+    netFlag: r.netFlag,
     agreement: r.agreement,
     periodStart: r.periodStart,
     throughDate: r.throughDate,
     asOf: r.asOf,
-    lastBarAt: r.lastBarAt,
     sessions: r.sessions,
     netVolume: r.netVolume,
-    upVolume: r.upVolume,
-    downVolume: r.downVolume,
+    totalVolume: r.totalVolume,
     reason: r.reason,
   };
 }
@@ -208,7 +206,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
   const base: EngineResult = { ok: false, state, events, decision: null, readings: null };
 
   try {
-    emit("run", `Dry run (no orders can be sent). Decision timeframe ${LONG_TIMEFRAME_NAMES[config.timeframe]}, net volume = signed 5-minute volume summed over the whole period.`, { timeframe: config.timeframe, dryRun: true });
+    emit("run", `Dry run (no orders can be sent). Decision timeframe ${LONG_TIMEFRAME_NAMES[config.timeframe]}, net volume = period-to-date daily volume signed by close vs the previous period's last close (the chart definition).`, { timeframe: config.timeframe, dryRun: true });
 
     const today = etClock(now).date;
     const dailyRes = await deps.loadDaily();
@@ -218,22 +216,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     }
     const daily = dailyRes.value;
 
-    let intraday: IntradayBar[] | undefined;
-    let intradayError: string | null = null;
-    const intradayRes = await deps.loadIntraday(longPeriodStart(today, "Y"));
-    if (intradayRes.ok) intraday = intradayRes.value;
-    else intradayError = intradayRes.error;
-
-    const withNote = (rs: LongReadings): LongReadings => {
-      if (!intradayError) return rs;
-      const out = { ...rs } as Record<LongTimeframe, LongReading>;
-      for (const tf of LONG_TIMEFRAMES) {
-        const r = rs[tf];
-        if (r.status === "unavailable" && r.reason?.startsWith("no 5-minute bars")) out[tf] = { ...r, reason: `5-minute bars could not be read (${intradayError})` };
-      }
-      return out;
-    };
-    const readings = withNote(computeLongReadings({ daily, intraday, now }));
+    const readings = computeLongReadings({ daily, now });
     const result: EngineResult = { ...base, readings };
 
     emit("run", `Readings as of ${at}: ${readingsSummary(readings)} (D = Drive, R = Reverse, - = data unavailable).`, {
@@ -244,7 +227,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
       const r = readings[tf];
       const prev = state.readings[tf];
       if (prev !== undefined && prev.polarity !== r.polarity) {
-        emit("reading-change", `${LONG_TIMEFRAME_NAMES[tf]} reading changed ${gear(prev.polarity)} -> ${gear(r.polarity)} (candle ${r.kind ?? "n/a"}, net volume ${millions(r.netVolume)}${r.agreement === "disagree" ? ", they disagree" : ""}, period from ${r.periodStart}).`, { from: prev.polarity, to: r.polarity, since: prev.since, ...readingData(r) });
+        emit("reading-change", `${LONG_TIMEFRAME_NAMES[tf]} reading changed ${gear(prev.polarity)} -> ${gear(r.polarity)} (candle ${r.kind ?? "n/a"}, net volume ${rawNet(r.netVolume)}${r.netFlag ? ` [${r.netFlag.toUpperCase()} NET VOLUME]` : ""}${r.agreement === "disagree" ? ", they disagree" : ""}, period from ${r.periodStart}).`, { from: prev.polarity, to: r.polarity, since: prev.since, ...readingData(r) });
       }
       if (prev === undefined || prev.polarity !== r.polarity) state.readings[tf] = { polarity: r.polarity, since: at };
     }
@@ -262,7 +245,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
       action,
       timeframe: config.timeframe,
       traderDecides: action === "STAND_ASIDE",
-      reason: `${LONG_TIMEFRAME_NAMES[config.timeframe]} since ${primary.periodStart}: candle ${primary.kind}, net volume ${millions(primary.netVolume)}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`,
+      reason: `${LONG_TIMEFRAME_NAMES[config.timeframe]} since ${primary.periodStart}: candle ${primary.kind}, net volume ${rawNet(primary.netVolume)}${primary.netFlag ? ` [${primary.netFlag.toUpperCase()} NET VOLUME: Neutral, no sign guessed]` : ""}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`,
     };
     emit("decision", `Decision: ${action.replace("_", " ")}. ${decision.reason}.`, { action, ...readingData(primary) });
 
@@ -277,7 +260,9 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
       const since = state.neutralSince ?? at;
       const first = state.neutralSince === null;
       state.neutralSince = since;
-      const why = `${LONG_TIMEFRAME_NAMES[config.timeframe]} candle ${primary.kind} and net volume ${millions(primary.netVolume)} do not agree`;
+      const why = primary.netFlag
+        ? `${LONG_TIMEFRAME_NAMES[config.timeframe]} net volume is ${primary.netFlag === "zero" ? "exactly zero" : "missing"} [${primary.netFlag.toUpperCase()} NET VOLUME] (candle ${primary.kind}); no sign is guessed`
+        : `${LONG_TIMEFRAME_NAMES[config.timeframe]} candle ${primary.kind} and net volume ${rawNet(primary.netVolume)} do not agree`;
       let extra = "";
       let data: Record<string, unknown> = { held: held ? held.symbol : null, neutralSince: since, automatic: false };
       if (held) {

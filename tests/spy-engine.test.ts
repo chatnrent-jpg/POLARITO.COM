@@ -4,7 +4,6 @@ import { describe, it } from "node:test";
 import { daysBetween } from "../src/lib/broker/options";
 import { tradingDaysBetween } from "../src/lib/marketCalendar";
 import { MIN_ABS_DELTA, MIN_DAYS_TO_EXPIRY, bsDelta, bsPrice, pickDeepItm, type ChainRow } from "../src/lib/optionsSelect";
-import type { IntradayBar } from "../src/lib/longPolarity";
 import type { Bar } from "../src/lib/polarity";
 import { EMPTY_STATE, parseEngineConfig, parseEngineState, runEngine, type EngineConfig, type EngineDeps, type EngineState } from "../src/lib/spyEngine";
 import { renderEngineReport } from "../src/lib/spyEngineReport";
@@ -33,27 +32,23 @@ function side(type: OptionType, today: string, listed: string[]): SideReport {
   return { type, listedExpirations: listed, pick, ladder: [], rowsBuilt: rows.length, rejected: {}, error: null };
 }
 
-type Day = { open: number; close: number; up: number; down: number };
-type Scenario = { daily: Bar[]; intraday: IntradayBar[] };
+type Day = { open: number; close: number; volume: number };
+type Scenario = { daily: Bar[] };
 
-const session = (date: string, up: number, down: number): IntradayBar[] => {
-  const out: IntradayBar[] = [];
-  if (up > 0) out.push({ t: `${date}T15:00:00Z`, date, open: 100, close: 101, volume: up });
-  if (down > 0) out.push({ t: `${date}T17:30:00Z`, date, open: 101, close: 100, volume: down });
-  return out;
-};
-
-/** Calm daily history to 2026-10-30, then 2026-11-02 and 2026-11-03 as given (with their 5-minute bars). */
+/** Calm daily history to 2026-10-30 (every close exactly 100: the previous month's last close), then 2026-11-02 and 2026-11-03 as given. */
 function bars(nov: [Day, Day]): Scenario {
-  const daily: Bar[] = tradingDaysBetween("2025-11-03", "2026-10-30").map((date, i) => ({ date, open: 100, high: 101, low: 99, close: i % 2 === 0 ? 100.5 : 99.5, volume: 100 }));
-  const mk = (date: string, d: Day): Bar => ({ date, open: d.open, close: d.close, volume: d.up + d.down, high: Math.max(d.open, d.close) + 0.1, low: Math.min(d.open, d.close) - 0.1 });
+  const daily: Bar[] = tradingDaysBetween("2025-11-03", "2026-10-30").map((date) => ({ date, open: 100, high: 101, low: 99, close: 100, volume: 100 }));
+  const mk = (date: string, d: Day): Bar => ({ date, open: d.open, close: d.close, volume: d.volume, high: Math.max(d.open, d.close) + 0.1, low: Math.min(d.open, d.close) - 0.1 });
   daily.push(mk("2026-11-02", nov[0]), mk("2026-11-03", nov[1]));
-  return { daily, intraday: [...session("2026-11-02", nov[0].up, nov[0].down), ...session("2026-11-03", nov[1].up, nov[1].down)] };
+  return { daily };
 }
 
-const DRIVE = bars([{ open: 100, close: 101, up: 100, down: 0 }, { open: 101, close: 103, up: 100, down: 0 }]);
-const REVERSE = bars([{ open: 100, close: 98, up: 0, down: 100 }, { open: 98, close: 95, up: 0, down: 100 }]);
-const NEUTRAL = bars([{ open: 100, close: 90, up: 0, down: 300 }, { open: 90, close: 101, up: 100, down: 0 }]);
+const DRIVE = bars([{ open: 100, close: 101, volume: 100 }, { open: 101, close: 103, volume: 100 }]);
+const REVERSE = bars([{ open: 100, close: 98, volume: 100 }, { open: 98, close: 95, volume: 100 }]);
+// green candle (open 95, close 99) but the close is below the previous month's close of 100: net volume negative, they disagree
+const NEUTRAL = bars([{ open: 95, close: 96, volume: 300 }, { open: 96, close: 99, volume: 100 }]);
+// close exactly equals the previous close: net volume exactly zero
+const ZERO = bars([{ open: 98, close: 99, volume: 300 }, { open: 99, close: 100, volume: 100 }]);
 
 const CFG: EngineConfig = { timeframe: "M", liveBudget: 1000 };
 const T0 = new Date("2026-11-03T21:30:00Z");
@@ -66,7 +61,6 @@ function makeDeps(sc: Scenario, now: Date, opts: { calls?: Calls; listed?: strin
   return {
     now: () => now,
     loadDaily: async () => { calls.daily++; return { ok: true, value: sc.daily }; },
-    loadIntraday: async () => ({ ok: true, value: sc.intraday }),
     readSpot: async () => { calls.spot++; return opts.spotFails ? { ok: false, code: "NETWORK", error: "down" } : { ok: true, value: { price: SPOT, at: now.toISOString(), feed: "iex" } }; },
     readSide: async (type) => { calls.sides.push(type); return side(type, today, opts.listed ?? LISTED); },
     readHeld: async (p) => { calls.held++; return row(p.type, p.expiration, p.strike, today); },
@@ -198,6 +192,38 @@ describe("one position, flip rolls, Neutral = trader decides", () => {
   });
 });
 
+describe("exact zero net volume is Neutral with an explicit flag, and the raw number is shown", () => {
+  it("zero net volume: Neutral, flagged, no entry, no sign guessed", async () => {
+    const calls: Calls = { daily: 0, spot: 0, sides: [], held: 0 };
+    const r = await runEngine(makeDeps(ZERO, T0, { calls }), CFG, EMPTY_STATE);
+    assert.equal(r.readings?.M.netVolume, 0);
+    assert.equal(r.readings?.M.netFlag, "zero");
+    assert.equal(r.readings?.M.polarity, 0);
+    assert.equal(r.decision?.action, "STAND_ASIDE");
+    assert.equal(r.decision?.traderDecides, true);
+    assert.equal(r.state.position, null);
+    assert.deepEqual(calls.sides, []);
+    assert.match(r.decision?.reason ?? "", /ZERO NET VOLUME/);
+    const e = r.events.find((x) => x.kind === "trader-decides");
+    assert.match(e?.message ?? "", /exactly zero \[ZERO NET VOLUME\]/);
+    assert.match(renderEngineReport(r, CFG), /\*\*ZERO NET VOLUME\*\*/);
+  });
+  it("the raw signed net volume is in the decision text, the events and the report", async () => {
+    const r = await runEngine(makeDeps(REVERSE, T0), CFG, EMPTY_STATE);
+    assert.equal(r.readings?.M.netVolume, -200);
+    assert.match(r.decision?.reason ?? "", /net volume -200,/);
+    const d = r.events.find((x) => x.kind === "decision");
+    assert.equal(d?.data?.netVolume, -200);
+    assert.equal(d?.data?.totalVolume, 200);
+    assert.equal(d?.data?.previousClose, 100);
+    assert.match(renderEngineReport(r, CFG), /-200 \(negative\)/);
+  });
+  it("the engine reads no 5-minute data: the dependencies have no intraday loader", async () => {
+    const deps = makeDeps(DRIVE, T0);
+    assert.equal("loadIntraday" in deps, false);
+  });
+});
+
 describe("stale or missing data: data unavailable, no decision, nothing changes", () => {
   it("stale newest bar", async () => {
     const stale = { ...DRIVE, daily: DRIVE.daily.slice(0, -1) };
@@ -218,23 +244,10 @@ describe("stale or missing data: data unavailable, no decision, nothing changes"
     const r = await runEngine(makeDeps(zero, T0), CFG, EMPTY_STATE);
     assert.equal(r.decision?.action, "DATA_UNAVAILABLE");
   });
-  it("missing 5-minute bars: data unavailable, no decision, no daily-volume fallback", async () => {
-    const r = await runEngine(makeDeps({ ...DRIVE, intraday: [] }, T0), CFG, EMPTY_STATE);
+  it("the previous month's last close is missing: data unavailable, no sign guessed", async () => {
+    const r = await runEngine(makeDeps({ daily: DRIVE.daily.filter((b) => b.date !== "2026-10-30") }, T0), CFG, EMPTY_STATE);
     assert.equal(r.decision?.action, "DATA_UNAVAILABLE");
-    assert.equal(r.state.position, null);
-    assert.match(r.decision?.reason ?? "", /5-minute/);
-  });
-  it("5-minute bars that cannot be loaded: data unavailable", async () => {
-    const deps = { ...makeDeps(DRIVE, T0), loadIntraday: async () => ({ ok: false as const, code: "NETWORK" as const, error: "boom" }) };
-    const r = await runEngine(deps, CFG, EMPTY_STATE);
-    assert.equal(r.decision?.action, "DATA_UNAVAILABLE");
-    assert.match(r.decision?.reason ?? "", /5-minute bars could not be read/);
-  });
-  it("stale 5-minute data during the session: data unavailable", async () => {
-    const inSession = new Date("2026-11-03T18:30:00Z"); // 13:30 ET, newest bar 12:30 ET
-    const r = await runEngine(makeDeps(DRIVE, inSession), CFG, EMPTY_STATE);
-    assert.equal(r.decision?.action, "DATA_UNAVAILABLE");
-    assert.match(r.decision?.reason ?? "", /minutes old/);
+    assert.match(r.decision?.reason ?? "", /previous period's last session/);
   });
   it("daily bars cannot be loaded", async () => {
     const deps = { ...makeDeps(DRIVE, T0), loadDaily: async () => ({ ok: false as const, code: "NETWORK" as const, error: "boom" }) };
@@ -259,7 +272,7 @@ describe("config, state file and report", () => {
     assert.equal(c.config.timeframe, "M");
     assert.equal("onNeutral" in c.config, false);
     assert.equal("method" in c.config, false);
-    for (const bad of [{ SPY_DECISION_TIMEFRAME: "1D" }, { SPY_DECISION_TIMEFRAME: "W" }, { SPY_ON_NEUTRAL: "exit" }, { SPY_ON_NEUTRAL: "hold" }, { SPY_NET_VOLUME_METHOD: "signed-intraday" }, { SPY_NET_VOLUME_METHOD: "signed-daily" }, { SPY_LIVE_BUDGET: "-5" }]) {
+    for (const bad of [{ SPY_DECISION_TIMEFRAME: "1D" }, { SPY_DECISION_TIMEFRAME: "W" }, { SPY_ON_NEUTRAL: "exit" }, { SPY_ON_NEUTRAL: "hold" }, { SPY_NET_VOLUME_METHOD: "signed-intraday" }, { SPY_NET_VOLUME_METHOD: "daily-chart" }, { SPY_LIVE_BUDGET: "-5" }]) {
       assert.equal(parseEngineConfig(bad).ok, false, JSON.stringify(bad));
     }
     const e = parseEngineConfig({ SPY_ON_NEUTRAL: "MANUAL", SPY_DECISION_TIMEFRAME: "q" });
@@ -277,9 +290,9 @@ describe("config, state file and report", () => {
   it("the report shows candle, net volume and reading side by side with the as-of time", async () => {
     const r = await runEngine(makeDeps(NEUTRAL, T0), CFG, EMPTY_STATE);
     const text = renderEngineReport(r, CFG);
-    assert.match(text, /\| Timeframe \| Candle \| Net volume \| Match \| Reading \|/);
-    assert.match(text, /green \(100\.00 -> 101\.00\)/);
-    assert.match(text, /-200\.0M|-0\.0M/);
+    assert.match(text, /\| Timeframe \| Candle \(open -> close\) \| Previous period close \| Net volume \(raw\) \| Flag \| Match \| Reading \|/);
+    assert.match(text, /green \(95\.00 -> 99\.00\)/);
+    assert.match(text, /\| 100\.00 \| -400 \(negative\)/);
     assert.match(text, /disagree/);
     assert.match(text, /\*\*Neutral\*\*/);
     assert.match(text, /NEUTRAL: TRADER DECIDES/);

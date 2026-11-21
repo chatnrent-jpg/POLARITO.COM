@@ -16,7 +16,7 @@ import path from "node:path";
 import { DEFAULT_DIVIDEND_YIELD, DEFAULT_RISK_FREE_RATE, buildRow } from "../src/lib/optionsSelect";
 import { addCalendarDays, etClock } from "../src/lib/marketCalendar";
 import { longPeriodStart } from "../src/lib/longPolarity";
-import { loadDailyBars, loadIntradayBars } from "../src/lib/spyBars";
+import { loadDailyBars } from "../src/lib/spyBars";
 import { readSide, readSnapshots, readSpot } from "../src/lib/spyChain";
 import { connectAlpaca } from "../src/lib/spyConnect";
 import { EMPTY_STATE, ENGINE_SYMBOL, parseEngineConfig, parseEngineState, runEngine, type EngineDeps, type EngineState } from "../src/lib/spyEngine";
@@ -61,7 +61,6 @@ async function main(): Promise<void> {
   const deps: EngineDeps = {
     now: () => now,
     loadDaily: () => loadDailyBars(client, ENGINE_SYMBOL, dailyStart, stockFeed),
-    loadIntraday: (start) => loadIntradayBars(client, ENGINE_SYMBOL, start, stockFeed),
     readSpot: () => readSpot(client, ENGINE_SYMBOL, feeds),
     readSide: (type, spot, today, at) => readSide(client, type, { symbol: ENGINE_SYMBOL, today, now: at, spot, optionsFeed, contractsHost, model }),
     readHeld: async (p, spot, today, at) => {
@@ -75,7 +74,8 @@ async function main(): Promise<void> {
   };
 
   const result = await runEngine(deps, cfg.config, previous);
-  const report = renderEngineReport(result, cfg.config);
+  const feedNote = stockFeed === "iex" ? "\nNOTE: the IEX feed carries only a small share of consolidated volume, so the net volume magnitude will NOT match a consolidated chart (its sign follows price). Use --stock-feed=sip to compare with the chart.\n" : "";
+  const report = renderEngineReport(result, cfg.config) + feedNote;
   console.log(report);
 
   if (write) {
