@@ -1,6 +1,10 @@
 /**
  * The three SPY desk HTTP handlers, written against an injected context so they can be tested without a network:
- *   GET  /api/spy/desk    the page's data (reads market data and the saved dry-run state; writes nothing)
+ *   GET  /api/spy/desk    the page's full data incl. the option chain (heavy; the page asks every 45 s or on demand; writes nothing)
+ *   GET  /api/spy/live    the light data for the 5 s refresh: saved record, Auto, journal, readings, decision, SPY price and the
+ *                         held contract's quote. Never reads the option chain; writes nothing.
+ *   GET  /api/spy/analyze?ticker=SPY  "Analyze": the daily bars and the monthly gear (Drive/Neutral/Reverse), which side it
+ *                         allows, the net volume and as-of time. Reads market data; writes nothing.
  *   POST /api/spy/ticket  { type, symbol, acknowledgeDryRun: true }  record a MANUAL dry-run buy (any reading, good data)
  *   POST /api/spy/close   { acknowledgeDryRun: true, unpriced?: boolean }  close the dry-run position by hand
  *
@@ -11,6 +15,8 @@ import { sameOriginRequest } from "@/lib/sameOrigin";
 import { buildDeskSnapshot, closeManual, deskEnabled, openManual, parseCloseRequest, parseTicketRequest, type ActionResult, type DeskStore } from "@/lib/spyDesk";
 import type { LiveDesk } from "@/lib/spyDeskLive";
 import { buildAutoView, withLock } from "@/lib/spyAuto";
+import { buildLiveSnapshot } from "@/lib/spyLive";
+import { buildAnalysis, checkTicker } from "@/lib/spyAnalysis";
 import type { SpyKv } from "@/lib/spyKv";
 
 export type DeskContext = {
@@ -50,6 +56,39 @@ export async function handleSnapshot(ctx: DeskContext): Promise<Response> {
     return json(await buildDeskSnapshot(live.deps, live.config, ctx.store, await buildAutoView(ctx.kv ?? null)));
   } catch (e) {
     console.error("SPY desk snapshot failed:", e instanceof Error ? e.name : "unknown");
+    return internal();
+  }
+}
+
+export async function handleLive(ctx: DeskContext): Promise<Response> {
+  try {
+    if (!deskEnabled(ctx.env)) return off();
+    const live = await ctx.makeLive();
+    if (!live.ok) return json({ ok: false, code: live.code, error: `Data unavailable: ${live.error}` }, 503);
+    return json(await buildLiveSnapshot(live.deps, live.config, ctx.store, await buildAutoView(ctx.kv ?? null)));
+  } catch (e) {
+    console.error("SPY desk live failed:", e instanceof Error ? e.name : "unknown");
+    return internal();
+  }
+}
+
+export async function handleAnalyze(request: Request, ctx: DeskContext): Promise<Response> {
+  try {
+    if (!deskEnabled(ctx.env)) return off();
+    let ticker: string | null = null;
+    try {
+      ticker = new URL(request.url).searchParams.get("ticker");
+    } catch {
+      return json({ ok: false, code: "INVALID", error: "Bad request address." }, 400);
+    }
+    const wrong = checkTicker(ticker);
+    if (wrong) return json({ ok: false, code: "INVALID", error: wrong }, 400);
+    const live = await ctx.makeLive();
+    if (!live.ok) return json({ ok: false, code: live.code, error: `Data unavailable: ${live.error}` }, 503);
+    const out = await buildAnalysis(live.deps, live.config);
+    return json(out, out.ok ? 200 : out.status);
+  } catch (e) {
+    console.error("SPY desk analyze failed:", e instanceof Error ? e.name : "unknown");
     return internal();
   }
 }

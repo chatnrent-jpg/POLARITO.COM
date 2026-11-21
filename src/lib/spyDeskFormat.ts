@@ -39,3 +39,12 @@ export function decisionHeadline(action: string): string {
 export function signedDelta(n: number): string {
   return `${n > 0 ? "+" : ""}${n.toFixed(3)}`;
 }
+
+/** Local wall-clock time, HH:MM:SS, for the "updated" stamp. */
+export function clockText(iso: string | null): string {
+  if (!iso) return "n/a";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "n/a";
+  const two = (n: number): string => String(n).padStart(2, "0");
+  return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+}

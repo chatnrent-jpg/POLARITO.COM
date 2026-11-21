@@ -29,6 +29,7 @@ import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, assertContractRul
 import type { Bar } from "@/lib/polarity";
 import type { SideReport, Spot } from "@/lib/spyChain";
 import { AUTO_UNAVAILABLE, isAutoView, type AutoView } from "@/lib/spyAutoTypes";
+import { GEAR_NAMES, checkSide, gearFromAction, isGear, type Gear } from "@/lib/spyGear";
 import {
   CONTRACT_MULTIPLIER,
   EMPTY_STATE,
@@ -103,7 +104,9 @@ export type DeskErrorCode =
   | "NO_SPOT"
   | "CHAIN"
   | "NOT_ELIGIBLE"
-  | "NO_QUOTE";
+  | "NO_QUOTE"
+  | "COUNTER_POLARITY"
+  | "GEAR_CHANGED";
 
 export type ActionResult =
   | { ok: true; message: string; entry: JournalEntry; state: DeskState }
@@ -120,7 +123,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 const isOptionType = (v: unknown): v is OptionType => v === "call" || v === "put";
 
-function parseJournalEntry(raw: unknown): JournalEntry | null {
+export function parseJournalEntry(raw: unknown): JournalEntry | null {
   if (!isRecord(raw)) return null;
   const { id, at, kind, symbol, type, strike, expiration, delta, costUsd, exitBid, pnlUsd, note } = raw;
   if (
@@ -201,20 +204,21 @@ export function parseDeskState(raw: unknown): { ok: true; state: DeskState } | {
 
 const OCC_SPY = /^SPY\d{6}[CP]\d{8}$/;
 
-export type TicketRequest = { type: OptionType; symbol: string };
+export type TicketRequest = { type: OptionType; symbol: string; /** The gear the trader analysed; when given, the server refuses if its own gear differs. */ analyzedGear?: Gear };
 export type CloseRequest = { unpriced: boolean };
 
 /** Body of POST /api/spy/ticket: { type, symbol, acknowledgeDryRun: true }. Exact keys; nothing else is accepted. */
 export function parseTicketRequest(body: unknown): { ok: true; value: TicketRequest } | { ok: false; error: string } {
   if (!isRecord(body)) return { ok: false, error: "Body must be a JSON object." };
-  const extra = Object.keys(body).filter((k) => !["type", "symbol", "acknowledgeDryRun"].includes(k));
+  const extra = Object.keys(body).filter((k) => !["type", "symbol", "acknowledgeDryRun", "analyzedGear"].includes(k));
   if (extra.length > 0) return { ok: false, error: `Unexpected field: ${extra[0].slice(0, 30)}.` };
   if (body.acknowledgeDryRun !== true) return { ok: false, error: "acknowledgeDryRun must be true: this only records a dry-run position, no order is sent." };
   if (!isOptionType(body.type)) return { ok: false, error: 'type must be "call" or "put".' };
   if (typeof body.symbol !== "string" || !OCC_SPY.test(body.symbol)) return { ok: false, error: "symbol must be a SPY option symbol such as SPY271217C00595000." };
   const occ = parseOccSymbol(body.symbol);
   if (!occ || occ.type !== body.type) return { ok: false, error: "symbol does not match the chosen call/put." };
-  return { ok: true, value: { type: body.type, symbol: body.symbol } };
+  if (body.analyzedGear !== undefined && !isGear(body.analyzedGear)) return { ok: false, error: "analyzedGear must be DRIVE, NEUTRAL or REVERSE." };
+  return { ok: true, value: { type: body.type, symbol: body.symbol, ...(body.analyzedGear !== undefined ? { analyzedGear: body.analyzedGear } : {}) } };
 }
 
 /** Body of POST /api/spy/close: { acknowledgeDryRun: true, unpriced?: boolean }. */
@@ -231,13 +235,13 @@ export function parseCloseRequest(body: unknown): { ok: true; value: CloseReques
 
 export type DeskDecision =
   | { status: "ok"; action: "CALL" | "PUT" | "STAND_ASIDE"; reading: LongReading; readings: LongReadings }
-  | { status: "unavailable"; reason: string };
+  | { status: "unavailable"; reason: string; readings: LongReadings };
 
 /** The same decision the engine makes (Drive CALL, Reverse PUT, Neutral STAND ASIDE), without reading any option data. */
 export function deskDecision(daily: readonly Bar[], now: Date, timeframe: LongTimeframe): DeskDecision {
   const readings = computeLongReadings({ daily: [...daily], now });
   const reading = readings[timeframe];
-  if (reading.status !== "ok" || reading.polarity === null) return { status: "unavailable", reason: reading.reason ?? "unknown" };
+  if (reading.status !== "ok" || reading.polarity === null) return { status: "unavailable", reason: reading.reason ?? "unknown", readings };
   return { status: "ok", action: reading.polarity === 1 ? "CALL" : reading.polarity === -1 ? "PUT" : "STAND_ASIDE", reading, readings };
 }
 
@@ -305,6 +309,14 @@ export async function openManual(deps: DeskDeps, config: DeskConfig, store: Desk
     if (!dailyRes.ok) return refuse("DATA_UNAVAILABLE", `Data unavailable: daily bars could not be read (${dailyRes.error}). Nothing was recorded.`, 409);
     const decision = deskDecision(dailyRes.value, now, config.timeframe);
     if (decision.status === "unavailable") return refuse("DATA_UNAVAILABLE", `Data unavailable for the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading: ${decision.reason}. Nothing was recorded.`, 409);
+
+    const gear = gearFromAction(decision.action);
+    if (gear === null) return refuse("DATA_UNAVAILABLE", "Data unavailable: the reading gave no gear. Nothing was recorded.", 409);
+    const sideCheck = checkSide(gear, req.type);
+    if (!sideCheck.allowed) return refuse("COUNTER_POLARITY", `${sideCheck.message} The server checked the ${LONG_TIMEFRAME_NAMES[config.timeframe]} gear itself. Nothing was recorded.`, 409);
+    if (req.analyzedGear !== undefined && req.analyzedGear !== gear) {
+      return refuse("GEAR_CHANGED", `The gear changed from ${GEAR_NAMES[req.analyzedGear]} (when you analyzed) to ${GEAR_NAMES[gear]}. Analyze again and check the side. Nothing was recorded.`, 409);
+    }
 
     const spotRes = await deps.readSpot();
     if (!spotRes.ok) return refuse("NO_SPOT", `The SPY price could not be read (${spotRes.error}). Nothing was recorded.`, 502);
@@ -442,6 +454,9 @@ export type EnginePickView =
   | { status: "none"; type: OptionType; reason: string }
   | { status: "not-applicable"; reason: string };
 
+/** The held contract's live quote: what it would fetch if closed now (bid), against the entry ask. */
+export type HeldQuote = { bid: number; ask: number; pnlUsd: number; quoteAt: string };
+
 export type PositionView =
   | { status: "none" }
   | { status: "unknown"; reason: string }
@@ -458,7 +473,7 @@ export type PositionView =
       deltaTier: "primary" | "fallback";
       belowTargetLabel: string | null;
       source: PositionSource;
-      quote: { bid: number; ask: number; pnlUsd: number } | null;
+      quote: HeldQuote | null;
     };
 
 export type CandidateList = { type: OptionType; expiration: string | null; total: number; shown: ContractView[]; error: string | null };
@@ -484,7 +499,7 @@ export type DeskSnapshot = {
   rules: { minDays: number; primary: number; floor: number; fallbackLabel: string };
 };
 
-function readingView(r: LongReading, isDecision: boolean): ReadingView {
+export function readingView(r: LongReading, isDecision: boolean): ReadingView {
   return {
     timeframe: r.timeframe,
     name: LONG_TIMEFRAME_NAMES[r.timeframe],
@@ -530,6 +545,53 @@ function candidateList(side: SideReport, today: string): CandidateList {
 
 const rulesView = (): DeskSnapshot["rules"] => ({ minDays: MIN_DAYS_TO_EXPIRY, primary: DELTA_THRESHOLDS.primary, floor: DELTA_THRESHOLDS.floor, fallbackLabel: FALLBACK_LABEL });
 
+const NO_STORE_TEXT = "No desk store is configured (KV_REST_API_URL / KV_REST_API_TOKEN). The dry-run position cannot be read or saved, so the manual ticket, Close and Auto are off.";
+
+/** Reads the saved record for display. A store that cannot be read is "unknown", never "no position". Never throws. */
+export async function readStateForView(store: DeskStore | null): Promise<{ state: DeskState | null; storeView: DeskSnapshot["store"]; position: PositionView }> {
+  if (!store) return { state: null, storeView: { available: false, error: NO_STORE_TEXT }, position: { status: "unknown", reason: "No desk store is configured." } };
+  try {
+    const r = await store.read();
+    if (r.ok) return { state: r.state, storeView: { available: true, error: null }, position: { status: "none" } };
+    return { state: null, storeView: { available: false, error: r.error }, position: { status: "unknown", reason: r.error } };
+  } catch {
+    return { state: null, storeView: { available: false, error: "The desk store failed." }, position: { status: "unknown", reason: "The desk store failed." } };
+  }
+}
+
+/** The held position with its live quote (one contract snapshot plus the SPY price). The quote is null, never guessed, when unreadable. */
+export async function heldPositionView(p: DeskPosition, spotOrRead: () => Promise<Spot | null>, deps: DeskDeps, today: string, now: Date, notes: string[]): Promise<PositionView> {
+  let quote: HeldQuote | null = null;
+  try {
+    const spot = await spotOrRead();
+    const q = spot ? await deps.readHeld(p, spot.price, today, now) : null;
+    if (q) quote = { bid: q.bid, ask: q.ask, pnlUsd: (q.bid - p.entryAsk) * CONTRACT_MULTIPLIER, quoteAt: q.quoteAt };
+  } catch {
+    notes.push(`The quote for ${p.symbol} could not be read.`);
+  }
+  return {
+    status: "held",
+    type: p.type,
+    symbol: p.symbol,
+    strike: p.strike,
+    expiration: p.expiration,
+    entryAt: p.entryAt,
+    entryAsk: p.entryAsk,
+    entryDelta: p.entryDelta,
+    costUsd: p.entryAsk * CONTRACT_MULTIPLIER,
+    deltaTier: p.deltaTier,
+    belowTargetLabel: p.deltaTier !== "fallback" ? null : p.source === "auto" ? FALLBACK_LABEL : MANUAL_BELOW_TARGET_LABEL,
+    source: p.source,
+    quote,
+  };
+}
+
+/** Neutral reading while a position is held: Auto does nothing, the trader decides. */
+export function neutralBanner(position: PositionView, action: Decision["action"] | "UNKNOWN" | null): string | null {
+  if (position.status !== "held" || action !== "STAND_ASIDE") return null;
+  return `NEUTRAL: TRADER DECIDES. You hold ${position.type.toUpperCase()} ${position.symbol} (${sourceMode(position.source)}). The reading is Neutral, so Auto leaves it alone: close it by hand if you want out.`;
+}
+
 /**
  * Everything the page shows, in one JSON-serialisable object. Reads market data and the saved desk state; writes nothing.
  * Never throws: every failure becomes visible text ("data unavailable", "unknown"), never a made-up value.
@@ -557,27 +619,11 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
     rules: rulesView(),
   };
 
-  let state: DeskState | null = null;
-  if (!store) {
-    base.store = { available: false, error: "No desk store is configured (KV_REST_API_URL / KV_REST_API_TOKEN). The dry-run position cannot be read or saved, so the manual ticket, Close and Auto are off." };
-    base.position = { status: "unknown", reason: "No desk store is configured." };
-  } else {
-    try {
-      const r = await store.read();
-      if (r.ok) state = r.state;
-      else {
-        base.store = { available: false, error: r.error };
-        base.position = { status: "unknown", reason: r.error };
-      }
-    } catch {
-      base.store = { available: false, error: "The desk store failed." };
-      base.position = { status: "unknown", reason: "The desk store failed." };
-    }
-  }
-  if (state) {
-    base.journal = state.journal.slice(-JOURNAL_SHOWN).reverse();
-    base.position = { status: "none" };
-  }
+  const viewed = await readStateForView(store);
+  const state: DeskState | null = viewed.state;
+  base.store = viewed.storeView;
+  base.position = viewed.position;
+  if (state) base.journal = state.journal.slice(-JOURNAL_SHOWN).reverse();
 
   try {
     const cap: { spot: Spot | null } = { spot: null };
@@ -652,39 +698,10 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
     }
 
     if (state?.position) {
-      const p = state.position;
-      let quote: { bid: number; ask: number; pnlUsd: number } | null = null;
-      try {
-        const spot = await spotOrRead();
-        const q = spot ? await deps.readHeld(p, spot.price, today, now) : null;
-        if (q) quote = { bid: q.bid, ask: q.ask, pnlUsd: (q.bid - p.entryAsk) * CONTRACT_MULTIPLIER };
-      } catch {
-        notes.push(`The quote for ${p.symbol} could not be read.`);
-      }
-      base.position = {
-        status: "held",
-        type: p.type,
-        symbol: p.symbol,
-        strike: p.strike,
-        expiration: p.expiration,
-        entryAt: p.entryAt,
-        entryAsk: p.entryAsk,
-        entryDelta: p.entryDelta,
-        costUsd: p.entryAsk * CONTRACT_MULTIPLIER,
-        deltaTier: p.deltaTier,
-        belowTargetLabel: p.deltaTier !== "fallback" ? null : p.source === "auto" ? FALLBACK_LABEL : MANUAL_BELOW_TARGET_LABEL,
-        source: p.source,
-        quote,
-      };
+      base.position = await heldPositionView(state.position, spotOrRead, deps, today, now, notes);
     }
 
-    if (base.position.status === "held" && result.decision?.action === "STAND_ASIDE") {
-      const p = base.position;
-      base.auto = {
-        ...base.auto,
-        banner: `NEUTRAL: TRADER DECIDES. You hold ${p.type.toUpperCase()} ${p.symbol} (${sourceMode(p.source)}). The reading is Neutral, so Auto leaves it alone: close it by hand if you want out.`,
-      };
-    }
+    base.auto = { ...base.auto, banner: neutralBanner(base.position, result.decision?.action ?? null) };
 
     const positionStatus = base.position.status === "held" ? "held" : base.position.status === "none" ? "none" : "unknown";
     const gate = ticketGate(result.decision, positionStatus, base.store.available);
@@ -713,7 +730,7 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
 
 /* ------------------------------------------------- client-side validation */
 
-const isStr = (v: unknown): v is string => typeof v === "string";
+export const isStr = (v: unknown): v is string => typeof v === "string";
 const orNull = (guard: (v: unknown) => boolean, v: unknown): boolean => v === null || guard(v);
 
 function isContractView(v: unknown): boolean {
@@ -724,7 +741,7 @@ function isCandidateList(v: unknown): boolean {
   return isRecord(v) && isOptionType(v.type) && finite(v.total) && Array.isArray(v.shown) && v.shown.every(isContractView) && orNull(isStr, v.expiration) && orNull(isStr, v.error);
 }
 
-function isReadingView(v: unknown): boolean {
+export function isReadingView(v: unknown): boolean {
   return (
     isRecord(v) &&
     isLongTimeframe(v.timeframe) &&
@@ -745,19 +762,31 @@ function isReadingView(v: unknown): boolean {
   );
 }
 
+export function isDecisionView(v: unknown): boolean {
+  return isRecord(v) && isStr(v.action) && isStr(v.reason) && typeof v.traderDecides === "boolean";
+}
+
+/** Shape of the position block, including the live quote (bid, ask, P&L and when the quote was made). */
+export function isPositionView(pos: unknown): boolean {
+  if (!isRecord(pos) || !["none", "unknown", "held"].includes(String(pos.status))) return false;
+  if (pos.status === "unknown") return isStr(pos.reason);
+  if (pos.status !== "held") return true;
+  const q = pos.quote;
+  const quoteOk = q === null || (isRecord(q) && finite(q.bid) && finite(q.ask) && finite(q.pnlUsd) && isStr(q.quoteAt));
+  return isStr(pos.symbol) && isOptionType(pos.type) && finite(pos.strike) && isStr(pos.expiration) && finite(pos.entryAsk) && finite(pos.costUsd) && finite(pos.entryDelta) && (pos.source === "manual" || pos.source === "auto") && quoteOk;
+}
+
 /** Strict shape check of the snapshot the server sent, run in the browser before anything is drawn. */
 export function parseDeskSnapshot(raw: unknown): { ok: true; snapshot: DeskSnapshot } | { ok: false; error: string } {
   const bad = (what: string) => ({ ok: false as const, error: `The server sent data in an unexpected shape (${what}). Nothing is shown rather than guessing.` });
   if (!isRecord(raw) || raw.ok !== true || raw.dryRun !== true) return bad("header");
   if (!isStr(raw.generatedAt) || !isLongTimeframe(raw.timeframe) || !finite(raw.liveBudget)) return bad("meta");
   if (!Array.isArray(raw.readings) || !raw.readings.every(isReadingView)) return bad("readings");
-  if (!isRecord(raw.decision) || !isStr(raw.decision.action) || !isStr(raw.decision.reason) || typeof raw.decision.traderDecides !== "boolean") return bad("decision");
+  if (!isDecisionView(raw.decision)) return bad("decision");
   const pick = raw.enginePick;
   if (!isRecord(pick) || !["contract", "none", "not-applicable"].includes(String(pick.status))) return bad("engine pick");
   if (pick.status === "contract" && !(isContractView(pick.contract) && (pick.tier === "primary" || pick.tier === "fallback") && finite(pick.budget) && typeof pick.affordable === "boolean" && finite(pick.shortfall))) return bad("engine pick contract");
-  const pos = raw.position;
-  if (!isRecord(pos) || !["none", "unknown", "held"].includes(String(pos.status))) return bad("position");
-  if (pos.status === "held" && !(isStr(pos.symbol) && isOptionType(pos.type) && finite(pos.strike) && isStr(pos.expiration) && finite(pos.entryAsk) && finite(pos.costUsd) && finite(pos.entryDelta))) return bad("position details");
+  if (!isPositionView(raw.position)) return bad("position");
   const t = raw.ticket;
   if (!isRecord(t) || typeof t.open !== "boolean" || !orNull(isStr, t.reason) || !orNull(isCandidateList, t.calls) || !orNull(isCandidateList, t.puts)) return bad("ticket");
   if (!isRecord(raw.store) || typeof raw.store.available !== "boolean") return bad("store");

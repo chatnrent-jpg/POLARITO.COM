@@ -188,12 +188,12 @@ describe("manual ticket (openManual): dry-run position only", () => {
     assert.equal(s.state.position?.deltaTier, "primary");
     assert.equal(s.state.position?.fallbackReason, null);
   });
-  it("works at any reading and says how it relates to the reading: same side or AGAINST THE READING, always MANUAL", async () => {
+  it("opens on the gear's own side (Drive call, Reverse put) and on either side at Neutral; always MANUAL", async () => {
     const cases = [
       [DRIVE, "call", CALL_600, /Drive reading, same side, trader decided/],
-      [DRIVE, "put", PUT_850, /AGAINST THE READING \(Drive\), trader decided/],
       [REVERSE, "put", PUT_850, /Reverse reading, same side, trader decided/],
-      [REVERSE, "call", CALL_600, /AGAINST THE READING \(Reverse\), trader decided/],
+      [NEUTRAL, "call", CALL_600, /Neutral reading, trader decided/],
+      [NEUTRAL, "put", PUT_850, /Neutral reading, trader decided/],
     ] as const;
     for (const [sc, type, symbol, note] of cases) {
       const store = createMemoryDeskStore();
@@ -556,7 +556,7 @@ describe("HTTP handlers", () => {
   });
   it("ticket on a Drive reading is recorded as MANUAL; keys missing: 503 and nothing saved", async () => {
     const c = ctx({ makeLive: live(DRIVE) });
-    const res = await handleTicket(post("/api/spy/ticket", ticketBody), c);
+    const res = await handleTicket(post("/api/spy/ticket", { type: "call", symbol: CALL_600, acknowledgeDryRun: true }), c);
     assert.equal(res.status, 200);
     const saved = await c.store!.read();
     assert.ok(saved.ok && saved.state.position?.source === "manual");
@@ -581,7 +581,7 @@ describe("HTTP handlers", () => {
 });
 
 describe("no order can be sent from the SPY desk", () => {
-  const logic = ["src/lib/spyDesk.ts", "src/lib/spyDeskFormat.ts", "src/lib/spyDeskLive.ts", "src/lib/spyDeskRoutes.ts", "src/lib/spyAuto.ts", "src/lib/spyAutoTypes.ts", "src/lib/spyAutoRoutes.ts", "src/app/api/spy/auto/route.node.ts", "src/app/api/spy/auto-run/route.node.ts", "src/app/api/spy/desk/route.node.ts", "src/app/api/spy/ticket/route.node.ts", "src/app/api/spy/close/route.node.ts", "src/app/spy/page.tsx", "src/components/spy/SpyDeskView.tsx"];
+  const logic = ["src/lib/spyDesk.ts", "src/lib/spyDeskFormat.ts", "src/lib/spyDeskLive.ts", "src/lib/spyDeskRoutes.ts", "src/lib/spyAuto.ts", "src/lib/spyAutoTypes.ts", "src/lib/spyAutoRoutes.ts", "src/app/api/spy/auto/route.node.ts", "src/app/api/spy/auto-run/route.node.ts", "src/app/api/spy/desk/route.node.ts", "src/app/api/spy/ticket/route.node.ts", "src/app/api/spy/close/route.node.ts", "src/app/spy/page.tsx", "src/components/spy/SpyDeskView.tsx", "src/lib/spyLive.ts", "src/lib/spyPoller.ts", "src/lib/spyDeskData.ts", "src/lib/spyDeskClient.ts", "src/lib/spyTtlCache.ts", "src/lib/spyGear.ts", "src/lib/spyAnalysis.ts", "src/lib/spyAnalyzer.ts", "src/app/api/spy/live/route.node.ts", "src/app/api/spy/analyze/route.node.ts"];
   const withOwnWrites = ["src/lib/spyDeskStore.ts", "src/lib/spyKv.ts", "src/components/spy/SpyDesk.tsx"];
   const all = [...logic, ...withOwnWrites];
 
