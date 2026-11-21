@@ -54,7 +54,7 @@ export async function closeLivePosition(deps: LiveCloseDeps, tickerInput: unknow
 
   const audit = (draft: Omit<AuditDraft, "source" | "ticker">): void => {
     try {
-      deps.audit(buildAuditRecord({ ...draft, source: "live-close", ticker }, now));
+      deps.audit(buildAuditRecord({ ...draft, source: "live-manual-close", ticker }, now));
     } catch {
       /* logging must not change what was sent */
     }

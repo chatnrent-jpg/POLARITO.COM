@@ -23,8 +23,25 @@ export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [confirmAuto, setConfirmAuto] = useState(false);
+  const [alsoAutoOff, setAlsoAutoOff] = useState(true);
 
-  async function close(ticker: string) {
+  /** The existing guarded Auto route: OFF is only accepted by the server when the account is flat with no working order. */
+  async function requestAuto(auto: boolean): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch("/api/broker/live/auto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto }),
+        cache: "no-store",
+      });
+      const data = (await res.json()) as { ok: boolean; error?: string };
+      return data.ok ? { ok: true } : { ok: false, error: data.error ?? "Auto was not changed." };
+    } catch {
+      return { ok: false, error: "Could not reach the server. Auto was not changed; check the state shown." };
+    }
+  }
+
+  async function close(ticker: string, thenAutoOff: boolean) {
     setBusy(true);
     setNotice(null);
     try {
@@ -46,7 +63,17 @@ export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
       } else if (data.status === "observed") {
         setNotice({ kind: "wait", text: data.message ?? "Live trading is off. Nothing was sent." });
       } else if (data.flat === true) {
-        setNotice({ kind: "ok", text: `${ticker}: ${data.message ?? "Closed."}` });
+        const closed = `${ticker}: ${data.message ?? "Closed."}`;
+        if (thenAutoOff) {
+          const off = await requestAuto(false);
+          setNotice(
+            off.ok
+              ? { kind: "ok", text: `${closed} Live Auto is OFF.` }
+              : { kind: "error", text: `${closed} Live Auto is still ON: ${off.error}` },
+          );
+        } else {
+          setNotice({ kind: "ok", text: closed });
+        }
       } else {
         setNotice({ kind: "wait", text: data.message ?? "Close accepted; waiting for the fill." });
       }
@@ -63,20 +90,12 @@ export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch("/api/broker/live/auto", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auto }),
-        cache: "no-store",
-      });
-      const data = (await res.json()) as { ok: boolean; error?: string };
+      const res = await requestAuto(auto);
       setNotice(
-        data.ok
+        res.ok
           ? { kind: "ok", text: auto ? "Live Auto is ON." : "Live Auto is OFF." }
-          : { kind: "error", text: data.error ?? "Auto was not changed." },
+          : { kind: "error", text: res.error ?? "Auto was not changed." },
       );
-    } catch {
-      setNotice({ kind: "error", text: "Could not reach the server. Auto was not changed; check the state shown." });
     } finally {
       setConfirmAuto(false);
       setBusy(false);
@@ -181,7 +200,22 @@ export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
           {status.day.stoppedToday ? " Stopped out: no re-entry today." : ""}
         </p>
       ) : null}
-      {positions.length === 0 && account ? <p className="text-base text-slate-300">No stock positions at Alpaca.</p> : null}
+      {positions.length === 0 ? (
+        <div className="rounded-lg border border-zinc-700 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-base text-slate-300">No stock positions at Alpaca.</span>
+            <button
+              type="button"
+              disabled
+              aria-label="Close position (disabled: no open position to close)"
+              className="cursor-not-allowed rounded-lg px-3 py-2 font-bold text-red-300 opacity-50 ring-1 ring-red-500"
+            >
+              Close position
+            </button>
+          </div>
+          <p className="mt-2 text-sm text-slate-400">No open position to close.</p>
+        </div>
+      ) : null}
       <ul className="space-y-2">
         {positions.map((p) => (
           <li key={p.ticker} className="rounded-lg border border-zinc-700 p-3">
@@ -191,7 +225,7 @@ export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
               </span>
               {confirming === p.ticker ? (
                 <span className="flex gap-2">
-                  <button type="button" disabled={busy} onClick={() => void close(p.ticker)} className="rounded-lg bg-red-600 px-3 py-2 font-bold text-white disabled:opacity-50">
+                  <button type="button" disabled={busy} onClick={() => void close(p.ticker, Boolean(auto?.on) && alsoAutoOff)} className="rounded-lg bg-red-600 px-3 py-2 font-bold text-white disabled:opacity-50">
                     Confirm close
                   </button>
                   <button type="button" disabled={busy} onClick={() => setConfirming(null)} className="rounded-lg px-3 py-2 font-semibold text-white ring-1 ring-zinc-500">
@@ -201,17 +235,37 @@ export default function LiveAccountPanel({ feed }: { feed: LiveFeed }) {
               ) : (
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || !mode.ordersAllowed}
                   onClick={() => {
                     setNotice(null);
                     setConfirming(p.ticker);
                   }}
-                  className="rounded-lg px-3 py-2 font-bold text-red-300 ring-1 ring-red-500 disabled:opacity-50"
+                  className="rounded-lg px-3 py-2 font-bold text-red-300 ring-1 ring-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Close
+                  Close position
                 </button>
               )}
             </div>
+            {!mode.ordersAllowed ? (
+              <p className="mt-2 text-sm font-semibold text-amber-300">Close is disabled: live orders are off. {mode.ordersReason}</p>
+            ) : null}
+            {confirming === p.ticker ? (
+              <div className="mt-2 flex flex-col gap-2 text-sm">
+                <p className="font-semibold text-amber-200">
+                  REAL ORDER: this sends a market {p.side === "short" ? "buy to cover" : "sell"} of all {p.quantity} {p.ticker} to your live Alpaca account. It never cancels other orders.
+                </p>
+                {auto?.on ? (
+                  <label className="flex items-start gap-2 text-slate-200">
+                    <input type="checkbox" checked={alsoAutoOff} onChange={(e) => setAlsoAutoOff(e.target.checked)} className="mt-1" />
+                    <span>
+                      Then turn Live Auto OFF once the position is flat. Auto is ON and would otherwise buy {p.ticker} again on its next
+                      tick (about 10 seconds) if its reading is still aligned. Auto OFF is only accepted when the account is flat with no
+                      working orders; if it is refused, Auto stays ON.
+                    </span>
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
           </li>
         ))}
       </ul>
