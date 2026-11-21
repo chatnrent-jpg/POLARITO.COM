@@ -2,7 +2,7 @@
  * Read-only Alpaca client for the SPY options design (server / CI only).
  *
  * This client CANNOT place, change or cancel an order: it only ever sends GET, and only to an
- * explicit allowlist of read paths (account, option contracts, latest stock trade, option snapshots).
+ * explicit allowlist of read paths (account, option contracts, latest stock trade, stock bars, option snapshots).
  * Any other path is refused before a request is made. The hosts are constants; no caller can pass a URL.
  * Credentials go out as headers only and never appear in a returned error.
  */
@@ -21,7 +21,7 @@ const TRADING_READS: readonly RegExp[] = [/^\/v2\/account$/, /^\/v2\/options\/co
 const ALLOWED_PATHS: Readonly<Record<ReadOnlyHost, readonly RegExp[]>> = Object.freeze({
   "trading-live": TRADING_READS,
   "trading-paper": TRADING_READS,
-  data: [/^\/v2\/stocks\/[A-Z]{1,6}\/trades\/latest$/, /^\/v1beta1\/options\/snapshots\/[A-Z]{1,6}$/],
+  data: [/^\/v2\/stocks\/[A-Z]{1,6}\/trades\/latest$/, /^\/v2\/stocks\/bars$/, /^\/v1beta1\/options\/snapshots\/[A-Z]{1,6}$/],
 });
 
 export function isAllowedReadPath(host: ReadOnlyHost, path: string): boolean {

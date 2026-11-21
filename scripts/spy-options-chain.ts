@@ -10,9 +10,9 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { createReadOnlyClient, type ReadOnlyClient, type ReadOnlyHost } from "../src/lib/alpacaReadOnly";
 import { DEFAULT_DIVIDEND_YIELD, DEFAULT_RISK_FREE_RATE } from "../src/lib/optionsSelect";
-import { newYorkDate, readAccount, readSide, readSpot, type AccountSummary } from "../src/lib/spyChain";
+import { connectAlpaca } from "../src/lib/spyConnect";
+import { newYorkDate, readSide, readSpot } from "../src/lib/spyChain";
 import { renderChainReport } from "../src/lib/spyChainReport";
 
 const arg = (name: string, d: string): string => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? d;
@@ -29,34 +29,9 @@ async function main(): Promise<void> {
   if (![liveBudget, rate, dividendYield].every(Number.isFinite) || liveBudget <= 0) throw new Error("bad numeric argument");
   if (stockFeeds.length === 0) throw new Error("--stock-feed must list sip and/or iex");
 
-  const env = process.env;
-  const candidates: Array<{ client: ReadOnlyClient; hosts: ReadOnlyHost[] }> = [];
-  const liveId = env.ALPACA_LIVE_KEY_ID?.trim();
-  const liveSecret = env.ALPACA_LIVE_SECRET_KEY?.trim();
-  if (liveId && liveSecret) candidates.push({ client: createReadOnlyClient({ keyId: liveId, secretKey: liveSecret }), hosts: ["trading-live"] });
-  const dataId = env.ALPACA_API_KEY_ID?.trim();
-  const dataSecret = env.ALPACA_API_SECRET_KEY?.trim();
-  if (dataId && dataSecret) candidates.push({ client: createReadOnlyClient({ keyId: dataId, secretKey: dataSecret }), hosts: ["trading-live", "trading-paper"] });
-  if (candidates.length === 0) throw new Error("No Alpaca keys found (ALPACA_LIVE_KEY_ID/SECRET or ALPACA_API_KEY_ID/SECRET).");
-
-  let client = candidates[candidates.length - 1].client;
-  let account: AccountSummary | null = null;
-  let accountHost: "live" | "paper" | null = null;
-  let contractsHost: ReadOnlyHost | null = null;
-  const accountErrors: string[] = [];
-  outer: for (const c of candidates) {
-    for (const host of c.hosts) {
-      const res = await readAccount(c.client, host);
-      if (res.ok) {
-        client = c.client;
-        account = res.value;
-        accountHost = host === "trading-live" ? "live" : "paper";
-        contractsHost = host;
-        break outer;
-      }
-      accountErrors.push(res.error);
-    }
-  }
+  const conn = await connectAlpaca(process.env);
+  const { client, account, accountHost, contractsHost } = conn;
+  const accountErrors = conn.accountErrors;
 
   const now = new Date();
   const today = newYorkDate(now);

@@ -1,0 +1,137 @@
+name: SPY options dry run (no orders)
+
+# Manual only: there is NO schedule. Runs the SPY-only options decision engine in DRY RUN: it reads SPY bars and the
+# options chain, prints the four period-to-date readings (monthly, quarterly, 6-month, yearly) with their inputs, decides
+# CALL / PUT / STAND ASIDE on the decision timeframe (Neutral = "NEUTRAL: TRADER DECIDES": no automatic exit or entry), and logs the contract it WOULD buy (nearest listed expiry of at
+# least 365 days, |delta| >= 0.80). Stale or incomplete data gives "data unavailable" and no decision.
+#
+# NO ORDER IS SENT AND NONE CAN BE: scripts/spy-options-engine.ts goes through src/lib/alpacaReadOnly.ts, which only
+# sends GET to account / option contracts / stock bars and latest trade / option snapshots. POLARITO_LIVE_TRADING_ENABLED
+# is not read. Keys are never printed.
+#
+# "save" (default off): commit spy-options-dry-run/ (state.json, log.jsonl, latest.md; text only) to the branch this
+# run was started on, so the next run can log every change of a reading. With save off, the result is only in the job
+# log, the run Summary and the artifact "spy-options-dry-run".
+#
+# Secrets (same as the chain job): ALPACA_LIVE_KEY_ID + ALPACA_LIVE_SECRET_KEY, ALPACA_API_KEY_ID + ALPACA_API_SECRET_KEY,
+# or ALPACAKEYS (NAME=value lines).
+on:
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: "Decision timeframe: M monthly, Q quarterly, H 6-month, Y yearly (no daily or weekly exists)"
+        type: choice
+        options: [M, Q, H, Y]
+        default: M
+      stock_feed:
+        description: "Stock data feed (sip needs the paid plan for the latest 15 minutes; iex is free, partial volume)"
+        type: choice
+        options: [sip, iex]
+        default: sip
+      options_feed:
+        description: "Option data feed: indicative (free, delayed) or opra (paid)"
+        type: choice
+        options: [indicative, opra]
+        default: indicative
+      live_budget:
+        description: "Live account size in dollars for the can-I-afford-it line"
+        type: string
+        default: "1000"
+      save:
+        description: "Commit the state and log back to this branch (needed to log changes between runs)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: spy-options-dry-run
+  cancel-in-progress: false
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Prepare Alpaca keys
+        env:
+          COMBINED: ${{ secrets.ALPACAKEYS }}
+          KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          KEY_SECRET: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          LIVE_ID: ${{ secrets.ALPACA_LIVE_KEY_ID }}
+          LIVE_SECRET: ${{ secrets.ALPACA_LIVE_SECRET_KEY }}
+        run: |
+          f="$RUNNER_TEMP/alpaca.env"
+          : > "$f"
+          if [ -n "$COMBINED" ]; then printf '%s\n' "$COMBINED" | tr -d '\r' > "$f"; fi
+          if [ -n "$KEY_ID" ]; then printf 'ALPACA_API_KEY_ID=%s\n' "$KEY_ID" >> "$f"; fi
+          if [ -n "$KEY_SECRET" ]; then printf 'ALPACA_API_SECRET_KEY=%s\n' "$KEY_SECRET" >> "$f"; fi
+          if [ -n "$LIVE_ID" ]; then printf 'ALPACA_LIVE_KEY_ID=%s\n' "$LIVE_ID" >> "$f"; fi
+          if [ -n "$LIVE_SECRET" ]; then printf 'ALPACA_LIVE_SECRET_KEY=%s\n' "$LIVE_SECRET" >> "$f"; fi
+          have() { grep -q "^$1=." "$f"; }
+          if { have ALPACA_API_KEY_ID && have ALPACA_API_SECRET_KEY; } || { have ALPACA_LIVE_KEY_ID && have ALPACA_LIVE_SECRET_KEY; }; then
+            echo "found a usable key pair"
+          else
+            echo "::error::No Alpaca key pair found. Add ALPACA_API_KEY_ID + ALPACA_API_SECRET_KEY (or ALPACA_LIVE_KEY_ID + ALPACA_LIVE_SECRET_KEY, or one ALPACAKEYS secret with NAME=value lines)."
+            exit 1
+          fi
+
+      - name: Run the dry-run engine
+        env:
+          TIMEFRAME: ${{ inputs.timeframe }}
+          STOCK_FEED: ${{ inputs.stock_feed }}
+          OPTIONS_FEED: ${{ inputs.options_feed }}
+          LIVE_BUDGET: ${{ inputs.live_budget }}
+        run: |
+          set -eu
+          case "$TIMEFRAME" in M|Q|H|Y) ;; *) echo "::error::timeframe must be M, Q, H or Y"; exit 1 ;; esac
+          case "$STOCK_FEED" in sip|iex) ;; *) echo "::error::stock_feed must be sip or iex"; exit 1 ;; esac
+          case "$OPTIONS_FEED" in indicative|opra) ;; *) echo "::error::options_feed must be indicative or opra"; exit 1 ;; esac
+          case "$LIVE_BUDGET" in ''|*[!0-9.]*) echo "::error::live_budget must be a number"; exit 1 ;; esac
+          npx tsx --env-file="$RUNNER_TEMP/alpaca.env" scripts/spy-options-engine.ts --write --dir=spy-options-dry-run \
+            --timeframe="$TIMEFRAME" --stock-feed="$STOCK_FEED" --options-feed="$OPTIONS_FEED" --live-budget="$LIVE_BUDGET"
+
+      - name: Show the summary on the run page
+        if: always()
+        run: |
+          if [ -f spy-options-dry-run/latest.md ]; then
+            cat spy-options-dry-run/latest.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spy-options-dry-run
+          path: spy-options-dry-run/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove the key file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/alpaca.env"
+
+      - name: Save the state and log
+        if: ${{ inputs.save }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add spy-options-dry-run
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          # [skip ci] [vercel skip]: a log update must not redeploy the website.
+          git commit -m "spy-options-dry-run: log $(date -u +%FT%TZ) [skip ci] [vercel skip]"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
