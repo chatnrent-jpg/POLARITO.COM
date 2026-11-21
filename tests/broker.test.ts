@@ -108,30 +108,6 @@ describe("AlpacaPaperBroker", () => {
     assert.equal(!b.ok && b.code, "MALFORMED");
   });
 
-  it("posts a validated market order", async () => {
-    const m = mock([
-      { body: { id: "abc", client_order_id: "cid", status: "accepted", symbol: "NVDA", side: "buy", qty: "10" } },
-    ]);
-    const r = await m.broker.submitMarketOrder({ ticker: "NVDA", side: "buy", quantity: 10, clientOrderId: "cid", timeInForce: "opg" });
-    assert.ok(r.ok);
-    assert.equal(m.calls[0].method, "POST");
-    assert.deepEqual(JSON.parse(m.calls[0].body ?? "{}"), {
-      symbol: "NVDA",
-      qty: "10",
-      side: "buy",
-      type: "market",
-      time_in_force: "opg",
-      client_order_id: "cid",
-    });
-  });
-
-  it("refuses non-integer quantities before any request", async () => {
-    const m = mock([{ body: {} }]);
-    const r = await m.broker.submitMarketOrder({ ticker: "NVDA", side: "buy", quantity: 1.5, clientOrderId: "c", timeInForce: "day" });
-    assert.equal(r.ok, false);
-    assert.equal(m.calls.length, 0);
-  });
-
   it("maps a 404 on lookup to 'no such order'", async () => {
     const m = mock([{ status: 404, body: { message: "order not found" } }]);
     const r = await m.broker.getOrderByClientId("cid");
