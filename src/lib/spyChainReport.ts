@@ -2,7 +2,7 @@
  * Plain-language report for the SPY options chain read (pure; no network, no secrets).
  * The report never contains credentials or the account number: it only receives the fields below.
  */
-import { MIN_ABS_DELTA, MIN_DAYS_TO_EXPIRY, affordability, usd, type ChainRow } from "@/lib/optionsSelect";
+import { MIN_ABS_DELTA, MIN_DAYS_TO_EXPIRY, affordability, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
 import type { AccountSummary, SideReport, Spot } from "@/lib/spyChain";
 
 export type ChainReportInput = {
@@ -47,15 +47,38 @@ function pickLines(label: string, side: SideReport, budgets: Array<{ name: strin
   return out;
 }
 
-function ladder(side: SideReport): string[] {
-  if (side.ladder.length === 0) return [];
-  const rows: ChainRow[] = side.ladder.slice(0, 14);
+const rowText = (r: ChainRow): string => `strike ${r.strike}, delta ${r.delta.toFixed(3)} (${r.deltaSource === "alpaca" ? "Alpaca" : "Black-Scholes"}), bid ${usd(r.bid)}, ask ${usd(r.ask)}, spread ${pct(r.spreadPct)}`;
+
+/** What was read for one side: strike coverage, the highest |delta| found, and the strikes closest to the 0.80 rule. */
+function coverage(label: string, side: SideReport, today: string): string[] {
+  const w = side.window;
+  const sr = side.strikesRead;
+  const out: string[] = [
+    `${label}: strike window requested ${w.low.toFixed(0)} to ${w.high.toFixed(0)}; ${sr.count} usable quotes read at the chosen expiry${sr.min !== null ? `, strikes ${sr.min} to ${sr.max}` : ""}.`,
+  ];
+  const h = side.highestAbsDelta;
+  out.push(h ? `Highest |delta| found: ${rowText(h)}${assertContractRules(h, side.type, today) === null ? " (meets every rule)" : ` (does not qualify: ${assertContractRules(h, side.type, today)})`}.` : "Highest |delta| found: none (no usable quote).");
+  if (side.ladder.length === 0) return out;
+  const rows: ChainRow[] = side.ladder.slice(0, 14).sort((a, b) => a.strike - b.strike);
   return [
-    `Neighbouring strikes, same expiry (|delta| 0.60 to 0.97):`,
+    ...out,
     "",
-    "| Strike | Delta | Bid | Ask | Cost per contract (ask) | Rule met |",
-    "| --- | --- | --- | --- | --- | --- |",
-    ...rows.map((r) => `| ${r.strike} | ${r.delta.toFixed(3)} | ${usd(r.bid)} | ${usd(r.ask)} | ${usd(r.costAtAsk)} | ${Math.abs(r.delta) >= MIN_ABS_DELTA ? "yes" : "no (delta)"} |`),
+    `Strikes closest to the ${MIN_ABS_DELTA} rule, same expiry:`,
+    "",
+    "| Strike | Delta | Source | Bid | Ask | Spread | Cost per contract (ask) | Rule met |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ...rows.map((r) => `| ${r.strike} | ${r.delta.toFixed(3)} | ${r.deltaSource === "alpaca" ? "Alpaca" : "Black-Scholes"} | ${usd(r.bid)} | ${usd(r.ask)} | ${pct(r.spreadPct)} | ${usd(r.costAtAsk)} | ${assertContractRules(r, side.type, today) === null ? "yes" : `no (${assertContractRules(r, side.type, today)})`} |`),
+    "",
+  ];
+}
+
+/** Information only: what later qualifying expiries would offer when the nearest one gave no contract. Never selected. */
+function laterLines(side: SideReport): string[] {
+  if (side.later.length === 0) return [];
+  return [
+    `Later expiries, INFORMATION ONLY (the rule uses the nearest listed expiry at least ${MIN_DAYS_TO_EXPIRY} days out; nothing below is selected or substituted):`,
+    "",
+    ...side.later.map((l) => (l.error ? `- ${l.expiration} (${l.daysToExpiry} days): could not be read (${l.error})` : `- ${l.expiration} (${l.daysToExpiry} days): ${l.rowsBuilt} usable quotes, ${l.meetingRules} meet every rule; highest |delta| ${l.highestAbsDelta ? rowText(l.highestAbsDelta) : "none"}`)),
     "",
   ];
 }
@@ -98,13 +121,15 @@ export function renderChainReport(i: ChainReportInput): string {
     const a = i.account;
     L.push(
       `- Account answered on the ${i.accountHost} host: status ${a.status}${a.tradingBlocked || a.accountBlocked ? " (BLOCKED)" : ""}`,
-      `- Options approval level: approved ${a.optionsApprovedLevel ?? "n/a"}, trading ${a.optionsTradingLevel ?? "n/a"} (buying a call or put needs level 2)`,
-      `- Equity ${a.equity === null ? "n/a" : usd(a.equity)}, cash ${a.cash === null ? "n/a" : usd(a.cash)}, buying power ${a.buyingPower === null ? "n/a" : usd(a.buyingPower)}, options buying power ${a.optionsBuyingPower === null ? "n/a" : usd(a.optionsBuyingPower)}, multiplier ${dec(a.multiplier, 0)}`,
+      a.optionsApprovedLevel === null && a.optionsTradingLevel === null
+        ? `- Options approval level: NOT RETURNED by Alpaca. The account answer had no usable options_approved_level or options_trading_level (option-related fields Alpaca did send: ${a.optionsFieldsSeen.length ? a.optionsFieldsSeen.join(", ") : "none"}). This job cannot tell whether options trading is enabled: check it in the Alpaca dashboard (buying a call or put needs level 2).`
+        : `- Options approval level: approved ${a.optionsApprovedLevel ?? "not returned"}, trading ${a.optionsTradingLevel ?? "not returned"} (buying a call or put needs level 2)`,
+      `- Equity ${a.equity === null ? "n/a" : usd(a.equity)}, cash ${a.cash === null ? "n/a" : usd(a.cash)}, buying power ${a.buyingPower === null ? "n/a" : usd(a.buyingPower)}, options buying power ${a.optionsBuyingPower === null ? "not returned" : usd(a.optionsBuyingPower)}, multiplier ${dec(a.multiplier, 0)}`,
     );
   } else {
     L.push(`- Account could not be read (${i.accountError ?? "no answer"}). The chain was still read with the data keys.`);
   }
-  L.push("", "## Contracts", "", ...pickLines("Call (for a Drive reading)", i.call, budgets), "", ...ladder(i.call), ...pickLines("Put (for a Reverse reading)", i.put, budgets), "", ...ladder(i.put));
+  L.push("", "## Contracts", "", ...pickLines("Call (for a Drive reading)", i.call, budgets), "", ...coverage("Call", i.call, i.today), ...laterLines(i.call), ...pickLines("Put (for a Reverse reading)", i.put, budgets), "", ...coverage("Put", i.put, i.today), ...laterLines(i.put));
   const rej = (s: SideReport) => Object.entries(s.rejected).map(([k, v]) => `${k}: ${v}`);
   L.push(
     "## Data quality",

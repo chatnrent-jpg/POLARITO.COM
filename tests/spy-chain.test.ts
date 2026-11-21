@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { createReadOnlyClient, isAllowedReadPath, type ReadOnlyFetch } from "../src/lib/alpacaReadOnly";
 import { bsPrice } from "../src/lib/optionsSelect";
 import { daysBetween } from "../src/lib/broker/options";
-import { newYorkDate, parseAccountSummary, readAccount, readSide, readSpot } from "../src/lib/spyChain";
+import { newYorkDate, parseAccountSummary, readAccount, readSide, readSpot, strikeRange, type AccountSummary } from "../src/lib/spyChain";
 import { renderChainReport } from "../src/lib/spyChainReport";
 
 const TODAY = "2026-11-20";
@@ -153,7 +153,7 @@ describe("chain read end to end (fake Alpaca)", () => {
       today: TODAY,
       spot: spot.value,
       accountHost: "live",
-      account: { status: "ACTIVE", tradingBlocked: false, accountBlocked: false, equity: 1000, cash: 1000, buyingPower: 1000, optionsBuyingPower: 1000, optionsApprovedLevel: 2, optionsTradingLevel: 2, multiplier: 1 },
+      account: { status: "ACTIVE", tradingBlocked: false, accountBlocked: false, equity: 1000, cash: 1000, buyingPower: 1000, optionsBuyingPower: 1000, optionsApprovedLevel: 2, optionsTradingLevel: 2, multiplier: 1, optionsFieldsSeen: ["options_approved_level", "options_buying_power", "options_trading_level"] },
       accountError: null,
       optionsFeed: "indicative",
       liveBudget: 1000,
@@ -183,5 +183,126 @@ describe("chain read end to end (fake Alpaca)", () => {
     });
     const side = await readSide(client, "call", { symbol: "SPY", today: TODAY, now: NOW, spot: SPOT, optionsFeed: "indicative", contractsHost: "trading-live" });
     assert.equal(side.pick.ok, false);
+  });
+});
+
+/** A fake chain that honours the requested strike window, with chosen strikes per expiry. */
+function windowFetch(calls: Call[], strikesFor: (exp: string, type: "call" | "put") => number[], opts: { contractsForever?: boolean } = {}): ReadOnlyFetch {
+  return async (url, init) => {
+    calls.push({ url, method: init.method });
+    const u = new URL(url);
+    const type = u.searchParams.get("type") === "put" ? "put" : "call";
+    if (u.pathname === "/v2/options/contracts") {
+      const exps = ["2027-11-19", "2027-12-17", "2028-01-21"];
+      return json(200, { option_contracts: exps.map((e) => ({ symbol: occ(e, type === "call" ? "C" : "P", 500), expiration_date: e, tradable: true })), next_page_token: opts.contractsForever ? "more" : null });
+    }
+    if (u.pathname === "/v1beta1/options/snapshots/SPY") {
+      const lo = Number(u.searchParams.get("strike_price_gte") ?? 0);
+      const hi = Number(u.searchParams.get("strike_price_lte") ?? Number.POSITIVE_INFINITY);
+      const exp = u.searchParams.get("expiration_date") ?? "";
+      const strikes = strikesFor(exp, type).filter((k) => k >= lo && k <= hi);
+      return json(200, { snapshots: Object.fromEntries(strikes.map((k) => snapshotFor(exp, type, k))), next_page_token: null });
+    }
+    return json(404, { message: "not found" });
+  };
+}
+const SIDE_OPTS = { symbol: "SPY", today: TODAY, now: NOW, spot: SPOT, optionsFeed: "indicative", contractsHost: "trading-live" as const };
+
+describe("put strike window and what the report shows", () => {
+  it("the put window reaches at least 3x the price, the call window stays below the price", () => {
+    assert.ok(strikeRange("put", 690).high >= 690 * 3);
+    assert.equal(strikeRange("put", 690).low, 690);
+    assert.equal(strikeRange("call", 690).high, 690);
+    assert.equal(strikeRange("call", 690).low, 345);
+  });
+  it("a deep-in-the-money put far above the old 1.7x window is found (and its delta rule still applies)", async () => {
+    const calls: Call[] = [];
+    // Only the 1300 strike (1.9x the price, beyond the old window) has |delta| >= 0.80 here; 690..800 are far below the rule.
+    const client = createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch(calls, () => [690, 750, 800, 1300]) });
+    const put = await readSide(client, "put", SIDE_OPTS);
+    assert.ok(put.pick.ok, put.pick.ok ? "" : put.pick.reason);
+    assert.equal(put.pick.row.strike, 1300);
+    assert.ok(put.pick.row.delta <= -0.8);
+    assert.equal(put.pick.expiration, "2027-12-17");
+    assert.ok(put.pick.daysToExpiry >= 365);
+    const snapshotCalls = calls.filter((c) => c.url.includes("/snapshots/"));
+    assert.ok(snapshotCalls.every((c) => Number(new URL(c.url).searchParams.get("strike_price_lte")) >= 690 * 3));
+    assert.equal(put.strikesRead.max, 1300);
+  });
+  it("never relaxes the delta rule: when no strike reaches 0.80 there is no contract, and the report shows the highest delta found", async () => {
+    const client = createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch([], () => [690, 700, 750, 800]) });
+    const put = await readSide(client, "put", SIDE_OPTS);
+    assert.equal(put.pick.ok, false);
+    assert.ok(put.highestAbsDelta);
+    assert.ok(Math.abs(put.highestAbsDelta.delta) < 0.8);
+    assert.equal(put.highestAbsDelta.strike, 800);
+    assert.equal(put.ladder[0].strike, 800); // closest to the rule first, not the lowest delta first
+    const report = renderChainReport({ generatedAt: NOW.toISOString(), today: TODAY, spot: { price: SPOT, at: NOW.toISOString(), feed: "iex" }, accountHost: null, account: null, accountError: "x", optionsFeed: "indicative", liveBudget: 1000, call: put, put, model: { rate: 0.043, dividendYield: 0.012 } });
+    assert.match(report, /Highest \|delta\| found: strike 800/);
+    assert.match(report, /does not qualify: \|delta\|/);
+    assert.match(report, /strike window requested 690 to 2070; 4 usable quotes read at the chosen expiry, strikes 690 to 800/);
+  });
+  it("later expiries are shown as information only and are never substituted", async () => {
+    const calls: Call[] = [];
+    const client = createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch(calls, (exp) => (exp === "2027-12-17" ? [690, 750, 800] : [690, 800, 1300])) });
+    const put = await readSide(client, "put", SIDE_OPTS);
+    assert.equal(put.pick.ok, false);
+    assert.equal(put.pick.expiration, "2027-12-17");
+    assert.deepEqual(put.later.map((l) => l.expiration), ["2028-01-21"]);
+    assert.ok(put.later.every((l) => l.daysToExpiry >= 365));
+    assert.equal(put.later[0].meetingRules, 1);
+    const report = renderChainReport({ generatedAt: NOW.toISOString(), today: TODAY, spot: { price: SPOT, at: NOW.toISOString(), feed: "iex" }, accountHost: null, account: null, accountError: "x", optionsFeed: "indicative", liveBudget: 1000, call: put, put, model: { rate: 0.043, dividendYield: 0.012 } });
+    assert.match(report, /INFORMATION ONLY/);
+    assert.match(report, /2028-01-21 \(\d+ days\): 3 usable quotes, 1 meet every rule/);
+    assert.match(report, /NO CONTRACT/);
+  });
+  it("later expiries are not read when the nearest expiry already has a contract", async () => {
+    const client = createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch([], () => [690, 800, 1300]) });
+    const put = await readSide(client, "put", SIDE_OPTS);
+    assert.ok(put.pick.ok);
+    assert.deepEqual(put.later, []);
+  });
+  it("a chain that does not fit in the page limit is refused, never used partially", async () => {
+    const client = createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch([], () => [1300], { contractsForever: true }) });
+    const put = await readSide(client, "put", SIDE_OPTS);
+    assert.equal(put.pick.ok, false);
+    assert.match(put.error ?? "", /Too many pages/);
+  });
+});
+
+describe("options approval level in the account answer", () => {
+  const base = { status: "ACTIVE", equity: "1000", cash: "1000", buying_power: "1000", multiplier: "1" };
+  const reportFor = (account: AccountSummary) => {
+    const side = { type: "call" as const, listedExpirations: [], pick: { ok: false as const, reason: "x", expiration: null }, ladder: [], highestAbsDelta: null, window: { low: 0, high: 0 }, strikesRead: { count: 0, min: null, max: null }, later: [], rowsBuilt: 0, rejected: {}, error: null };
+    return renderChainReport({ generatedAt: NOW.toISOString(), today: TODAY, spot: { price: SPOT, at: NOW.toISOString(), feed: "iex" }, accountHost: "live", account, accountError: null, optionsFeed: "indicative", liveBudget: 1000, call: side, put: { ...side, type: "put" }, model: { rate: 0.043, dividendYield: 0.012 } });
+  };
+  it("fields absent: the report says Alpaca did not return them, and lists the option-related fields it did send", () => {
+    const a = parseAccountSummary({ ...base, options_buying_power: null });
+    assert.ok(a);
+    assert.equal(a.optionsApprovedLevel, null);
+    assert.deepEqual(a.optionsFieldsSeen, ["options_buying_power (null)"]);
+    const text = reportFor(a);
+    assert.match(text, /Options approval level: NOT RETURNED by Alpaca/);
+    assert.match(text, /options_buying_power \(null\)/);
+    assert.match(text, /check it in the Alpaca dashboard/);
+    assert.doesNotMatch(text, /approved n\/a/);
+  });
+  it("no option fields at all: says none", () => {
+    const a = parseAccountSummary(base);
+    assert.ok(a);
+    assert.deepEqual(a.optionsFieldsSeen, []);
+    assert.match(reportFor(a), /option-related fields Alpaca did send: none/);
+  });
+  it("levels returned as numbers or numeric strings are shown", () => {
+    const a = parseAccountSummary({ ...base, options_approved_level: "2", options_trading_level: 2, options_buying_power: "900" });
+    assert.ok(a);
+    assert.equal(a.optionsApprovedLevel, 2);
+    assert.equal(a.optionsTradingLevel, 2);
+    assert.match(reportFor(a), /Options approval level: approved 2, trading 2/);
+  });
+  it("only one level returned: the other says not returned", () => {
+    const a = parseAccountSummary({ ...base, options_approved_level: 1 });
+    assert.ok(a);
+    assert.match(reportFor(a), /approved 1, trading not returned/);
   });
 });
