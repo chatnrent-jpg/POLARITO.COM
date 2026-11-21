@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parseDeskSnapshot } from "@/lib/spyDesk";
-import SpyDeskView, { type CloseUi, type DeskLoad, type Notice, type TicketUi } from "@/components/spy/SpyDeskView";
+import SpyDeskView, { type AutoUi, type CloseUi, type DeskLoad, type Notice, type TicketUi } from "@/components/spy/SpyDeskView";
 
 const IDLE_CLOSE: CloseUi = { stage: "idle", ack: false, offerUnpriced: false };
+const IDLE_AUTO: AutoUi = { ack: false };
 const FIRST_TICKET: TicketUi = { type: "call", symbol: null, ack: false };
 
 type ApiAnswer = { ok: boolean; code?: string; error?: string; message?: string };
@@ -30,6 +31,7 @@ export default function SpyDesk() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [ticket, setTicket] = useState<TicketUi>(FIRST_TICKET);
   const [close, setClose] = useState<CloseUi>(IDLE_CLOSE);
+  const [autoUi, setAutoUi] = useState<AutoUi>(IDLE_AUTO);
   const alive = useRef(true);
 
   const reload = useCallback(async (): Promise<void> => {
@@ -105,6 +107,22 @@ export default function SpyDesk() {
     [close.ack, post, reload],
   );
 
+  const submitAuto = useCallback(
+    async (on: boolean) => {
+      if (on && !autoUi.ack) return;
+      setBusy(true);
+      setNotice(null);
+      const a = await post("/api/spy/auto", { on, acknowledgeDryRun: true });
+      if (alive.current) {
+        setNotice({ kind: a.ok ? "ok" : "error", text: a.ok ? (a.message ?? "Auto switch updated.") : (a.error ?? "The switch was refused.") });
+        if (a.ok) setAutoUi(IDLE_AUTO);
+      }
+      await reload();
+      if (alive.current) setBusy(false);
+    },
+    [autoUi.ack, post, reload],
+  );
+
   return (
     <SpyDeskView
       load={load}
@@ -112,11 +130,14 @@ export default function SpyDesk() {
       notice={notice}
       ticket={ticket}
       close={close}
+      autoUi={autoUi}
       onRefresh={() => void refresh()}
       onTicketChange={(next) => setTicket((t) => ({ ...t, ...next, ack: next.symbol !== undefined || next.type !== undefined ? false : (next.ack ?? t.ack) }))}
       onSubmitTicket={() => void submitTicket()}
       onCloseChange={(next) => setClose((c) => ({ ...c, ...next }))}
       onSubmitClose={(unpriced) => void submitClose(unpriced)}
+      onAutoChange={(next) => setAutoUi((u) => ({ ...u, ...next }))}
+      onSubmitAuto={(on) => void submitAuto(on)}
     />
   );
 }

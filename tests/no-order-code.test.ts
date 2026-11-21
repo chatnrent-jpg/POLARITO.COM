@@ -29,9 +29,10 @@ describe("the repository contains no order-sending code", () => {
 
   it("the only POSTs left are the key-value store and the browser's calls to the dry-run desk routes", () => {
     const posting = sources.filter((f) => /method:\s*"POST"/.test(readFileSync(f, "utf8"))).map(rel).sort();
-    assert.deepEqual(posting, ["src/components/spy/SpyDesk.tsx", "src/lib/liveAutoStore.ts", "src/lib/spyDeskStore.ts"]);
+    assert.deepEqual(posting, ["src/components/spy/SpyDesk.tsx", "src/lib/liveAutoStore.ts", "src/lib/spyDeskStore.ts", "src/lib/spyKv.ts"]);
     assert.match(readFileSync(join(root, "src/lib/spyDeskStore.ts"), "utf8"), /KV_REST_API|autoStoreCredentials/);
     assert.match(readFileSync(join(root, "src/lib/liveAutoStore.ts"), "utf8"), /KV_REST_API/);
+    assert.match(readFileSync(join(root, "src/lib/spyKv.ts"), "utf8"), /autoStoreCredentials/);
   });
 
   it("no source file sends to the Alpaca order endpoint except as a GET read", () => {
@@ -54,8 +55,8 @@ describe("the example environment ships the live switches off", () => {
     assert.ok(active.includes("POLARITO_BROKER_KILL=0"));
   });
 
-  it("the removed runner, watchlist and cron variables are gone from the example", () => {
-    assert.doesNotMatch(env, /CRON_SECRET|POLARITO_PAPER_(INSTRUMENT|WATCHLIST|QTY|SIZING|RISK_PCT)|POLARITO_MIRROR_|POLARITO_OPTIONS_|POLARITO_LIVE_(WATCHLIST|QTY|MAX_POSITION_PCT|DAILY_LOSS_PCT|PICK_START|FLATTEN_AT|LONG_ONLY_FALLBACK)|NEXT_PUBLIC_[A-Z]/);
+  it("the removed runner and watchlist variables are gone from the example (CRON_SECRET is back only for the practice trader, unset)", () => {
+    assert.doesNotMatch(env, /POLARITO_PAPER_(INSTRUMENT|WATCHLIST|QTY|SIZING|RISK_PCT)|POLARITO_MIRROR_|POLARITO_OPTIONS_|POLARITO_LIVE_(WATCHLIST|QTY|MAX_POSITION_PCT|DAILY_LOSS_PCT|PICK_START|FLATTEN_AT|LONG_ONLY_FALLBACK)|NEXT_PUBLIC_[A-Z]/);
   });
 });
 

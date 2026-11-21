@@ -1,20 +1,24 @@
 /**
  * The three SPY desk HTTP handlers, written against an injected context so they can be tested without a network:
  *   GET  /api/spy/desk    the page's data (reads market data and the saved dry-run state; writes nothing)
- *   POST /api/spy/ticket  { type, symbol, acknowledgeDryRun: true }  record a MANUAL dry-run buy (Neutral reading only)
+ *   POST /api/spy/ticket  { type, symbol, acknowledgeDryRun: true }  record a MANUAL dry-run buy (any reading, good data)
  *   POST /api/spy/close   { acknowledgeDryRun: true, unpriced?: boolean }  close the dry-run position by hand
  *
  * Behind the Polarito session gate (src/proxy.ts) and the POLARITO_SPY_DESK=1 flag; the two POST routes are same-origin
  * only. None of them can send an order: they change the saved dry-run record and nothing else.
  */
 import { sameOriginRequest } from "@/lib/sameOrigin";
-import { buildDeskSnapshot, closeManual, deskEnabled, openManual, parseCloseRequest, parseTicketRequest, type DeskStore } from "@/lib/spyDesk";
+import { buildDeskSnapshot, closeManual, deskEnabled, openManual, parseCloseRequest, parseTicketRequest, type ActionResult, type DeskStore } from "@/lib/spyDesk";
 import type { LiveDesk } from "@/lib/spyDeskLive";
+import { buildAutoView, withLock } from "@/lib/spyAuto";
+import type { SpyKv } from "@/lib/spyKv";
 
 export type DeskContext = {
   env: Readonly<Record<string, string | undefined>>;
   makeLive(): Promise<LiveDesk>;
   store: DeskStore | null;
+  /** The key-value client for the Auto switch, audit log and run lock. Manual actions take the same lock as Auto runs. */
+  kv?: SpyKv | null;
 };
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
@@ -30,12 +34,20 @@ async function readJson(request: Request): Promise<{ ok: true; body: unknown } |
   }
 }
 
+/** Run a manual action under the Auto run lock, so a manual click and a scheduled run can never interleave. */
+async function locked(ctx: DeskContext, action: () => Promise<ActionResult>): Promise<ActionResult> {
+  if (!ctx.kv) return action();
+  const out = await withLock(ctx.kv, action);
+  if (out.ran) return out.value;
+  return { ok: false, code: "BUSY", error: `${out.error} Nothing was changed; try again in a moment.`, status: out.busy ? 409 : 502 };
+}
+
 export async function handleSnapshot(ctx: DeskContext): Promise<Response> {
   try {
     if (!deskEnabled(ctx.env)) return off();
     const live = await ctx.makeLive();
     if (!live.ok) return json({ ok: false, code: live.code, error: `Data unavailable: ${live.error}` }, 503);
-    return json(await buildDeskSnapshot(live.deps, live.config, ctx.store));
+    return json(await buildDeskSnapshot(live.deps, live.config, ctx.store, await buildAutoView(ctx.kv ?? null)));
   } catch (e) {
     console.error("SPY desk snapshot failed:", e instanceof Error ? e.name : "unknown");
     return internal();
@@ -52,7 +64,7 @@ export async function handleTicket(request: Request, ctx: DeskContext): Promise<
     if (!parsed.ok) return json({ ok: false, code: "INVALID", error: parsed.error }, 400);
     const live = await ctx.makeLive();
     if (!live.ok) return json({ ok: false, code: live.code, error: `Data unavailable: ${live.error} Nothing was recorded.` }, 503);
-    const res = await openManual(live.deps, live.config, ctx.store, parsed.value);
+    const res = await locked(ctx, () => openManual(live.deps, live.config, ctx.store, parsed.value));
     if (!res.ok) return json({ ok: false, code: res.code, error: res.error }, res.status);
     return json({ ok: true, dryRun: true, message: res.message, entry: res.entry });
   } catch (e) {
@@ -71,7 +83,7 @@ export async function handleClose(request: Request, ctx: DeskContext): Promise<R
     if (!parsed.ok) return json({ ok: false, code: "INVALID", error: parsed.error }, 400);
     const live = await ctx.makeLive();
     if (!live.ok) return json({ ok: false, code: live.code, error: `Data unavailable: ${live.error} Nothing was changed.` }, 503);
-    const res = await closeManual(live.deps, ctx.store, parsed.value);
+    const res = await locked(ctx, () => closeManual(live.deps, ctx.store, parsed.value));
     if (!res.ok) return json({ ok: false, code: res.code, error: res.error }, res.status);
     return json({ ok: true, dryRun: true, message: res.message, entry: res.entry });
   } catch (e) {
