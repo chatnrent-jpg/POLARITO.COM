@@ -3,11 +3,8 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { NextRequest } from "next/server";
 import { POST as autoPost } from "../src/app/api/broker/live/auto/route.node";
 import { proxy } from "../src/proxy";
-import { runPickTick } from "../src/lib/pickRunner";
 import { autoStoreCredentials, createAutoStore, LIVE_AUTO_KEY, readAutoState } from "../src/lib/liveAutoStore";
 import { requireIdle } from "../src/lib/liveAutoGuard";
-import { AUDIT_SOURCES } from "../src/lib/audit";
-import { pickSetup, type BarSpec } from "./helpers/liveFake";
 
 const KV = { KV_REST_API_URL: "https://kv.example.upstash.io", KV_REST_API_TOKEN: "kv-token-value" };
 
@@ -27,11 +24,6 @@ function memoryKv(initial?: string | null) {
   };
   return { state, fetchImpl: fetchImpl as unknown as typeof fetch };
 }
-
-const SPECS = (): Record<string, BarSpec> => ({ NVDA: { kind: "drive", mult: 12, price: 130 } });
-type T = ReturnType<typeof pickSetup>;
-const tick = (t: T) => runPickTick(t.deps, t.settings, { dryRun: false });
-const ids = (t: T) => t.broker.submitted.map((o) => o.clientOrderId);
 
 describe("the Auto store", () => {
   it("needs an https URL and a token, from the Vercel KV or the Upstash names", () => {
@@ -81,68 +73,6 @@ describe("the Auto store", () => {
     kv.state.failNext = true;
     const w = await createAutoStore(KV, kv.fetchImpl)!.write(true);
     assert.equal(w.ok, false);
-  });
-});
-
-describe("Auto gates the live runner's signal-driven orders", () => {
-  it("OFF (the default): nothing is entered; the audit says what still runs", async () => {
-    const t = pickSetup({ specs: SPECS(), auto: false });
-    const r = await tick(t);
-    assert.ok(r.ok);
-    assert.equal(t.broker.submitted.length, 0);
-    const reasons = t.audit.map((a) => a.reason).join(" | ");
-    assert.match(reasons, /Live Auto is OFF/);
-    assert.match(reasons, /stop-out and the end-of-day flatten still run/);
-    assert.match(reasons, /Would enter long 1 NVDA/);
-    assert.ok(t.audit.every((a) => a.outcome !== "entered"));
-  });
-
-  it("with no Auto source wired, or a source that throws, it is OFF", async () => {
-    const none = pickSetup({ specs: SPECS() });
-    delete none.deps.readAuto;
-    await tick(none);
-    assert.equal(none.broker.submitted.length, 0);
-
-    const broken = pickSetup({ specs: SPECS() });
-    broken.deps.readAuto = async () => {
-      throw new Error("kv down");
-    };
-    await tick(broken);
-    assert.equal(broken.broker.submitted.length, 0);
-    assert.match(broken.audit.map((a) => a.reason).join(" "), /Reading Auto failed/);
-  });
-
-  it("OFF: a held stock is not closed or flipped by the signal, only logged", async () => {
-    const t = pickSetup({ specs: { NVDA: { kind: "neutral" } }, auto: false });
-    t.broker.positions.push({ ticker: "NVDA", side: "long", quantity: 1, avgEntryPrice: 130 });
-    t.broker.orders.push({ id: "x", clientOrderId: "pol-20261119-e01-NVDA", status: "filled", ticker: "NVDA", side: "buy", quantity: 1 });
-    await tick(t);
-    assert.equal(t.broker.submitted.length, 0);
-    assert.equal(t.broker.positions.length, 1);
-    assert.ok(t.audit.some((a) => a.outcome === "dry-run" && /Nothing was sent/.test(a.reason)));
-  });
-
-  it("OFF: the 1% stop-out still flattens", async () => {
-    const t = pickSetup({ specs: SPECS(), account: { equity: 989 }, auto: false });
-    t.broker.positions.push({ ticker: "NVDA", side: "long", quantity: 1, avgEntryPrice: 130 });
-    t.broker.orders.push({ id: "x", clientOrderId: "pol-20261119-e01-NVDA", status: "filled", ticker: "NVDA", side: "buy", quantity: 1 });
-    await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-s01-a1-NVDA"]);
-  });
-
-  it("OFF: the 15:55 flatten still runs", async () => {
-    const t = pickSetup({ specs: SPECS(), now: new Date("2026-11-19T20:56:00Z"), auto: false });
-    t.broker.positions.push({ ticker: "NVDA", side: "long", quantity: 1, avgEntryPrice: 130 });
-    t.broker.orders.push({ id: "x", clientOrderId: "pol-20261119-e01-NVDA", status: "filled", ticker: "NVDA", side: "buy", quantity: 1 });
-    await tick(t);
-    assert.deepEqual(ids(t), ["pol-20261119-c01-a1-NVDA"]);
-  });
-
-  it("an explicit dry run with Auto OFF stays a plain dry run (no Auto record)", async () => {
-    const t = pickSetup({ specs: SPECS(), auto: false });
-    await runPickTick(t.deps, t.settings, { dryRun: true });
-    assert.equal(t.broker.submitted.length, 0);
-    assert.ok(!t.audit.some((a) => /Live Auto is OFF/.test(a.reason)));
   });
 });
 
@@ -210,10 +140,6 @@ describe("POST /api/broker/live/auto", () => {
   const working = (n = 1) =>
     Array.from({ length: n }, (_, i) => ({ id: `o${i}`, client_order_id: `pol-20261120-e0${i + 1}-NVDA`, status: "new", symbol: "NVDA", side: "buy", qty: "1" }));
   const heldNvda = () => [{ symbol: "NVDA", qty: "1", avg_entry_price: "100", side: "long" }];
-
-  it("is in the audit sources", () => {
-    assert.ok((AUDIT_SOURCES as readonly string[]).includes("live-auto"));
-  });
 
   it("is behind the session gate like the close route", () => {
     const res = proxy(new NextRequest(`${BASE}/api/broker/live/auto`, { method: "POST" }));

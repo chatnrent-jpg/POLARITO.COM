@@ -1,5 +1,4 @@
 import type { NextRequest } from "next/server";
-import { buildAuditRecord, logAudit } from "@/lib/audit";
 import { createLiveBroker, liveOptedIn } from "@/lib/broker/liveConfig";
 import { requireIdle } from "@/lib/liveAutoGuard";
 import { createAutoStore, readAutoState } from "@/lib/liveAutoStore";
@@ -15,7 +14,8 @@ const refusalStatus = (code: string): number => (code === "POSITIONS_OPEN" || co
  * same-origin only. Writes the persisted switch, then reads it back and answers with what the
  * store really holds, so the page never shows a state that was not saved. Without
  * POLARITO_LIVE_ACCOUNT=1 it refuses; without an Auto store it refuses (Auto stays OFF).
- * It sends no order: it only decides whether the runner may place signal-driven ones.
+ * It sends no order and nothing reads the switch today (the stock runners are gone); it stays OFF by default and
+ * guarded so a future live executor starts from a fail-closed switch.
  *
  * Turning OFF is refused unless the live account is flat AND has no working order, checked here against
  * Alpaca (not just the UI): any open position refuses (409 POSITIONS_OPEN), any open unfilled order
@@ -82,20 +82,6 @@ export async function POST(request: NextRequest) {
           { status: refusalStatus(after.code), headers: NO_STORE },
         );
       }
-    }
-    try {
-      logAudit(
-        buildAuditRecord({
-          source: "live-auto",
-          ticker: "PICK",
-          outcome: "held",
-          reason: wanted
-            ? "Live Auto switched ON from the site: the runner may place signal-driven entries and closes."
-            : "Live Auto switched OFF from the site: no entries or signal-driven closes (stop-out and flatten still run).",
-        }),
-      );
-    } catch {
-      /* logging must not change the answer */
     }
     return Response.json({ ok: true, auto: { available: true, on: state.on, reason: state.reason, at: state.at } }, { headers: NO_STORE });
   } catch (e) {
