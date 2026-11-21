@@ -1,11 +1,14 @@
 /**
  * SPY options contract rules and selection (pure, no network, no orders).
  *
- * Two HARD rules, enforced here and again by `assertContractRules` before anything is ever reported
+ * HARD rules, enforced here and again by `assertContractRules` before anything is ever reported
  * as "would buy":
  *   1. At least 365 calendar days to expiration (never less). The nearest LISTED expiry that is
  *      at least 365 days out is the only expiry considered; no later expiry is substituted.
- *   2. |delta| >= 0.80 (deep in the money): a CALL on Drive, a PUT on Reverse.
+ *   2. Delta, in two tiers (DELTA_THRESHOLDS, the one place the numbers live): |delta| >= 0.80 first (deep in the
+ *      money): a CALL on Drive, a PUT on Reverse. Only if NO contract at that expiry reaches 0.80 with a usable
+ *      quote, the FALLBACK takes the contract with the HIGHEST |delta| that is still >= 0.60 (a hard floor, never
+ *      below it), marked "FALLBACK DELTA (below 0.80)" everywhere it is shown. If nothing reaches 0.60, no contract.
  *
  * Delta comes from Alpaca's greeks when they are present and agree with Black-Scholes; otherwise it is
  * computed with Black-Scholes from the quote (implied volatility solved from the mid price). Each row
@@ -15,7 +18,10 @@ import { CONTRACT_MULTIPLIER, MAX_SPREAD_PCT, addDays, checkQuote, daysBetween, 
 
 /** Never less. Deliberately NOT imported from the broker module, so that changing that value cannot weaken this rule. */
 export const MIN_DAYS_TO_EXPIRY = 365;
-export const MIN_ABS_DELTA = 0.8;
+/** The one place the delta thresholds live. `primary` is the target; `floor` is the hard minimum for the fallback. */
+export const DELTA_THRESHOLDS = Object.freeze({ primary: 0.8, floor: 0.6 });
+export const MIN_ABS_DELTA = DELTA_THRESHOLDS.primary;
+export const MIN_ABS_DELTA_FALLBACK = DELTA_THRESHOLDS.floor;
 /** Alpaca delta and Black-Scholes delta may differ by at most this much before the row is rejected as unreliable. */
 export const MAX_DELTA_DISAGREEMENT = 0.1;
 export const DEFAULT_RISK_FREE_RATE = 0.043;
@@ -211,26 +217,32 @@ export function nearestQualifyingExpiry(listed: readonly string[], today: string
  * The final check on a contract before anything may be reported as "would buy".
  * Returns null when every hard rule holds, else the first broken rule.
  */
-export function assertContractRules(row: ChainRow, wanted: OptionType, today: string): string | null {
+export function assertContractRules(row: ChainRow, wanted: OptionType, today: string, minAbsDelta: number = DELTA_THRESHOLDS.primary): string | null {
+  const minDelta = Math.max(minAbsDelta, DELTA_THRESHOLDS.floor); // never below the hard floor, whatever the caller passes
   if (row.type !== wanted) return `contract is a ${row.type}, wanted a ${wanted}`;
   const occ = parseOccSymbol(row.symbol);
   if (!occ || occ.type !== row.type || occ.expiration !== row.expiration || occ.strike !== row.strike) return "contract fields do not match its symbol";
   const days = daysBetween(today, row.expiration);
   if (!(days >= MIN_DAYS_TO_EXPIRY)) return `expires in ${days} days, minimum is ${MIN_DAYS_TO_EXPIRY}`;
-  if (!finite(row.delta) || !(Math.abs(row.delta) >= MIN_ABS_DELTA)) return `|delta| ${finite(row.delta) ? Math.abs(row.delta).toFixed(3) : "n/a"} is below ${MIN_ABS_DELTA}`;
+  if (!finite(row.delta) || !(Math.abs(row.delta) >= minDelta)) return `|delta| ${finite(row.delta) ? Math.abs(row.delta).toFixed(3) : "n/a"} is below ${minDelta}`;
   if (wanted === "call" ? !(row.delta > 0) : !(row.delta < 0)) return "delta has the wrong sign for this option type";
   if (!(row.spreadPct <= MAX_SPREAD_PCT)) return `bid/ask spread ${(row.spreadPct * 100).toFixed(1)}% is above ${MAX_SPREAD_PCT * 100}%`;
   return null;
 }
 
 export type PickResult =
-  | { ok: true; row: ChainRow; expiration: string; daysToExpiry: number; qualifying: number }
+  | { ok: true; row: ChainRow; expiration: string; daysToExpiry: number; qualifying: number; tier: "primary" | "fallback"; fallbackReason: string | null }
   | { ok: false; reason: string; expiration: string | null };
+
+/** The marker shown wherever a fallback contract appears (report, events, decision text). */
+export const FALLBACK_LABEL = `FALLBACK DELTA (below ${DELTA_THRESHOLDS.primary.toFixed(2)})`;
 
 /**
  * Pick the contract for `type`: the nearest listed expiry that is at least 365 days out, then among
  * its contracts with |delta| >= 0.80 the one with the smallest |delta| (the cheapest that still obeys the rule;
- * ties go to the lower ask). If that one expiry has none, the answer is "none": nothing is substituted.
+ * ties go to the lower ask). If none reaches 0.80 with a usable quote, the FALLBACK: among the same expiry's usable
+ * contracts with |delta| >= 0.60 the one with the HIGHEST |delta| (ties: the tighter spread, then the lower ask). If
+ * not even 0.60 is reached the answer is "none": nothing else is substituted and no later expiry is used.
  */
 export function pickDeepItm(rows: readonly ChainRow[], listedExpirations: readonly string[], type: OptionType, today: string): PickResult {
   const expiration = nearestQualifyingExpiry(listedExpirations, today);
@@ -238,9 +250,17 @@ export function pickDeepItm(rows: readonly ChainRow[], listedExpirations: readon
   const sameExpiry = rows.filter((r) => r.type === type && r.expiration === expiration);
   if (sameExpiry.length === 0) return { ok: false, reason: `no usable quotes for the ${expiration} ${type}s`, expiration };
   const ok = sameExpiry.filter((r) => assertContractRules(r, type, today) === null);
-  if (ok.length === 0) return { ok: false, reason: `no ${expiration} ${type} has |delta| >= ${MIN_ABS_DELTA} with a usable quote`, expiration };
-  ok.sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta) || a.ask - b.ask);
-  return { ok: true, row: ok[0], expiration, daysToExpiry: daysBetween(today, expiration), qualifying: ok.length };
+  if (ok.length > 0) {
+    ok.sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta) || a.ask - b.ask);
+    return { ok: true, row: ok[0], expiration, daysToExpiry: daysBetween(today, expiration), qualifying: ok.length, tier: "primary", fallbackReason: null };
+  }
+  const floor = sameExpiry.filter((r) => assertContractRules(r, type, today, DELTA_THRESHOLDS.floor) === null);
+  if (floor.length === 0) return { ok: false, reason: `no ${expiration} ${type} has |delta| >= ${DELTA_THRESHOLDS.floor} (the floor; ${DELTA_THRESHOLDS.primary} is the target) with a usable quote`, expiration };
+  floor.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.spreadPct - b.spreadPct || a.ask - b.ask);
+  const best = floor[0];
+  const top = sameExpiry.reduce((m, r) => (Math.abs(r.delta) > Math.abs(m.delta) ? r : m), sameExpiry[0]);
+  const why = `no ${expiration} ${type} reaches |delta| ${DELTA_THRESHOLDS.primary} with a usable quote (${sameExpiry.length} usable quotes; the highest |delta| of any is ${Math.abs(top.delta).toFixed(3)} at strike ${top.strike}); the best usable contract at or above the ${DELTA_THRESHOLDS.floor} floor has |delta| ${Math.abs(best.delta).toFixed(3)}`;
+  return { ok: true, row: best, expiration, daysToExpiry: daysBetween(today, expiration), qualifying: floor.length, tier: "fallback", fallbackReason: why };
 }
 
 export type Affordability = {

@@ -8,6 +8,7 @@ import type { ReadOnlyClient, ReadOnlyHost } from "@/lib/alpacaReadOnly";
 import {
   DEFAULT_MODEL,
   assertContractRules,
+  DELTA_THRESHOLDS,
   MIN_ABS_DELTA,
   MIN_DAYS_TO_EXPIRY,
   buildRow,
@@ -302,4 +303,4 @@ export async function readSide(client: ReadOnlyClient, type: OptionType, o: Chai
   }
 }
 
-export const RULES_TEXT = `expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${MIN_ABS_DELTA}`;
+export const RULES_TEXT = `expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${MIN_ABS_DELTA}, else the best usable |delta| down to a hard floor of ${DELTA_THRESHOLDS.floor} (marked as a fallback)`;

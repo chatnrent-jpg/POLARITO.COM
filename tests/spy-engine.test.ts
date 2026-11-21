@@ -25,9 +25,9 @@ function row(type: OptionType, exp: string, strike: number, today: string): Chai
   };
 }
 
-function side(type: OptionType, today: string, listed: string[]): SideReport {
+function side(type: OptionType, today: string, listed: string[], strikes?: number[]): SideReport {
   const rows: ChainRow[] = [];
-  for (const exp of listed) for (const k of type === "call" ? [450, 500, 550, 600] : [800, 850, 900, 1000]) rows.push(row(type, exp, k, today));
+  for (const exp of listed) for (const k of strikes ?? (type === "call" ? [450, 500, 550, 600] : [800, 850, 900, 1000])) rows.push(row(type, exp, k, today));
   const pick = pickDeepItm(rows, listed, type, today);
   return { type, listedExpirations: listed, pick, ladder: [], highestAbsDelta: null, window: { low: 0, high: 0 }, strikesRead: { count: rows.length, min: null, max: null }, later: [], rowsBuilt: rows.length, rejected: {}, error: null };
 }
@@ -55,14 +55,14 @@ const T0 = new Date("2026-11-03T21:30:00Z");
 const LISTED = ["2027-06-17", "2027-11-05", "2027-11-19", "2028-01-21"]; // 2027-11-05 is 367 days out, 2027-06-17 is far less
 
 type Calls = { daily: number; spot: number; sides: OptionType[]; held: number };
-function makeDeps(sc: Scenario, now: Date, opts: { calls?: Calls; listed?: string[]; spotFails?: boolean } = {}): EngineDeps {
+function makeDeps(sc: Scenario, now: Date, opts: { calls?: Calls; listed?: string[]; spotFails?: boolean; strikes?: number[] } = {}): EngineDeps {
   const calls = opts.calls ?? { daily: 0, spot: 0, sides: [], held: 0 };
   const today = "2026-11-03";
   return {
     now: () => now,
     loadDaily: async () => { calls.daily++; return { ok: true, value: sc.daily }; },
     readSpot: async () => { calls.spot++; return opts.spotFails ? { ok: false, code: "NETWORK", error: "down" } : { ok: true, value: { price: SPOT, at: now.toISOString(), feed: "iex" } }; },
-    readSide: async (type) => { calls.sides.push(type); return side(type, today, opts.listed ?? LISTED); },
+    readSide: async (type) => { calls.sides.push(type); return side(type, today, opts.listed ?? LISTED, opts.strikes); },
     readHeld: async (p) => { calls.held++; return row(p.type, p.expiration, p.strike, today); },
   };
 }
@@ -189,6 +189,73 @@ describe("one position, flip rolls, Neutral = trader decides", () => {
     assert.equal(m.data?.agreement, "disagree");
     const third = await runEngine(makeDeps(NEUTRAL, new Date("2026-11-03T22:30:00Z")), CFG, second.state);
     assert.equal(third.events.filter((e) => e.kind === "reading-change").length, 0);
+  });
+});
+
+describe("delta fallback (0.80 target, 0.60 floor)", () => {
+  it("a contract at 0.80 or deeper is bought as before: no fallback mark", async () => {
+    const r = await runEngine(makeDeps(REVERSE, T0), CFG, EMPTY_STATE);
+    assert.equal(r.state.position?.deltaTier, "primary");
+    assert.equal(r.state.position?.fallbackReason, null);
+    assert.ok(!r.events.some((e) => /FALLBACK/.test(e.message)));
+    assert.doesNotMatch(r.decision?.reason ?? "", /FALLBACK/);
+  });
+  it("no put reaches 0.80: the best |delta| >= 0.60 is bought (dry run), marked FALLBACK in the event, the decision text and the report", async () => {
+    const r = await runEngine(makeDeps(REVERSE, T0, { strikes: [690, 700, 850] }), CFG, EMPTY_STATE);
+    const p = r.state.position;
+    assert.ok(p);
+    assert.equal(p.type, "put");
+    assert.equal(p.deltaTier, "fallback");
+    assert.equal(p.strike, 850);
+    assert.ok(Math.abs(p.entryDelta) >= 0.6 && Math.abs(p.entryDelta) < 0.8);
+    assert.ok(daysBetween("2026-11-03", p.expiration) >= MIN_DAYS_TO_EXPIRY);
+    assert.match(p.fallbackReason ?? "", /reaches \|delta\| 0\.8/);
+    const buy = r.events.find((e) => e.kind === "would-buy");
+    assert.match(buy?.message ?? "", /\[FALLBACK DELTA \(below 0\.80\)\]/);
+    assert.equal(buy?.data?.deltaTier, "fallback");
+    const warn = r.events.find((e) => e.kind === "warning" && /FALLBACK DELTA/.test(e.message));
+    assert.ok(warn);
+    assert.match(warn.message, /actual delta -0\.\d{3}/);
+    assert.match(warn.message, /Floor|floor 0\.6 is never crossed/);
+    assert.match(r.decision?.reason ?? "", /FALLBACK DELTA \(below 0\.80\): actual delta -0\.\d{3}\. Why: no 2027-11-05 put reaches/);
+    const text = renderEngineReport(r, CFG);
+    assert.match(text, /\*\*FALLBACK DELTA \(below 0\.80\)\*\*/);
+    assert.match(text, /hard floor of 0\.6/);
+  });
+  it("a calls-side fallback works the same (Drive)", async () => {
+    const r = await runEngine(makeDeps(DRIVE, T0, { strikes: [650, 690] }), CFG, EMPTY_STATE);
+    assert.equal(r.state.position?.type, "call");
+    assert.equal(r.state.position?.deltaTier, "fallback");
+    assert.ok(Math.abs(r.state.position?.entryDelta ?? 0) >= 0.6);
+  });
+  it("nothing reaches 0.60: no contract, nothing bought, nothing substituted", async () => {
+    const r = await runEngine(makeDeps(REVERSE, T0, { strikes: [690, 700] }), CFG, EMPTY_STATE);
+    assert.equal(r.state.position, null);
+    const e = r.events.find((x) => x.kind === "no-contract");
+    assert.match(e?.message ?? "", /hard floor of 0\.6/);
+    assert.ok(!r.events.some((x) => x.kind === "would-buy"));
+  });
+  it("a held fallback contract is held on the same side, with a note and no automatic swap", async () => {
+    const s = (await runEngine(makeDeps(REVERSE, T0, { strikes: [690, 700, 850] }), CFG, EMPTY_STATE)).state;
+    const calls: Calls = { daily: 0, spot: 0, sides: [], held: 0 };
+    const r = await runEngine(makeDeps(REVERSE, new Date("2026-11-03T22:00:00Z"), { calls, strikes: [800, 900, 1000] }), CFG, s);
+    assert.equal(r.state.position?.symbol, s.position?.symbol);
+    assert.deepEqual(calls.sides, []);
+    assert.match(r.events.find((e) => e.kind === "hold")?.message ?? "", /FALLBACK DELTA \(below 0\.80\).*no automatic swap/);
+  });
+  it("state with the tier round-trips; old state without it reads as primary; a bad tier is refused", async () => {
+    const r = await runEngine(makeDeps(REVERSE, T0, { strikes: [690, 700, 850] }), CFG, EMPTY_STATE);
+    const parsed = parseEngineState(JSON.parse(JSON.stringify(r.state)));
+    assert.ok(parsed.ok);
+    assert.deepEqual(parsed.state, r.state);
+    const old = JSON.parse(JSON.stringify(r.state));
+    delete old.position.deltaTier;
+    delete old.position.fallbackReason;
+    const o = parseEngineState(old);
+    assert.ok(o.ok);
+    assert.equal(o.state.position?.deltaTier, "primary");
+    old.position.deltaTier = "whatever";
+    assert.equal(parseEngineState(old).ok, false);
   });
 });
 

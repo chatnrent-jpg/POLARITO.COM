@@ -2,7 +2,7 @@
  * Plain-language summary of one dry-run engine evaluation (pure; no secrets). Shows the inputs next to each reading.
  */
 import { LONG_TIMEFRAMES, LONG_TIMEFRAME_NAMES, type LongReading } from "@/lib/longPolarity";
-import { MIN_ABS_DELTA, MIN_DAYS_TO_EXPIRY, usd } from "@/lib/optionsSelect";
+import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, usd } from "@/lib/optionsSelect";
 import type { EngineConfig, EngineResult } from "@/lib/spyEngine";
 
 const raw = (n: number | null): string => (n === null ? "n/a" : `${n > 0 ? "+" : ""}${Math.round(n).toLocaleString("en-US")}`);
@@ -18,7 +18,7 @@ function row(r: LongReading, mark: string): string {
 export function renderEngineReport(result: EngineResult, config: EngineConfig): string {
   const L: string[] = ["# SPY options dry run", "", "DRY RUN: no order is sent and none can be: this job only reads market data.", ""];
   L.push(
-    `Decision timeframe: ${LONG_TIMEFRAME_NAMES[config.timeframe]} (marked with *). Net volume = the chart definition: total daily volume of the period to date (SIP), signed by the latest close vs the previous period's last close (one definition only; the raw number is shown so it can be compared with the chart). An exactly zero or missing net volume is flagged and is Neutral. A reading counts only when candle colour and net volume match (green + positive = Drive, red + negative = Reverse, otherwise Neutral). On Neutral the engine does nothing automatic: the trader decides. Rules: expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${MIN_ABS_DELTA}; calls on Drive, puts on Reverse; one position at a time; max loss = premium; roll or exit only when the decision timeframe flips.`,
+    `Decision timeframe: ${LONG_TIMEFRAME_NAMES[config.timeframe]} (marked with *). Net volume = the chart definition: total daily volume of the period to date (SIP), signed by the latest close vs the previous period's last close (one definition only; the raw number is shown so it can be compared with the chart). An exactly zero or missing net volume is flagged and is Neutral. A reading counts only when candle colour and net volume match (green + positive = Drive, red + negative = Reverse, otherwise Neutral). On Neutral the engine does nothing automatic: the trader decides. Rules: expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${DELTA_THRESHOLDS.primary}, and only if none reaches it the usable contract with the highest |delta| down to a hard floor of ${DELTA_THRESHOLDS.floor}, marked "${FALLBACK_LABEL}"; calls on Drive, puts on Reverse; one position at a time; max loss = premium; roll or exit only when the decision timeframe flips.`,
     "",
   );
   if (result.decision?.traderDecides) L.push("## NEUTRAL: TRADER DECIDES", "", "Candle colour and net volume do not agree, or the net volume is exactly zero or missing (flagged). No automatic exit and no automatic entry. Decide by hand.", "");
@@ -34,7 +34,7 @@ export function renderEngineReport(result: EngineResult, config: EngineConfig): 
     );
   }
   const p = result.state.position;
-  L.push("## Dry-run position", "", p ? `${p.type.toUpperCase()} ${p.symbol} (strike ${p.strike}, expires ${p.expiration}), entered ${p.entryAt} at the ask ${usd(p.entryAsk)}, delta ${p.entryDelta.toFixed(3)}; max loss ${usd(p.maxLossUsd)}.` : "None.", "", "## Events this run", "");
+  L.push("## Dry-run position", "", p ? `${p.type.toUpperCase()} ${p.symbol} (strike ${p.strike}, expires ${p.expiration}), entered ${p.entryAt} at the ask ${usd(p.entryAsk)}, delta ${p.entryDelta.toFixed(3)}${p.deltaTier === "fallback" ? ` **${FALLBACK_LABEL}**: ${p.fallbackReason ?? "the 0.80 target was not met"}` : ""}; max loss ${usd(p.maxLossUsd)}.` : "None.", "", "## Events this run", "");
   for (const e of result.events) L.push(`- ${e.at} [${e.kind}] ${e.message}`);
   L.push("");
   return L.join("\n");
