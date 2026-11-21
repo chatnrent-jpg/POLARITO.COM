@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  DELTA_THRESHOLDS,
+  FALLBACK_LABEL,
   MAX_DELTA_DISAGREEMENT,
   MIN_ABS_DELTA,
   MIN_DAYS_TO_EXPIRY,
@@ -55,6 +57,8 @@ describe("hard rules are fixed constants", () => {
   it("minimum 365 days and delta 0.80", () => {
     assert.equal(MIN_DAYS_TO_EXPIRY, 365);
     assert.equal(MIN_ABS_DELTA, 0.8);
+    assert.deepEqual({ ...DELTA_THRESHOLDS }, { primary: 0.8, floor: 0.6 });
+    assert.ok(Object.isFrozen(DELTA_THRESHOLDS));
     assert.equal(earliestExpiry(TODAY), YEAR_OUT);
     assert.equal(daysBetween(TODAY, YEAR_OUT), 365);
   });
@@ -188,11 +192,20 @@ describe("pickDeepItm", () => {
   });
   it("never substitutes a later expiry when the nearest one has no qualifying contract", () => {
     const nearest = "2027-11-26";
-    const near = rows(nearest, "call", [650, 690]); // none deep enough
+    const near = rows(nearest, "call", [690, 750]); // far below even the 0.60 floor
     const later = rows("2027-12-17", "call", [450, 480, 500]); // would qualify
     const pick = pickDeepItm([...near, ...later], [nearest, "2027-12-17"], "call", TODAY);
     assert.equal(pick.ok, false);
     assert.equal(pick.expiration, nearest);
+  });
+  it("the fallback also never crosses into a later expiry: it stays on the nearest listed one", () => {
+    const nearest = "2027-11-26";
+    const near = rows(nearest, "call", [650, 690]); // between the floor and the target
+    const later = rows("2027-12-17", "call", [450, 480, 500]);
+    const pick = pickDeepItm([...near, ...later], [nearest, "2027-12-17"], "call", TODAY);
+    assert.ok(pick.ok);
+    assert.equal(pick.expiration, nearest);
+    assert.equal(pick.tier, "fallback");
   });
   it("never uses an expiry shorter than 365 days, even if it is the only one with quotes", () => {
     const short = rows("2027-06-17", "call", [450, 480, 500]);
@@ -208,6 +221,93 @@ describe("pickDeepItm", () => {
   });
   it("stands aside when no quotes exist", () => {
     assert.equal(pickDeepItm([], [exp], "call", TODAY).ok, false);
+  });
+});
+
+describe("delta fallback (primary 0.80, hard floor 0.60)", () => {
+  const exp = "2027-12-17";
+  const delta = (r: ChainRow) => Math.abs(r.delta);
+  it("a contract at or above 0.80 is always chosen first, as before (tier primary, no fallback reason)", () => {
+    const pick = pickDeepItm(rows(exp, "call", [450, 520, 600, 650, 690]), [exp], "call", TODAY);
+    assert.ok(pick.ok);
+    assert.equal(pick.tier, "primary");
+    assert.equal(pick.fallbackReason, null);
+    assert.ok(delta(pick.row) >= 0.8);
+  });
+  it("with none at 0.80, takes the HIGHEST |delta| that is still >= 0.60, and explains why", () => {
+    const puts = rows(exp, "put", [690, 700, 800, 850, 875]); // all between about 0.40 and 0.75
+    assert.ok(puts.every((r) => delta(r) < 0.8));
+    const eligible = puts.filter((r) => delta(r) >= 0.6);
+    assert.ok(eligible.length >= 2);
+    const pick = pickDeepItm(puts, [exp], "put", TODAY);
+    assert.ok(pick.ok);
+    assert.equal(pick.tier, "fallback");
+    assert.ok(delta(pick.row) >= 0.6 && delta(pick.row) < 0.8);
+    assert.equal(delta(pick.row), Math.max(...eligible.map(delta)));
+    assert.equal(pick.row.strike, 875);
+    assert.equal(pick.qualifying, eligible.length);
+    assert.match(pick.fallbackReason ?? "", /reaches \|delta\| 0\.8/);
+    assert.match(pick.fallbackReason ?? "", /highest \|delta\| of any is/);
+    assert.equal(pick.expiration, exp);
+    assert.ok(pick.daysToExpiry >= 365);
+  });
+  it("calls fall back the same way", () => {
+    const pick = pickDeepItm(rows(exp, "call", [650, 670, 690]), [exp], "call", TODAY);
+    assert.ok(pick.ok);
+    assert.equal(pick.tier, "fallback");
+    assert.ok(delta(pick.row) >= 0.6 && delta(pick.row) < 0.8);
+    assert.equal(pick.row.strike, 650);
+  });
+  it("nothing at or above 0.60 means no contract, and nothing is substituted", () => {
+    const pick = pickDeepItm(rows(exp, "put", [690, 700, 750]), [exp], "put", TODAY);
+    assert.equal(pick.ok, false);
+    if (!pick.ok) {
+      assert.match(pick.reason, /0\.6/);
+      assert.equal(pick.expiration, exp);
+    }
+  });
+  it("the floor is exactly 0.60: 0.599 is refused, 0.60 is accepted", () => {
+    const base = rows(exp, "put", [850])[0];
+    const at = (d: number): ChainRow => ({ ...base, delta: d });
+    assert.equal(pickDeepItm([at(-0.599)], [exp], "put", TODAY).ok, false);
+    const p = pickDeepItm([at(-0.6)], [exp], "put", TODAY);
+    assert.ok(p.ok);
+    assert.equal(p.tier, "fallback");
+  });
+  it("tie on |delta|: the tighter spread wins", () => {
+    const base = rows(exp, "put", [850])[0];
+    const wide: ChainRow = { ...base, symbol: base.symbol.replace("00850000", "00851000"), strike: 851, spreadPct: 0.1 };
+    const tight: ChainRow = { ...base, symbol: base.symbol.replace("00850000", "00852000"), strike: 852, spreadPct: 0.02 };
+    const pick = pickDeepItm([wide, tight], [exp], "put", TODAY);
+    assert.ok(pick.ok);
+    assert.equal(pick.tier, "fallback");
+    assert.equal(pick.row.strike, 852);
+  });
+  it("quote quality still applies to the fallback: wide, crossed or stale quotes are never chosen", () => {
+    const base = rows(exp, "put", [850])[0];
+    assert.equal(pickDeepItm([{ ...base, spreadPct: 0.2 }], [exp], "put", TODAY).ok, false);
+    // a higher delta with a too-wide spread loses to a lower, clean one
+    const clean: ChainRow = { ...base, delta: -0.65 };
+    const wideHigh: ChainRow = { ...base, symbol: base.symbol.replace("00850000", "00900000"), strike: 900, delta: -0.75, spreadPct: 0.3 };
+    const pick = pickDeepItm([clean, wideHigh], [exp], "put", TODAY);
+    assert.ok(pick.ok);
+    assert.equal(pick.row.strike, 850);
+  });
+  it("the expiry rule is unchanged for the fallback: under 365 days is never used", () => {
+    const short = rows("2027-06-17", "put", [850, 875]);
+    const pick = pickDeepItm(short, ["2027-06-17"], "put", TODAY);
+    assert.equal(pick.ok, false);
+    assert.equal(pick.expiration, null);
+  });
+  it("assertContractRules: the floor can never be lowered by a caller", () => {
+    const put = rows(exp, "put", [850])[0];
+    assert.equal(assertContractRules({ ...put, delta: -0.65 }, "put", TODAY, DELTA_THRESHOLDS.floor), null);
+    assert.match(assertContractRules({ ...put, delta: -0.65 }, "put", TODAY) ?? "", /below 0\.8/);
+    assert.match(assertContractRules({ ...put, delta: -0.5 }, "put", TODAY, 0.1) ?? "", /below 0\.6/);
+    assert.match(assertContractRules({ ...put, delta: -0.5 }, "put", TODAY, 0) ?? "", /below 0\.6/);
+  });
+  it("the label names the target", () => {
+    assert.equal(FALLBACK_LABEL, "FALLBACK DELTA (below 0.80)");
   });
 });
 

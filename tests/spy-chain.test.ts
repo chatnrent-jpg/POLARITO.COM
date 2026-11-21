@@ -229,22 +229,44 @@ describe("put strike window and what the report shows", () => {
     assert.ok(snapshotCalls.every((c) => Number(new URL(c.url).searchParams.get("strike_price_lte")) >= 690 * 3));
     assert.equal(put.strikesRead.max, 1300);
   });
-  it("never relaxes the delta rule: when no strike reaches 0.80 there is no contract, and the report shows the highest delta found", async () => {
-    const client = createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch([], () => [690, 700, 750, 800]) });
+  it("no strike reaches 0.80: the best usable delta at or above the 0.60 floor is picked, marked as a fallback, with the reason", async () => {
+    const client = createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch([], () => [690, 700, 850]) });
+    const put = await readSide(client, "put", SIDE_OPTS);
+    assert.ok(put.pick.ok, put.pick.ok ? "" : put.pick.reason);
+    assert.equal(put.pick.tier, "fallback");
+    assert.equal(put.pick.row.strike, 850);
+    assert.ok(Math.abs(put.pick.row.delta) >= 0.6 && Math.abs(put.pick.row.delta) < 0.8);
+    assert.equal(put.pick.expiration, "2027-12-17");
+    assert.ok(put.pick.daysToExpiry >= 365);
+    assert.equal(put.later.length, 0);
+    const call = await readSide(createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch([], () => [450, 500]) }), "call", SIDE_OPTS);
+    assert.equal(call.pick.ok && call.pick.tier, "primary");
+    const report = renderChainReport({ generatedAt: NOW.toISOString(), today: TODAY, spot: { price: SPOT, at: NOW.toISOString(), feed: "iex" }, accountHost: null, account: null, accountError: "x", optionsFeed: "indicative", liveBudget: 1000, call, put, model: { rate: 0.043, dividendYield: 0.012 } });
+    assert.match(report, /FALLBACK DELTA \(below 0\.80\)/);
+    assert.match(report, /the actual delta is -0\.\d{3}, below the 0\.8 target/);
+    assert.match(report, /no 2027-12-17 put reaches \|delta\| 0\.8 with a usable quote/);
+    assert.match(report, /Floor 0\.6 is never crossed/);
+    assert.match(report, /One put \(at least 365 days\): \*\*FALLBACK DELTA \(below 0\.80\)\*\*/);
+    assert.match(report, /One call \(delta >= 0\.8, at least 365 days\)/);
+  });
+  it("below the 0.60 floor there is no contract, the report shows the highest delta found, and nothing is substituted", async () => {
+    const client = createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch([], () => [690, 700, 750]) });
     const put = await readSide(client, "put", SIDE_OPTS);
     assert.equal(put.pick.ok, false);
     assert.ok(put.highestAbsDelta);
-    assert.ok(Math.abs(put.highestAbsDelta.delta) < 0.8);
-    assert.equal(put.highestAbsDelta.strike, 800);
-    assert.equal(put.ladder[0].strike, 800); // closest to the rule first, not the lowest delta first
+    assert.ok(Math.abs(put.highestAbsDelta.delta) < 0.6);
+    assert.equal(put.highestAbsDelta.strike, 750);
+    assert.equal(put.ladder[0].strike, 750); // closest to the rule first, not the lowest delta first
     const report = renderChainReport({ generatedAt: NOW.toISOString(), today: TODAY, spot: { price: SPOT, at: NOW.toISOString(), feed: "iex" }, accountHost: null, account: null, accountError: "x", optionsFeed: "indicative", liveBudget: 1000, call: put, put, model: { rate: 0.043, dividendYield: 0.012 } });
-    assert.match(report, /Highest \|delta\| found: strike 800/);
+    assert.match(report, /Highest \|delta\| found: strike 750/);
     assert.match(report, /does not qualify: \|delta\|/);
-    assert.match(report, /strike window requested 690 to 2070; 4 usable quotes read at the chosen expiry, strikes 690 to 800/);
+    assert.match(report, /strike window requested 690 to 2070; 3 usable quotes read at the chosen expiry, strikes 690 to 750/);
+    assert.match(report, /NO CONTRACT/);
+    assert.doesNotMatch(report, /FALLBACK DELTA \(below 0\.80\)\*\*:/);
   });
   it("later expiries are shown as information only and are never substituted", async () => {
     const calls: Call[] = [];
-    const client = createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch(calls, (exp) => (exp === "2027-12-17" ? [690, 750, 800] : [690, 800, 1300])) });
+    const client = createReadOnlyClient({ keyId: "k", secretKey: SECRET, fetchImpl: windowFetch(calls, (exp) => (exp === "2027-12-17" ? [690, 700, 750] : [690, 800, 1300])) });
     const put = await readSide(client, "put", SIDE_OPTS);
     assert.equal(put.pick.ok, false);
     assert.equal(put.pick.expiration, "2027-12-17");

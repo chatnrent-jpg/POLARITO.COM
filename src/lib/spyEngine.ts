@@ -36,7 +36,7 @@ import {
   type LongTimeframe,
 } from "@/lib/longPolarity";
 import { etClock } from "@/lib/marketCalendar";
-import { MIN_ABS_DELTA, MIN_DAYS_TO_EXPIRY, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
+import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
 import type { Bar } from "@/lib/polarity";
 import type { SideReport, Spot } from "@/lib/spyChain";
 
@@ -72,6 +72,10 @@ export type DryPosition = {
   entryAsk: number;
   entryMid: number;
   entryDelta: number;
+  /** "fallback" when no contract reached |delta| 0.80 and the best one at or above the 0.60 floor was taken. */
+  deltaTier: "primary" | "fallback";
+  /** Why the 0.80 target was not met (fallback only). */
+  fallbackReason: string | null;
   decisionTimeframe: LongTimeframe;
   /** Premium paid x 100 x quantity: the most the position can lose. */
   maxLossUsd: number;
@@ -150,7 +154,10 @@ export function parseEngineState(raw: unknown): { ok: true; state: EngineState }
     ) {
       return { ok: false, error: "state position is malformed" };
     }
-    position = p as unknown as DryPosition;
+    const tier = p.deltaTier === undefined ? "primary" : p.deltaTier;
+    const reason = p.fallbackReason === undefined || p.fallbackReason === null ? null : p.fallbackReason;
+    if ((tier !== "primary" && tier !== "fallback") || (reason !== null && typeof reason !== "string")) return { ok: false, error: "state position delta tier is malformed" };
+    position = { ...(p as unknown as DryPosition), deltaTier: tier, fallbackReason: reason };
   }
   const neutralSince = raw.neutralSince === undefined || raw.neutralSince === null ? null : raw.neutralSince;
   if (neutralSince !== null && typeof neutralSince !== "string") return { ok: false, error: "state neutralSince is malformed" };
@@ -286,7 +293,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     state.neutralSince = null;
 
     if (held && wantType === held.type) {
-      emit("hold", `Holding ${held.symbol}: the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading still says ${action}.`, { symbol: held.symbol });
+      emit("hold", `Holding ${held.symbol}: the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading still says ${action}.${held.deltaTier === "fallback" ? ` It was bought with ${FALLBACK_LABEL} (delta ${held.entryDelta.toFixed(3)}); there is no automatic swap to a deeper contract.` : ""}`, { symbol: held.symbol, deltaTier: held.deltaTier });
       return { ...result, ok: true, decision };
     }
 
@@ -314,21 +321,27 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     const side = await deps.readSide(wantType, spot.price, today, now);
     if (side.error) emit("warning", `Chain read problem (${wantType}s): ${side.error}`);
     if (!side.pick.ok) {
-      emit("no-contract", `No ${wantType} bought: ${side.pick.reason}. Rules: expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${MIN_ABS_DELTA}. Nothing is substituted.`, { rejected: side.rejected });
+      emit("no-contract", `No ${wantType} bought: ${side.pick.reason}. Rules: expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${DELTA_THRESHOLDS.primary}, or the fallback down to a hard floor of ${DELTA_THRESHOLDS.floor}. Nothing is substituted.`, { rejected: side.rejected });
       return { ...result, ok: true, decision };
     }
     const row = side.pick.row;
-    const broken = assertContractRules(row, wantType, today);
+    const tier = side.pick.tier;
+    const broken = assertContractRules(row, wantType, today, tier === "fallback" ? DELTA_THRESHOLDS.floor : DELTA_THRESHOLDS.primary);
     if (broken) {
       emit("error", `Refusing ${row.symbol}: ${broken}.`);
       return { ...result, ok: false, decision };
+    }
+    const fallbackNote = tier === "fallback" ? `${FALLBACK_LABEL}: actual delta ${row.delta.toFixed(3)}. Why: ${side.pick.fallbackReason}.` : null;
+    if (fallbackNote) {
+      decision.reason = `${decision.reason}; contract chosen with ${fallbackNote}`;
+      emit("warning", `${FALLBACK_LABEL} for the ${wantType.toUpperCase()}: ${fallbackNote} The floor ${DELTA_THRESHOLDS.floor} is never crossed.`, { fallback: true, delta: row.delta, floor: DELTA_THRESHOLDS.floor, target: DELTA_THRESHOLDS.primary, reason: side.pick.fallbackReason });
     }
     const cost = row.costAtAsk;
     const budgetNote = cost > config.liveBudget ? `NOT affordable on the ${usd(config.liveBudget)} live account (short by ${usd(cost - config.liveBudget)}); dry run tracks one imaginary contract` : `fits the ${usd(config.liveBudget)} live account`;
     emit(
       "would-buy",
-      `WOULD BUY 1 ${wantType.toUpperCase()} ${row.symbol} (strike ${row.strike}, expires ${row.expiration}, ${side.pick.daysToExpiry} days out), delta ${row.delta.toFixed(3)} (${row.deltaSource}), ask ${usd(row.ask)}, cost ${usd(cost)} per contract; max loss = premium ${usd(cost)}; ${budgetNote}. Dry run: no order sent.`,
-      { symbol: row.symbol, type: wantType, strike: row.strike, expiration: row.expiration, daysToExpiry: side.pick.daysToExpiry, delta: row.delta, deltaSource: row.deltaSource, bid: row.bid, ask: row.ask, mid: row.mid, spreadPct: row.spreadPct, iv: row.iv, costAtAsk: cost, quoteAt: row.quoteAt },
+      `WOULD BUY 1 ${wantType.toUpperCase()} ${row.symbol} (strike ${row.strike}, expires ${row.expiration}, ${side.pick.daysToExpiry} days out), delta ${row.delta.toFixed(3)} (${row.deltaSource})${tier === "fallback" ? ` [${FALLBACK_LABEL}]` : ""}, ask ${usd(row.ask)}, cost ${usd(cost)} per contract; max loss = premium ${usd(cost)}; ${budgetNote}. Dry run: no order sent.`,
+      { symbol: row.symbol, type: wantType, strike: row.strike, expiration: row.expiration, daysToExpiry: side.pick.daysToExpiry, delta: row.delta, deltaTier: tier, deltaSource: row.deltaSource, bid: row.bid, ask: row.ask, mid: row.mid, spreadPct: row.spreadPct, iv: row.iv, costAtAsk: cost, quoteAt: row.quoteAt },
     );
     state.position = {
       type: wantType,
@@ -340,6 +353,8 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
       entryAsk: row.ask,
       entryMid: row.mid,
       entryDelta: row.delta,
+      deltaTier: tier,
+      fallbackReason: tier === "fallback" ? side.pick.fallbackReason : null,
       decisionTimeframe: config.timeframe,
       maxLossUsd: cost,
     };

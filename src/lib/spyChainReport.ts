@@ -2,7 +2,7 @@
  * Plain-language report for the SPY options chain read (pure; no network, no secrets).
  * The report never contains credentials or the account number: it only receives the fields below.
  */
-import { MIN_ABS_DELTA, MIN_DAYS_TO_EXPIRY, affordability, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
+import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_ABS_DELTA, MIN_DAYS_TO_EXPIRY, affordability, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
 import type { AccountSummary, SideReport, Spot } from "@/lib/spyChain";
 
 export type ChainReportInput = {
@@ -35,7 +35,12 @@ function pickLines(label: string, side: SideReport, budgets: Array<{ name: strin
   const r = side.pick.row;
   out.push(
     `- Chosen expiry: ${side.pick.expiration} (${side.pick.daysToExpiry} days out, nearest listed expiry that is at least ${MIN_DAYS_TO_EXPIRY})`,
-    `- Contract: ${r.symbol} (strike ${r.strike}); the cheapest of ${side.pick.qualifying} contracts at that expiry with |delta| >= ${MIN_ABS_DELTA}`,
+    ...(side.pick.tier === "fallback"
+      ? [
+          `- **${FALLBACK_LABEL}**: the actual delta is ${r.delta.toFixed(3)}, below the ${DELTA_THRESHOLDS.primary} target. Why: ${side.pick.fallbackReason}. Floor ${DELTA_THRESHOLDS.floor} is never crossed.`,
+          `- Contract: ${r.symbol} (strike ${r.strike}); the highest |delta| of ${side.pick.qualifying} usable contracts at that expiry with |delta| >= ${DELTA_THRESHOLDS.floor}`,
+        ]
+      : [`- Contract: ${r.symbol} (strike ${r.strike}); the cheapest of ${side.pick.qualifying} contracts at that expiry with |delta| >= ${MIN_ABS_DELTA}`]),
     `- Quote: bid ${usd(r.bid)}, ask ${usd(r.ask)}, mid ${usd(r.mid)} per share (spread ${pct(r.spreadPct)}), quote time ${r.quoteAt}`,
     `- Delta ${r.delta.toFixed(3)} (${r.deltaSource === "alpaca" ? "Alpaca's own greeks" : "computed with Black-Scholes from the quote because Alpaca sent no usable delta"}), implied volatility ${r.iv === null ? "n/a" : pct(r.iv)}${r.ivSource ? ` (${r.ivSource === "alpaca" ? "Alpaca" : "solved from the mid price"})` : ""}`,
     `- Cost per contract (100 shares): ${usd(r.costAtAsk)} at the ask, ${usd(r.costAtMid)} at the mid. Of the mid price, ${usd(r.intrinsicPerShare)} per share is real value (in the money) and ${usd(r.extrinsicPerShare)} is time value.`,
@@ -63,9 +68,9 @@ function coverage(label: string, side: SideReport, today: string): string[] {
   return [
     ...out,
     "",
-    `Strikes closest to the ${MIN_ABS_DELTA} rule, same expiry:`,
+    `Strikes closest to the ${DELTA_THRESHOLDS.primary} target, same expiry (floor ${DELTA_THRESHOLDS.floor}):`,
     "",
-    "| Strike | Delta | Source | Bid | Ask | Spread | Cost per contract (ask) | Rule met |",
+    "| Strike | Delta | Source | Bid | Ask | Spread | Cost per contract (ask) | Rule met (0.80 target) |",
     "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((r) => `| ${r.strike} | ${r.delta.toFixed(3)} | ${r.deltaSource === "alpaca" ? "Alpaca" : "Black-Scholes"} | ${usd(r.bid)} | ${usd(r.ask)} | ${pct(r.spreadPct)} | ${usd(r.costAtAsk)} | ${assertContractRules(r, side.type, today) === null ? "yes" : `no (${assertContractRules(r, side.type, today)})`} |`),
     "",
@@ -96,17 +101,21 @@ export function renderChainReport(i: ChainReportInput): string {
     "",
     "## Rules applied (hard)",
     `- Expiration at least ${MIN_DAYS_TO_EXPIRY} calendar days out; the nearest LISTED expiry that is at least ${MIN_DAYS_TO_EXPIRY} days out. Never less.`,
-    `- |delta| >= ${MIN_ABS_DELTA} (deep in the money): a CALL for Drive, a PUT for Reverse.`,
+    `- |delta| >= ${DELTA_THRESHOLDS.primary} (deep in the money): a CALL for Drive, a PUT for Reverse. If no contract at that expiry reaches ${DELTA_THRESHOLDS.primary}, the FALLBACK is the usable contract with the highest |delta| that is still >= ${DELTA_THRESHOLDS.floor} (hard floor, never below), marked "${FALLBACK_LABEL}". If nothing reaches ${DELTA_THRESHOLDS.floor}, no contract.`,
     `- A crossed, empty, stale or wide (over 15% of mid) quote is never chosen.`,
     "",
     "## Plain answer",
   );
   const callCost = i.call.pick.ok ? i.call.pick.row.costAtAsk : null;
   const putCost = i.put.pick.ok ? i.put.pick.row.costAtAsk : null;
-  L.push(
-    `- One call (delta >= ${MIN_ABS_DELTA}, at least ${MIN_DAYS_TO_EXPIRY} days): ${callCost === null ? "none found" : `${usd(callCost)} per contract at the ask`}.`,
-    `- One put (delta >= ${MIN_ABS_DELTA}, at least ${MIN_DAYS_TO_EXPIRY} days): ${putCost === null ? "none found" : `${usd(putCost)} per contract at the ask`}.`,
-  );
+  const plain = (side: SideReport, name: string): string => {
+    if (!side.pick.ok) return `- One ${name} (delta >= ${DELTA_THRESHOLDS.primary}, or the fallback down to ${DELTA_THRESHOLDS.floor}; at least ${MIN_DAYS_TO_EXPIRY} days): none found.`;
+    const r = side.pick.row;
+    return side.pick.tier === "fallback"
+      ? `- One ${name} (at least ${MIN_DAYS_TO_EXPIRY} days): **${FALLBACK_LABEL}**: ${r.symbol}, actual delta ${r.delta.toFixed(3)}, ${usd(r.costAtAsk)} per contract at the ask.`
+      : `- One ${name} (delta >= ${DELTA_THRESHOLDS.primary}, at least ${MIN_DAYS_TO_EXPIRY} days): ${r.symbol}, delta ${r.delta.toFixed(3)}, ${usd(r.costAtAsk)} per contract at the ask.`;
+  };
+  L.push(plain(i.call, "call"), plain(i.put, "put"));
   const cheapest = [callCost, putCost].filter((c): c is number => c !== null);
   if (cheapest.length > 0) {
     const min = Math.min(...cheapest);
