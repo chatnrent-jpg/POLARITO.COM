@@ -5,6 +5,7 @@ import {
   DEFAULT_DECISION_TIMEFRAME,
   DEFAULT_NET_VOLUME_METHOD,
   LONG_TIMEFRAMES,
+  alignedPolarity,
   coerceLongTimeframe,
   computeLongReadings,
   longPeriodEnd,
@@ -13,7 +14,7 @@ import {
   type IntradayBar,
 } from "../src/lib/longPolarity";
 import { isTradingDay, tradingDaysBetween } from "../src/lib/marketCalendar";
-import { computePolaritySeries, type Bar } from "../src/lib/polarity";
+import { computePolaritySeries, type Bar, type CandleKind } from "../src/lib/polarity";
 
 function rng(seed: number): () => number {
   let a = seed;
@@ -105,20 +106,22 @@ function disagreementCase(): { daily: Bar[]; intraday: IntradayBar[] } {
 describe("signed volume versus the candle sign", () => {
   const { daily } = disagreementCase();
   const now = new Date("2026-10-02T21:30:00Z");
-  it("the candle is green (close above the month's open) but the signed volume is negative", () => {
+  it("the candle is green (close above the month's open) but the signed volume is negative: Neutral", () => {
     const candle = computeLongReadings({ daily, now, method: "candle" }).M;
     const signed = computeLongReadings({ daily, now, method: "signed-daily" }).M;
     assert.equal(candle.status, "ok");
     assert.equal(candle.polarity, 1);
     assert.equal(candle.kind, "green");
-    assert.equal(signed.polarity, -1);
+    assert.equal(signed.polarity, 0);
+    assert.equal(signed.label, "Neutral");
+    assert.equal(signed.netSign, -1);
+    assert.equal(signed.agreement, "disagree");
     assert.equal(signed.netVolume, -200);
     assert.equal(signed.upVolume, 100);
     assert.equal(signed.downVolume, 300);
     assert.equal(signed.periodStart, "2026-10-01");
     assert.equal(signed.throughDate, "2026-10-02");
     assert.equal(signed.asOf, now.toISOString());
-    assert.equal(signed.label, "Reverse");
   });
   it("exactly zero is Neutral, not a guess", () => {
     const flat = daily.map((b) => (b.date === "2026-10-01" ? { ...b, close: 90, volume: 100 } : b));
@@ -134,6 +137,96 @@ describe("signed volume versus the candle sign", () => {
   });
 });
 
+describe("alignment rule: candle colour and net volume must match", () => {
+  const now = new Date("2026-10-02T21:30:00Z");
+  const oct = (a: { open: number; close: number; volume: number }, b: { open: number; close: number; volume: number }): Bar[] => {
+    const { daily } = disagreementCase();
+    const base = daily.filter((x) => x.date < "2026-10-01");
+    const mk = (date: string, v: { open: number; close: number; volume: number }): Bar => ({ date, open: v.open, close: v.close, volume: v.volume, high: Math.max(v.open, v.close) + 0.1, low: Math.min(v.open, v.close) - 0.1 });
+    return [...base, mk("2026-10-01", a), mk("2026-10-02", b)];
+  };
+  const read = (daily: Bar[]) => computeLongReadings({ daily, now, method: "signed-daily" }).M;
+
+  it("alignedPolarity covers all combinations", () => {
+    assert.equal(alignedPolarity("green", 1), 1);
+    assert.equal(alignedPolarity("red", -1), -1);
+    assert.equal(alignedPolarity("green", -1), 0);
+    assert.equal(alignedPolarity("red", 1), 0);
+    assert.equal(alignedPolarity("green", 0), 0);
+    assert.equal(alignedPolarity("red", 0), 0);
+    assert.equal(alignedPolarity("flat", 5), 0);
+    assert.equal(alignedPolarity("flat", -5), 0);
+  });
+  it("green candle and positive net volume = +1 Drive", () => {
+    const r = read(oct({ open: 100, close: 100.5, volume: 100 }, { open: 100.5, close: 101, volume: 100 }));
+    assert.equal(r.kind, "green");
+    assert.equal(r.netVolume, 200);
+    assert.equal(r.polarity, 1);
+    assert.equal(r.label, "Drive");
+    assert.equal(r.agreement, "agree");
+  });
+  it("red candle and negative net volume = -1 Reverse", () => {
+    const r = read(oct({ open: 100, close: 90, volume: 300 }, { open: 90, close: 89, volume: 100 }));
+    assert.equal(r.kind, "red");
+    assert.equal(r.netVolume, -400);
+    assert.equal(r.polarity, -1);
+    assert.equal(r.label, "Reverse");
+    assert.equal(r.agreement, "agree");
+  });
+  it("green candle but negative net volume = 0 Neutral", () => {
+    const r = read(oct({ open: 100, close: 90, volume: 300 }, { open: 90, close: 101, volume: 100 }));
+    assert.equal(r.kind, "green");
+    assert.equal(r.netVolume, -200);
+    assert.equal(r.polarity, 0);
+    assert.equal(r.label, "Neutral");
+    assert.equal(r.status, "ok");
+    assert.equal(r.agreement, "disagree");
+  });
+  it("red candle but positive net volume = 0 Neutral", () => {
+    const r = read(oct({ open: 100, close: 95, volume: 100 }, { open: 95, close: 98, volume: 300 }));
+    assert.equal(r.kind, "red");
+    assert.equal(r.netVolume, 200);
+    assert.equal(r.polarity, 0);
+    assert.equal(r.label, "Neutral");
+    assert.equal(r.agreement, "disagree");
+  });
+  it("zero net volume is Neutral whatever the colour", () => {
+    const r = read(oct({ open: 100, close: 90, volume: 100 }, { open: 90, close: 101, volume: 100 }));
+    assert.equal(r.kind, "green");
+    assert.equal(r.netVolume, 0);
+    assert.equal(r.polarity, 0);
+    assert.equal(r.netSign, 0);
+  });
+  it("a flat candle (close equals the period's open) is Neutral even with positive net volume", () => {
+    const r = read(oct({ open: 100, close: 95, volume: 100 }, { open: 95, close: 100, volume: 300 }));
+    assert.equal(r.kind, "flat");
+    assert.equal(r.netVolume, 200);
+    assert.equal(r.polarity, 0);
+  });
+  it("missing or zero volume or no bars is Data unavailable, never Neutral", () => {
+    const zero = read(oct({ open: 100, close: 100.5, volume: 0 }, { open: 100.5, close: 101, volume: 100 }));
+    assert.equal(zero.status, "unavailable");
+    assert.equal(zero.polarity, null);
+    assert.equal(zero.label, "Data unavailable");
+    assert.equal(zero.agreement, null);
+    const none = computeLongReadings({ daily: [], now, method: "signed-daily" }).M;
+    assert.equal(none.status, "unavailable");
+    assert.equal(none.polarity, null);
+    const nanVol = read(oct({ open: 100, close: 100.5, volume: Number.NaN }, { open: 100.5, close: 101, volume: 100 }));
+    assert.equal(nanVol.polarity, null);
+  });
+  it("the aligned rule also applies to the 5-minute method, with the candle and net volume shown side by side", () => {
+    const { daily, intraday } = disagreementCase();
+    const r = computeLongReadings({ daily, intraday, now, method: "signed-intraday" }).M;
+    assert.equal(r.kind, "green");
+    assert.equal(r.open, 100);
+    assert.equal(r.close, 101);
+    assert.equal(r.netVolume, -200);
+    assert.equal(r.polarity, 0);
+    assert.equal(r.asOf, now.toISOString());
+  });
+});
+
 describe("signed 5-minute method", () => {
   const { daily, intraday } = disagreementCase();
   const now = new Date("2026-10-02T21:30:00Z");
@@ -141,7 +234,8 @@ describe("signed 5-minute method", () => {
     const r = computeLongReadings({ daily, intraday, now, method: "signed-intraday" }).M;
     assert.equal(r.status, "ok", r.reason ?? "");
     assert.equal(r.netVolume, -200);
-    assert.equal(r.polarity, -1);
+    assert.equal(r.kind, "green");
+    assert.equal(r.polarity, 0);
     assert.equal(r.lastBarAt, "2026-10-02T17:30:00Z");
   });
   it("is the default method", () => {
@@ -242,8 +336,8 @@ describe("audit inputs and live behaviour on a long history", () => {
       assert.ok(typeof r[tf].netVolume === "number");
       assert.equal(r[tf].asOf, now.toISOString());
       assert.equal(r[tf].throughDate, "2026-11-20");
-      const sign = Math.sign(r[tf].netVolume as number);
-      assert.equal(r[tf].polarity, sign);
+      assert.equal(r[tf].polarity, alignedPolarity(r[tf].kind as CandleKind, r[tf].netVolume as number));
+      assert.equal(r[tf].netSign, Math.sign(r[tf].netVolume as number));
       assert.equal((r[tf].upVolume as number) - (r[tf].downVolume as number), r[tf].netVolume);
     }
   });
