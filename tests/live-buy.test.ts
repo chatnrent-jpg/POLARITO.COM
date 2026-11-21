@@ -543,7 +543,7 @@ describe("the order ticket is the live order path", () => {
     for (const text of ["Stock Ticker", "Order Type", "Quantity (shares)", "Review Order", "evaluateGuard", "validateQuantity", "Confirm simulated order", "addLedgerEntry"]) {
       assert.ok(ticket.includes(text), text);
     }
-    assert.match(dashboard, /<OrderModule key=\{accountId\} analysis=\{analysis\} \/>/);
+    assert.match(dashboard, /<OrderModule key=\{accountId\} analysis=\{analysis\} ticker=\{tickerControl\} \/>/);
   });
 
   it("shows the mode on the header and only goes live on the server's say-so, never the other way", () => {

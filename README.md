@@ -143,7 +143,7 @@ The browser's own Auto toggle still drives only the browser simulation. Auto OFF
 
 ### The order ticket: simulated by default, LIVE when live is on
 
-The main page's order ticket (Stock Ticker from the analyzed selection, Order Type, Quantity (shares), Review Order, locked until the engine reports a gear) is unchanged. Only what Confirm does depends on the mode, shown as a badge in the card header (`MODE: SIMULATED`, grey, or `MODE: LIVE REAL CASH`, amber with an amber card border).
+The main page's order ticket (one **Stock Ticker** field with an Analyze button: typing a ticker and pressing Analyze or Enter loads its daily bars and gear, and the order below uses that analysis; there is no separate analyze input at the top, and a typed ticker that is not yet analyzed keeps Review Order locked; Order Type, Quantity (shares), Review Order, locked until the engine reports a gear) is unchanged. Only what Confirm does depends on the mode, shown as a badge in the card header (`MODE: SIMULATED`, grey, or `MODE: LIVE REAL CASH`, amber with an amber card border).
 
 | | Simulated (default) | LIVE |
 | --- | --- | --- |

@@ -21,6 +21,7 @@ import {
 } from "@/lib/orderGuard";
 import { getAccountDef } from "@/lib/multiAccount";
 import { metaFor, type Polarity } from "@/lib/polarity";
+import { tickerFieldState } from "@/lib/tickerField";
 
 /** What the engine says about the ticker currently on the dashboard. */
 export type OrderAnalysis = {
@@ -32,6 +33,15 @@ export type OrderAnalysis = {
   asOf: string;
   /** false while < 20 bars of history exist. */
   ready: boolean;
+};
+
+/** The one Stock Ticker field: the dashboard owns the value and the analysis, this card only renders and forwards. */
+export type TickerControl = {
+  value: string;
+  onChange: (value: string) => void;
+  /** Analyze the ticker currently in the field (load bars, gear/polarity). */
+  onAnalyze: () => void;
+  loading: boolean;
 };
 
 const money = (n: number) =>
@@ -58,7 +68,16 @@ const fieldCls =
  * orders are off, or the live account cannot be read, the ticket is locked with the reason (it never falls back to
  * the simulated ledger).
  */
-export default function OrderModule({ analysis }: { analysis: OrderAnalysis | null }) {
+export default function OrderModule({
+  analysis: analyzed,
+  ticker,
+}: {
+  analysis: OrderAnalysis | null;
+  ticker: TickerControl;
+}) {
+  // Orders only use an analysis for the ticker that is in the field; typing another ticker locks them until Analyze.
+  const fieldState = tickerFieldState(ticker.value, analyzed?.ticker ?? null);
+  const analysis = fieldState === "current" ? analyzed : null;
   const [side, setSide] = useState<OrderSide | "">("");
   const [qtyRaw, setQtyRaw] = useState("");
   const [review, setReview] = useState<{ key: string; entry: LedgerEntry } | null>(null);
@@ -248,25 +267,53 @@ export default function OrderModule({ analysis }: { analysis: OrderAnalysis | nu
         </p>
       ) : null}
 
-      <form onSubmit={onReview} className="flex flex-col gap-5" noValidate>
-        <div className="flex flex-col gap-2">
-          <label htmlFor="order-ticker" className={labelCls}>
-            Stock Ticker
-          </label>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          ticker.onAnalyze();
+        }}
+        className="flex flex-col gap-2"
+        noValidate
+      >
+        <label htmlFor="order-ticker" className={labelCls}>
+          Stock Ticker
+        </label>
+        <div className="flex gap-2">
           <input
             id="order-ticker"
             type="text"
-            value={analysis?.ticker ?? ""}
-            readOnly
-            aria-readonly="true"
-            placeholder="Analyze a ticker above"
-            className={`${fieldCls} cursor-not-allowed font-mono uppercase`}
+            value={ticker.value}
+            onChange={(e) => {
+              setNotice(null);
+              ticker.onChange(e.target.value);
+            }}
+            placeholder="Ticker, e.g. NVDA"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            maxLength={8}
+            className={`${fieldCls} min-w-0 flex-1 font-mono uppercase placeholder:normal-case`}
           />
-          <span className="text-sm text-slate-400">
-            Filled from the main page selection. Orders are only allowed on the analyzed ticker.
-          </span>
+          <button
+            type="submit"
+            disabled={ticker.loading || ticker.value.trim() === ""}
+            className="rounded-lg bg-zinc-100 px-5 py-3 text-base font-semibold text-zinc-900 transition-opacity hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {ticker.loading ? "Loading…" : "Analyze"}
+          </button>
         </div>
+        <span className="text-sm text-slate-400">
+          {fieldState === "pending"
+            ? analyzed
+              ? `Press Analyze to load ${ticker.value.trim().toUpperCase()}. Orders stay locked until it is analyzed (the loaded ticker is ${analyzed.ticker}).`
+              : `Press Analyze to load ${ticker.value.trim().toUpperCase()}. Orders stay locked until it is analyzed.`
+            : fieldState === "invalid"
+              ? "Enter a valid stock ticker (1-5 letters, e.g. NVDA, TSLA, SPY)."
+              : "Analyze loads the daily bars and the gear for this ticker, and the order below uses it."}
+        </span>
+      </form>
 
+      <form onSubmit={onReview} className="flex flex-col gap-5" noValidate>
         <div className="grid gap-5 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <label htmlFor="order-type" className={labelCls}>
