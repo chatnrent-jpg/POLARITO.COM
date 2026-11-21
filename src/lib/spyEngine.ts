@@ -28,17 +28,14 @@ import { daysBetween } from "@/lib/broker/options";
 import {
   LONG_TIMEFRAMES,
   LONG_TIMEFRAME_NAMES,
-  NET_VOLUME_METHODS,
   computeLongReadings,
   isLongTimeframe,
-  isNetVolumeMethod,
   longPeriodStart,
   readingsSummary,
   type IntradayBar,
   type LongReading,
   type LongReadings,
   type LongTimeframe,
-  type NetVolumeMethod,
 } from "@/lib/longPolarity";
 import { etClock } from "@/lib/marketCalendar";
 import { MIN_ABS_DELTA, MIN_DAYS_TO_EXPIRY, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
@@ -54,7 +51,6 @@ export const NEUTRAL_POLICY = "manual" as const;
 
 export type EngineConfig = {
   timeframe: LongTimeframe;
-  method: NetVolumeMethod;
   /** Real account size for the plain affordability line only. The dry run always tracks one imaginary contract. */
   liveBudget: number;
 };
@@ -125,8 +121,6 @@ export type EngineResult = {
   events: EngineEvent[];
   decision: Decision | null;
   readings: LongReadings | null;
-  /** The other two methods, computed from the same data for comparison only. Never used to decide. */
-  comparison: Partial<Record<NetVolumeMethod, LongReadings>>;
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -169,13 +163,12 @@ export function parseEngineState(raw: unknown): { ok: true; state: EngineState }
 export function parseEngineConfig(env: Readonly<Record<string, string | undefined>>): { ok: true; config: EngineConfig } | { ok: false; error: string } {
   const timeframe = (env.SPY_DECISION_TIMEFRAME ?? "M").trim().toUpperCase();
   if (!isLongTimeframe(timeframe)) return { ok: false, error: `SPY_DECISION_TIMEFRAME must be one of M, Q, H, Y (got "${timeframe}"); there is no daily or weekly option` };
-  const method = (env.SPY_NET_VOLUME_METHOD ?? "signed-intraday").trim();
-  if (!isNetVolumeMethod(method)) return { ok: false, error: `SPY_NET_VOLUME_METHOD must be one of ${NET_VOLUME_METHODS.join(", ")} (got "${method}")` };
+  if (env.SPY_NET_VOLUME_METHOD !== undefined) return { ok: false, error: "SPY_NET_VOLUME_METHOD is no longer supported: there is exactly one net volume method (signed 5-minute volume summed over the whole period)" };
   const onNeutral = (env.SPY_ON_NEUTRAL ?? NEUTRAL_POLICY).trim().toLowerCase();
   if (onNeutral !== NEUTRAL_POLICY) return { ok: false, error: `SPY_ON_NEUTRAL, if set, must be "${NEUTRAL_POLICY}": on Neutral the trader decides; there is no automatic exit or entry` };
   const liveBudget = Number(env.SPY_LIVE_BUDGET ?? "1000");
   if (!Number.isFinite(liveBudget) || liveBudget <= 0) return { ok: false, error: "SPY_LIVE_BUDGET must be a positive number" };
-  return { ok: true, config: { timeframe, method, liveBudget } };
+  return { ok: true, config: { timeframe, liveBudget } };
 }
 
 const gear = (p: number | null): string => (p === 1 ? "Drive" : p === -1 ? "Reverse" : p === 0 ? "Neutral" : "Data unavailable");
@@ -184,7 +177,6 @@ const millions = (n: number | null): string => (n === null ? "n/a" : `${(n / 1e6
 function readingData(r: LongReading): Record<string, unknown> {
   return {
     timeframe: r.timeframe,
-    method: r.method,
     status: r.status,
     reading: gear(r.polarity),
     candle: r.kind,
@@ -213,10 +205,10 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     events.push({ at, kind, message, ...(data ? { data } : {}) });
   };
   const state: EngineState = { version: 1, readings: { ...previous.readings }, position: previous.position, neutralSince: previous.neutralSince };
-  const base: EngineResult = { ok: false, state, events, decision: null, readings: null, comparison: {} };
+  const base: EngineResult = { ok: false, state, events, decision: null, readings: null };
 
   try {
-    emit("run", `Dry run (no orders can be sent). Decision timeframe ${LONG_TIMEFRAME_NAMES[config.timeframe]}, net volume method ${config.method}.`, { timeframe: config.timeframe, method: config.method, dryRun: true });
+    emit("run", `Dry run (no orders can be sent). Decision timeframe ${LONG_TIMEFRAME_NAMES[config.timeframe]}, net volume = signed 5-minute volume summed over the whole period.`, { timeframe: config.timeframe, dryRun: true });
 
     const today = etClock(now).date;
     const dailyRes = await deps.loadDaily();
@@ -241,14 +233,11 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
       }
       return out;
     };
-    const readings = withNote(computeLongReadings({ daily, intraday, now, method: config.method }));
-    const comparison: Partial<Record<NetVolumeMethod, LongReadings>> = {};
-    for (const m of NET_VOLUME_METHODS) if (m !== config.method) comparison[m] = withNote(computeLongReadings({ daily, intraday, now, method: m }));
-    const result: EngineResult = { ...base, readings, comparison };
+    const readings = withNote(computeLongReadings({ daily, intraday, now }));
+    const result: EngineResult = { ...base, readings };
 
     emit("run", `Readings as of ${at}: ${readingsSummary(readings)} (D = Drive, R = Reverse, - = data unavailable).`, {
       readings: Object.fromEntries(LONG_TIMEFRAMES.map((tf) => [tf, readingData(readings[tf])])),
-      comparison: Object.fromEntries(Object.entries(comparison).map(([m, rs]) => [m, readingsSummary(rs as LongReadings)])),
     });
 
     for (const tf of LONG_TIMEFRAMES) {

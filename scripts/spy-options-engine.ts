@@ -3,12 +3,12 @@
  * through src/lib/alpacaReadOnly.ts (GET-only allowlist) and logs what it would do.
  *
  *   npx tsx --env-file=.env.local scripts/spy-options-engine.ts [--write] [--dir=spy-options-dry-run]
- *       [--timeframe=M|Q|H|Y] [--method=signed-intraday|signed-daily|candle] [--stock-feed=sip|iex]
+ *       [--timeframe=M|Q|H|Y] [--stock-feed=sip|iex]
  *       [--options-feed=indicative|opra] [--live-budget=1000]
  *
  * Without --write nothing is saved (a one-off look). With --write the state (state.json) and an append-only event log
  * (log.jsonl) are saved in --dir, so the next run can log every CHANGE of any reading with its timestamp.
- * Also reads SPY_DECISION_TIMEFRAME / SPY_NET_VOLUME_METHOD / SPY_LIVE_BUDGET from the environment (arguments win).
+ * Also reads SPY_DECISION_TIMEFRAME / SPY_LIVE_BUDGET from the environment (arguments win).
  * POLARITO_LIVE_TRADING_ENABLED is not read here and nothing in this path can place an order.
  */
 import fs from "node:fs";
@@ -27,7 +27,6 @@ const arg = (name: string): string | undefined => process.argv.find((a) => a.sta
 async function main(): Promise<void> {
   const env = { ...process.env } as Record<string, string | undefined>;
   if (arg("timeframe")) env.SPY_DECISION_TIMEFRAME = arg("timeframe");
-  if (arg("method")) env.SPY_NET_VOLUME_METHOD = arg("method");
   if (arg("live-budget")) env.SPY_LIVE_BUDGET = arg("live-budget");
   const cfg = parseEngineConfig(env);
   if (!cfg.ok) throw new Error(cfg.error);

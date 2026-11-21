@@ -23,11 +23,6 @@ on:
         type: choice
         options: [M, Q, H, Y]
         default: M
-      method:
-        description: "Net volume method: signed-intraday (up-bar minus down-bar volume from 5-minute bars, recommended), signed-daily, candle"
-        type: choice
-        options: [signed-intraday, signed-daily, candle]
-        default: signed-intraday
       stock_feed:
         description: "Stock data feed (sip needs the paid plan for the latest 15 minutes; iex is free, partial volume)"
         type: choice
@@ -94,19 +89,17 @@ jobs:
       - name: Run the dry-run engine
         env:
           TIMEFRAME: ${{ inputs.timeframe }}
-          METHOD: ${{ inputs.method }}
           STOCK_FEED: ${{ inputs.stock_feed }}
           OPTIONS_FEED: ${{ inputs.options_feed }}
           LIVE_BUDGET: ${{ inputs.live_budget }}
         run: |
           set -eu
           case "$TIMEFRAME" in M|Q|H|Y) ;; *) echo "::error::timeframe must be M, Q, H or Y"; exit 1 ;; esac
-          case "$METHOD" in signed-intraday|signed-daily|candle) ;; *) echo "::error::bad method"; exit 1 ;; esac
           case "$STOCK_FEED" in sip|iex) ;; *) echo "::error::stock_feed must be sip or iex"; exit 1 ;; esac
           case "$OPTIONS_FEED" in indicative|opra) ;; *) echo "::error::options_feed must be indicative or opra"; exit 1 ;; esac
           case "$LIVE_BUDGET" in ''|*[!0-9.]*) echo "::error::live_budget must be a number"; exit 1 ;; esac
           npx tsx --env-file="$RUNNER_TEMP/alpaca.env" scripts/spy-options-engine.ts --write --dir=spy-options-dry-run \
-            --timeframe="$TIMEFRAME" --method="$METHOD" --stock-feed="$STOCK_FEED" --options-feed="$OPTIONS_FEED" --live-budget="$LIVE_BUDGET"
+            --timeframe="$TIMEFRAME" --stock-feed="$STOCK_FEED" --options-feed="$OPTIONS_FEED" --live-budget="$LIVE_BUDGET"
 
       - name: Show the summary on the run page
         if: always()
