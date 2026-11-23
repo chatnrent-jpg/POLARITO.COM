@@ -11,7 +11,7 @@
  *                       snapshot -> one DeskSnapshot for the view. User choices (Call/Put, contract row, ticks, dialogs)
  *                       are held by the container, never by these snapshots, so a refresh cannot reset them.
  */
-import { isDeskTimeframe, readingKeys, type DeskReading, type DeskTimeframe } from "@/lib/deskReadings";
+import { deskReadingKeys, isDeskTimeframe, type DeskReading, type DeskTimeframe } from "@/lib/deskReadings";
 import { etClock } from "@/lib/marketCalendar";
 import { AUTO_UNAVAILABLE, isAutoView, type AutoView } from "@/lib/spyAutoTypes";
 import {
@@ -85,7 +85,7 @@ export async function buildLiveSnapshot(deps: DeskDeps, config: DeskConfig, stor
     } else {
       const decision = deskDecision(dailyRes.value, now, config.timeframe);
       const readings = decision.readings;
-      out.readings = readingKeys(config.timeframe).flatMap((tf) => (readings[tf] ? [readingView(readings[tf] as DeskReading, tf === config.timeframe)] : []));
+      out.readings = deskReadingKeys(config.timeframe).flatMap((tf) => (readings[tf] ? [readingView(readings[tf] as DeskReading, tf === config.timeframe)] : []));
       out.decision =
         decision.status === "ok"
           ? { action: decision.action, reason: describeDecision(decision.reading, config.timeframe), traderDecides: decision.action === "STAND_ASIDE" }

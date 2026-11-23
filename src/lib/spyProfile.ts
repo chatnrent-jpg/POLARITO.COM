@@ -2,7 +2,7 @@
  * A desk "profile": everything that differs between the two SPY desks, in one small object, so the desk code is shared and
  * nothing is copied. Plain data (safe to hand to a client component), no I/O.
  *
- *   monthly  /spy       decision from the monthly period-to-date reading (SPY_DECISION_TIMEFRAME, default M)
+ *   monthly  /spy       decision from the Daily net volume reading by default (SPY_DECISION_TIMEFRAME: 1D default, or M, Q, H, Y period-to-date)
  *   wwv      /spy-wwv   decision from the daily Weis Wave Volume reading (wwv.ts), setting fixed at 1
  *
  * ISOLATION: each desk has its own practice position and journal, Auto switch, audit log and run lock because every key it

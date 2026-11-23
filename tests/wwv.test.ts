@@ -219,7 +219,7 @@ describe("desk readings (one key per desk)", () => {
     const d = computeDeskReadings(daily, AFTER_CLOSE, "D");
     assert.deepEqual(Object.keys(d), ["D"]);
     assert.equal(d.D?.timeframe, "D");
-    assert.deepEqual(Object.keys(computeDeskReadings(daily, AFTER_CLOSE, "M")).sort(), ["H", "M", "Q", "Y"]);
+    assert.deepEqual(Object.keys(computeDeskReadings(daily, AFTER_CLOSE, "M")).sort(), ["1D", "H", "M", "Q", "Y"], "the four period readings plus the Daily net volume reading (key 1D, never D)");
   });
   it("names and type guard", () => {
     assert.equal(TIMEFRAME_NAMES.D, "Daily, WWV");

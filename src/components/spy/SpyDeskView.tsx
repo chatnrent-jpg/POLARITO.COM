@@ -121,7 +121,7 @@ function ReadingCard({ r }: { r: ReadingView }) {
         </div>
       </dl>
       {r.status === "unavailable" && r.reason ? <p className="mt-2 text-sm text-rose-300">{r.reason}</p> : null}
-      <p className="mt-2 text-xs text-zinc-400">since {r.periodStart ?? "n/a"}, as of {dateTimeText(r.asOf)}</p>
+      <p className="mt-2 text-xs text-zinc-400">{r.timeframe === "1D" ? "session" : "since"} {r.periodStart ?? "n/a"}, as of {dateTimeText(r.asOf)}</p>
       {r.status === "ok" && r.inProgress ? <p className="mt-1 text-xs font-semibold text-amber-300" data-testid={`in-progress-${r.timeframe}`}>session in progress: includes today&apos;s partial day, can change until the close</p> : null}
     </li>
   );
@@ -631,6 +631,13 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
       {!snap.store.available ? (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" data-testid="store-warning">{snap.store.error}</div>
       ) : null}
+      {snap.timeframe !== "D" && snap.readings.some((r) => r.timeframe === "1D") ? (
+        <section className={card} aria-labelledby="daily-h" data-testid="daily-reading">
+          <h2 id="daily-h" className={h2}>Daily reading (today, SPY)</h2>
+          <ReadingsTable readings={snap.readings.filter((r) => r.timeframe === "1D")} />
+          <p className="mt-2 text-xs text-zinc-400">Daily net volume is the same chart definition on one day: the candle is today&apos;s open to the latest close, net volume is today&apos;s total volume signed by the latest close against the previous trading day&apos;s close, and the reading counts only when candle colour and net volume agree. During the session it uses the partial day (labelled session in progress); after the close it is final.</p>
+        </section>
+      ) : null}
       <section className={card} aria-labelledby="readings-h">
         {snap.timeframe === "D" ? (
           <>
@@ -641,7 +648,7 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
         ) : (
           <>
             <h2 id="readings-h" className={h2}>Four readings (period to date, SPY)</h2>
-            <ReadingsTable readings={snap.readings} />
+            <ReadingsTable readings={snap.readings.filter((r) => r.timeframe !== "1D")} />
             <p className="mt-2 text-xs text-zinc-500">Net volume is the chart definition: the period&apos;s total daily volume, signed by the latest close versus the previous period&apos;s last close. A reading counts only when candle colour and net volume match.</p>
           </>
         )}

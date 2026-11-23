@@ -338,7 +338,8 @@ describe("snapshot (the page's data)", () => {
   it("Neutral: four readings with raw net volume, candle, match, reading; decision; ticket open with the rules-filtered chain", async () => {
     const snap = await buildDeskSnapshot(makeDeps(NEUTRAL), CFG, createMemoryDeskStore());
     assert.equal(snap.dryRun, true);
-    assert.equal(snap.readings.length, 4);
+    assert.equal(snap.readings.length, 5, "the Daily reading plus the four period readings");
+    assert.deepEqual(snap.readings.map((r) => r.timeframe).sort(), ["1D", "H", "M", "Q", "Y"]);
     const m = snap.readings.find((r) => r.timeframe === "M");
     assert.ok(m && m.isDecision);
     assert.equal(m.label, "Neutral");
