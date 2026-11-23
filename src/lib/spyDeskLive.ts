@@ -70,9 +70,12 @@ export function lightCacheFor(conn: Connection, key: string, make: () => Cached)
   return hit;
 }
 
-/** First calendar day of the daily bars to load: enough sessions for the period readings (year-to-date plus the one before), or for WWV. */
+/** First calendar day of the daily bars to load: enough sessions for the period readings (year-to-date plus the one before); the WWV desk loads the longer of that and its own window (it shows the period readings as context, and its decision reads only its own window). */
 export function dailyStartFor(profile: DeskProfile, today: string): string {
-  return profile.fixedTimeframe === "D" ? addCalendarDays(today, -WWV_HISTORY_CALENDAR_DAYS) : addCalendarDays(longPeriodStart(today, "Y"), -45);
+  const periods = addCalendarDays(longPeriodStart(today, "Y"), -45);
+  if (profile.fixedTimeframe !== "D") return periods;
+  const wwv = addCalendarDays(today, -WWV_HISTORY_CALENDAR_DAYS);
+  return wwv < periods ? wwv : periods;
 }
 
 export async function createLiveDeskDeps(env: Env, now: () => Date = () => new Date(), opts: LiveDeskOptions = {}): Promise<LiveDesk> {

@@ -75,6 +75,8 @@ Two manual GitHub workflows run the same code without the website (no schedule, 
 
 A second, separate desk beside `/spy`. Same page, same rules, same practice-only guard rails; the only difference is the **decision source**: the **daily timeframe Weis Wave Volume (WWV), setting fixed at 1**, instead of the period readings. Page title and labels say **SPY DESK WWV** and show the timeframe (**Daily, WWV**). Same session login and the same `POLARITO_SPY_DESK=1` flag. Nothing new to set in Vercel.
 
+**Four readings as context.** Below the WWV section the desk also shows "Four readings (period to date, SPY)" (Monthly, Quarterly, 6-month, Yearly), computed and drawn exactly as on `/spy` (same stale-bar rules, the "session in progress" note, the same 5 s live refresh). They are context only: the decision, the contract choice, Auto and the ticket gate still come from the daily WWV reading (key `D`) alone. To feed them the desk loads the longer bar history, but the WWV reading itself still reads only its own last 200 calendar days, so it cannot change because of them. Code: `contextReadings` in the desk and live snapshots, `computeContextReadings` / `wwvWindow` in `src/lib/deskReadings.ts`.
+
 | What | Detail |
 | --- | --- |
 | Page and routes | `src/app/spy-wwv/page.tsx`, `src/app/api/spy-wwv/{desk,live,analyze,ticket,close,auto,auto-run}` (the same route code as `/spy`, selected by a desk profile) |

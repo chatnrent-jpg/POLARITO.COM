@@ -653,6 +653,13 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
           </>
         )}
       </section>
+      {snap.timeframe === "D" && snap.contextReadings && snap.contextReadings.length > 0 ? (
+        <section className={card} aria-labelledby="context-readings-h" data-testid="context-readings">
+          <h2 id="context-readings-h" className={h2}>Four readings (period to date, SPY)</h2>
+          <ReadingsTable readings={snap.contextReadings} />
+          <p className="mt-2 text-xs text-zinc-500">Net volume is the chart definition: the period&apos;s total daily volume, signed by the latest close versus the previous period&apos;s last close. A reading counts only when candle colour and net volume match. Context only: on this desk the decision is the daily Weis Wave Volume above; these readings do not decide, choose the contract, drive Auto or gate the ticket.</p>
+        </section>
+      ) : null}
       {snap.position.status !== "held" ? (
         <section className={card} aria-labelledby="pos-h">
           <h2 id="pos-h" className={h2}>Dry-run position</h2>
