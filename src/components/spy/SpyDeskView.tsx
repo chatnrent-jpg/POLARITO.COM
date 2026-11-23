@@ -7,7 +7,7 @@ import type { Freshness } from "@/lib/spyDeskData";
 import { gearPermit, type AnalyzerState } from "@/lib/spyAnalyzer";
 import { GEAR_NAMES, TICKER, checkSide } from "@/lib/spyGear";
 import { MONTHLY_PROFILE, type DeskProfile } from "@/lib/spyProfile";
-import { clockText, dateTimeText, signedMoney, signedPercent, volumeText, decisionHeadline, money, netFlagText, netVolumeText, percent, price, signedDelta } from "@/lib/spyDeskFormat";
+import { clockText, dateTimeText, netVolumeWord, readingWhy, signedMoney, signedPercent, volumeText, decisionHeadline, money, netFlagText, netVolumeText, percent, price, signedDelta } from "@/lib/spyDeskFormat";
 
 /**
  * Pure rendering of the SPY desk. No fetching, no decisions, no storage: it draws exactly what it is given and calls the
@@ -58,58 +58,83 @@ function Badge({ tone, children }: { tone: "green" | "red" | "amber" | "zinc" | 
   return <span className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ring-1 ${tones[tone]}`}>{children}</span>;
 }
 
-const readingTone = (label: string): "green" | "red" | "amber" | "rose" => (label === "Drive" ? "green" : label === "Reverse" ? "red" : label === "Neutral" ? "amber" : "rose");
+const readingTone = (label: string): "green" | "red" | "zinc" | "rose" => (label === "Drive" ? "green" : label === "Reverse" ? "red" : label === "Neutral" ? "zinc" : "rose");
+const candleClass = (c: ReadingView["candle"]): string => (c === "green" ? "text-emerald-300" : c === "red" ? "text-red-300" : "text-zinc-300");
+
+/** The resulting gear as a bold badge: the word is always there, the colour only backs it up. */
+function GearBadge({ label, size = "md" }: { label: string; size?: "md" | "lg" }) {
+  const tones = {
+    green: "bg-emerald-500/20 text-emerald-200 ring-emerald-400",
+    red: "bg-red-500/20 text-red-200 ring-red-400",
+    zinc: "bg-zinc-600/30 text-zinc-100 ring-zinc-400",
+    rose: "bg-rose-500/20 text-rose-200 ring-rose-400",
+  } as const;
+  return (
+    <span className={`inline-block rounded-md px-3 py-1 font-extrabold uppercase tracking-wide ring-2 ${size === "lg" ? "text-xl" : "text-sm"} ${tones[readingTone(label)]}`} data-testid="gear-badge" data-gear={label}>
+      {label}
+    </span>
+  );
+}
+
+function readingFrame(decides: boolean): string {
+  return decides ? "border-2 border-sky-400 bg-zinc-900 ring-2 ring-sky-400/20" : "border border-zinc-800 bg-zinc-950/40";
+}
+function DecidesTag({ testid }: { testid: string }) {
+  return <span className="rounded bg-sky-400 px-2 py-0.5 text-xs font-extrabold uppercase tracking-wide text-sky-950" data-testid={testid}>decides</span>;
+}
+
+function ReadingCard({ r }: { r: ReadingView }) {
+  const dim = "text-zinc-400";
+  const val = r.isDecision ? "text-zinc-50" : "text-zinc-200";
+  const word = netVolumeWord(r.netVolume);
+  const netClass = word === "positive" ? "text-emerald-300" : word === "negative" ? "text-red-300" : "text-zinc-300";
+  return (
+    <li className={`list-none rounded-lg p-3 ${readingFrame(r.isDecision)}`} data-testid={`reading-${r.timeframe}`} data-decides={r.isDecision ? "true" : "false"}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className={`text-base font-bold ${r.isDecision ? "text-zinc-50" : "text-zinc-300"}`}>{r.name}</h3>
+          {r.isDecision ? <DecidesTag testid={`decides-${r.timeframe}`} /> : null}
+        </div>
+        <GearBadge label={r.label} />
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+        <div className="col-span-2 min-w-0 sm:col-span-1">
+          <dt className={`text-xs uppercase tracking-wide ${dim}`}>Candle (open to close)</dt>
+          <dd className="mt-0.5 break-words text-sm font-semibold">
+            {r.status === "ok" ? <span className={candleClass(r.candle)}>{r.candle} ({price(r.open)} to {price(r.close)})</span> : <span className="text-zinc-400">n/a</span>}
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className={`text-xs uppercase tracking-wide ${dim}`}>Previous period close</dt>
+          <dd className={`mt-0.5 text-sm font-semibold ${val}`}>{r.status === "ok" ? price(r.previousClose) : "n/a"}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className={`text-xs uppercase tracking-wide ${dim}`}>Raw net volume</dt>
+          <dd className={`mt-0.5 text-sm font-semibold ${netClass}`} data-testid={`net-${r.timeframe}`}>
+            <span className="font-mono">{netVolumeText(r.netVolume)}</span> {r.netVolume === null ? null : <span>({word})</span>}
+            {r.netFlag ? <div className="text-xs font-semibold text-amber-300">[{netFlagText(r.netFlag)}]</div> : null}
+          </dd>
+        </div>
+        <div className="col-span-2 min-w-0 sm:col-span-1">
+          <dt className={`text-xs uppercase tracking-wide ${dim}`}>Match</dt>
+          <dd className={`mt-0.5 text-sm font-semibold ${r.match === "disagree" ? "text-amber-300" : val}`}>{r.match === "agree" ? "agree" : r.match === "disagree" ? "disagree" : "n/a"}</dd>
+        </div>
+      </dl>
+      {r.status === "unavailable" && r.reason ? <p className="mt-2 text-sm text-rose-300">{r.reason}</p> : null}
+      <p className="mt-2 text-xs text-zinc-400">since {r.periodStart ?? "n/a"}, as of {dateTimeText(r.asOf)}</p>
+      {r.status === "ok" && r.inProgress ? <p className="mt-1 text-xs font-semibold text-amber-300" data-testid={`in-progress-${r.timeframe}`}>session in progress: includes today&apos;s partial day, can change until the close</p> : null}
+    </li>
+  );
+}
 
 function ReadingsTable({ readings }: { readings: ReadingView[] }) {
   if (readings.length === 0) {
     return <p className="text-sm text-rose-300">Data unavailable: no reading could be computed. Nothing is assumed.</p>;
   }
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="text-xs uppercase text-zinc-500">
-          <tr>
-            <th className="py-1 pr-3">Timeframe</th>
-            <th className="py-1 pr-3">Candle (open to close)</th>
-            <th className="py-1 pr-3">Previous period close</th>
-            <th className="py-1 pr-3 text-right">Raw net volume</th>
-            <th className="py-1 pr-3">Match</th>
-            <th className="py-1">Reading</th>
-          </tr>
-        </thead>
-        <tbody>
-          {readings.map((r) => (
-            <tr key={r.timeframe} className={`border-t border-zinc-800 align-top ${r.isDecision ? "bg-zinc-800/40" : ""}`} data-testid={`reading-${r.timeframe}`}>
-              <td className="py-2 pr-3 font-medium">
-                {r.name}
-                {r.isDecision ? <span className="ml-2 text-xs text-sky-300">decides</span> : null}
-              </td>
-              <td className="py-2 pr-3">
-                {r.status === "ok" ? (
-                  <span className={r.candle === "green" ? "text-emerald-300" : r.candle === "red" ? "text-red-300" : "text-zinc-300"}>
-                    {r.candle} ({price(r.open)} to {price(r.close)})
-                  </span>
-                ) : (
-                  <span className="text-zinc-500">n/a</span>
-                )}
-              </td>
-              <td className="py-2 pr-3">{r.status === "ok" ? price(r.previousClose) : "n/a"}</td>
-              <td className="py-2 pr-3 text-right font-mono">
-                {netVolumeText(r.netVolume)}
-                {r.netFlag ? <div className="text-xs font-sans font-semibold text-amber-300">[{netFlagText(r.netFlag)}]</div> : null}
-              </td>
-              <td className="py-2 pr-3">{r.match === "agree" ? "agree" : r.match === "disagree" ? <span className="text-amber-300">disagree</span> : "n/a"}</td>
-              <td className="py-2">
-                <Badge tone={readingTone(r.label)}>{r.label}</Badge>
-                {r.status === "unavailable" && r.reason ? <div className="mt-1 max-w-xs text-xs text-rose-300">{r.reason}</div> : null}
-                <div className="mt-1 text-xs text-zinc-500">since {r.periodStart ?? "n/a"}, as of {dateTimeText(r.asOf)}</div>
-                {r.status === "ok" && r.inProgress ? <div className="mt-1 text-xs text-amber-300" data-testid={`in-progress-${r.timeframe}`}>session in progress: includes today&apos;s partial day, can change until the close</div> : null}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <ul className="grid grid-cols-1 gap-3" data-testid="readings-list">
+      {readings.map((r) => <ReadingCard key={r.timeframe} r={r} />)}
+    </ul>
   );
 }
 
@@ -120,62 +145,64 @@ function WwvTable({ readings }: { readings: ReadingView[] }) {
   const r = readings.find((x) => x.timeframe === "D");
   if (!r) return <p className="text-sm text-rose-300">Data unavailable: no reading could be computed. Nothing is assumed.</p>;
   const w = r.status === "ok" ? r.wwv : null;
+  const label = "text-xs uppercase tracking-wide text-zinc-400";
   return (
-    <div className="overflow-x-auto" data-testid="wwv-table">
-      <table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="text-xs uppercase text-zinc-500">
-          <tr>
-            <th className="py-1 pr-3">Current wave</th>
-            <th className="py-1 pr-3 text-right">Wave volume so far</th>
-            <th className="py-1 pr-3 text-right">Previous wave volume</th>
-            <th className="py-1 pr-3">Latest daily candle</th>
-            <th className="py-1 pr-3">Match</th>
-            <th className="py-1">Reading</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr className="border-t border-zinc-800 align-top bg-zinc-800/40" data-testid="reading-D">
-            <td className="py-2 pr-3" data-testid="wwv-direction">
+    <div className="rounded-lg border-2 border-sky-400 bg-zinc-900 p-3 ring-2 ring-sky-400/20" data-testid="wwv-table">
+      <div data-testid="reading-D" data-decides="true">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-base font-bold text-zinc-50">{r.name}</h3>
+            <DecidesTag testid="decides-D" />
+          </div>
+          <GearBadge label={r.label} />
+        </div>
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+          <div className="min-w-0" data-testid="wwv-direction">
+            <dt className={label}>Current wave</dt>
+            <dd className="mt-0.5 text-sm font-semibold">
               {w ? (
                 <>
-                  <span className={`font-semibold ${waveTone(w.direction)}`}>{w.direction === "up" ? "UP wave" : "DOWN wave"}</span>
-                  <div className="text-xs text-zinc-500">{w.waveBars} {w.waveBars === 1 ? "bar" : "bars"}, since {w.waveStart}</div>
+                  <span className={waveTone(w.direction)}>{w.direction === "up" ? "UP wave" : "DOWN wave"}</span>
+                  <div className="text-xs font-normal text-zinc-400">{w.waveBars} {w.waveBars === 1 ? "bar" : "bars"}, since {w.waveStart}</div>
                 </>
               ) : (
-                <span className="text-zinc-500">n/a</span>
+                <span className="text-zinc-400">n/a</span>
               )}
-            </td>
-            <td className="py-2 pr-3 text-right font-mono" data-testid="wwv-volume">{w ? volumeText(w.waveVolume) : "n/a"}</td>
-            <td className="py-2 pr-3 text-right font-mono" data-testid="wwv-previous">
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className={label}>Wave volume so far</dt>
+            <dd className="mt-0.5 font-mono text-sm font-semibold text-zinc-50" data-testid="wwv-volume">{w ? volumeText(w.waveVolume) : "n/a"}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className={label}>Previous wave volume</dt>
+            <dd className="mt-0.5 text-sm font-semibold" data-testid="wwv-previous">
               {w?.previous ? (
                 <>
-                  <span className={waveTone(w.previous.direction)}>{volumeText(w.previous.volume)}</span>
-                  <div className="font-sans text-xs text-zinc-500">{w.previous.direction} wave, {w.previous.start} to {w.previous.end}</div>
+                  <span className={`font-mono ${waveTone(w.previous.direction)}`}>{volumeText(w.previous.volume)}</span>
+                  <div className="text-xs font-normal text-zinc-400">{w.previous.direction} wave, {w.previous.start} to {w.previous.end}</div>
                 </>
               ) : (
-                <span className="font-sans text-xs text-zinc-500">{w ? (w.previousNote ?? "n/a") : "n/a"}</span>
+                <span className="text-xs font-normal text-zinc-400">{w ? (w.previousNote ?? "n/a") : "n/a"}</span>
               )}
-            </td>
-            <td className="py-2 pr-3" data-testid="wwv-candle">
-              {r.status === "ok" ? (
-                <span className={r.candle === "green" ? "text-emerald-300" : r.candle === "red" ? "text-red-300" : "text-zinc-300"}>
-                  {r.candle} ({price(r.open)} to {price(r.close)})
-                </span>
-              ) : (
-                <span className="text-zinc-500">n/a</span>
-              )}
-            </td>
-            <td className="py-2 pr-3">{r.match === "agree" ? "agree" : r.match === "disagree" ? <span className="text-amber-300">disagree</span> : "n/a"}</td>
-            <td className="py-2">
-              <Badge tone={readingTone(r.label)}>{r.label}</Badge>
-              {r.reason ? <div className={`mt-1 max-w-xs text-xs ${r.status === "ok" ? "text-amber-300" : "text-rose-300"}`}>{r.reason}</div> : null}
-              <div className="mt-1 text-xs text-zinc-500" data-testid="wwv-asof">
-                {w ? `daily bar ${w.barDate}${w.inProgress ? " (session in progress, can still change)" : " (final)"}, ` : ""}as of {dateTimeText(r.asOf)}
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className={label}>Latest daily candle</dt>
+            <dd className="mt-0.5 break-words text-sm font-semibold" data-testid="wwv-candle">
+              {r.status === "ok" ? <span className={candleClass(r.candle)}>{r.candle} ({price(r.open)} to {price(r.close)})</span> : <span className="text-zinc-400">n/a</span>}
+            </dd>
+          </div>
+          <div className="col-span-2 min-w-0 sm:col-span-4">
+            <dt className={label}>Match</dt>
+            <dd className={`mt-0.5 text-sm font-semibold ${r.match === "disagree" ? "text-amber-300" : "text-zinc-50"}`}>{r.match === "agree" ? "agree" : r.match === "disagree" ? "disagree" : "n/a"}</dd>
+          </div>
+        </dl>
+        {r.reason ? <p className={`mt-2 text-sm ${r.status === "ok" ? "text-amber-300" : "text-rose-300"}`}>{r.reason}</p> : null}
+        <p className="mt-2 text-xs text-zinc-400" data-testid="wwv-asof">
+          {w ? `daily bar ${w.barDate}${w.inProgress ? " (session in progress, can still change)" : " (final)"}, ` : ""}as of {dateTimeText(r.asOf)}
+        </p>
+      </div>
     </div>
   );
 }
@@ -183,12 +210,12 @@ function WwvTable({ readings }: { readings: ReadingView[] }) {
 function ContractLine({ c }: { c: ContractView }) {
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
-      <div><dt className="text-xs text-zinc-500">Contract</dt><dd className="font-mono">{c.symbol}</dd></div>
-      <div><dt className="text-xs text-zinc-500">Strike / expiry</dt><dd>{c.strike} / {c.expiration} ({c.daysToExpiry} days)</dd></div>
-      <div><dt className="text-xs text-zinc-500">Delta</dt><dd>{signedDelta(c.delta)} ({c.deltaSource})</dd></div>
-      <div><dt className="text-xs text-zinc-500">Bid / ask</dt><dd>{price(c.bid)} / {price(c.ask)} (spread {percent(c.spreadPct)})</dd></div>
-      <div><dt className="text-xs text-zinc-500">Cost per contract (ask x 100)</dt><dd className="font-semibold">{money(c.costAtAsk)}</dd></div>
-      <div><dt className="text-xs text-zinc-500">Quote time</dt><dd>{dateTimeText(c.quoteAt)}</dd></div>
+      <div className="col-span-2 sm:col-span-1"><dt className="text-xs text-zinc-400">Contract</dt><dd className="break-all font-mono">{c.symbol}</dd></div>
+      <div><dt className="text-xs text-zinc-400">Strike / expiry</dt><dd>{c.strike} / {c.expiration} ({c.daysToExpiry} days)</dd></div>
+      <div><dt className="text-xs text-zinc-400">Delta</dt><dd>{signedDelta(c.delta)} ({c.deltaSource})</dd></div>
+      <div><dt className="text-xs text-zinc-400">Bid / ask</dt><dd>{price(c.bid)} / {price(c.ask)} (spread {percent(c.spreadPct)})</dd></div>
+      <div><dt className="text-xs text-zinc-400">Cost per contract (ask x 100)</dt><dd className="font-semibold">{money(c.costAtAsk)}</dd></div>
+      <div><dt className="text-xs text-zinc-400">Quote time</dt><dd>{dateTimeText(c.quoteAt)}</dd></div>
     </dl>
   );
 }
@@ -533,11 +560,64 @@ function AutoCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot })
   );
 }
 
+type DecisionLook = { big: string; frame: string; bar: string; badge: string; gear: string | null; gearLine: string };
+function decisionLook(action: DeskSnapshot["decision"]["action"]): DecisionLook {
+  switch (action) {
+    case "CALL":
+      return { big: "CALL", frame: "border-emerald-400 ring-emerald-400/20", bar: "bg-emerald-400 text-emerald-950", badge: "bg-emerald-500/20 text-emerald-200 ring-emerald-400", gear: "Drive", gearLine: "Calls only." };
+    case "PUT":
+      return { big: "PUT", frame: "border-red-400 ring-red-400/20", bar: "bg-red-400 text-red-950", badge: "bg-red-500/20 text-red-200 ring-red-400", gear: "Reverse", gearLine: "Puts only." };
+    case "STAND_ASIDE":
+      return { big: "NEUTRAL", frame: "border-zinc-400 ring-zinc-400/20", bar: "bg-zinc-300 text-zinc-900", badge: "bg-zinc-600/30 text-zinc-100 ring-zinc-400", gear: "Neutral", gearLine: "The trader decides." };
+    case "DATA_UNAVAILABLE":
+      return { big: "NO DATA", frame: "border-rose-400 ring-rose-400/20", bar: "bg-rose-400 text-rose-950", badge: "bg-rose-500/20 text-rose-200 ring-rose-400", gear: null, gearLine: "No decision is made." };
+    default:
+      return { big: "UNKNOWN", frame: "border-rose-400 ring-rose-400/20", bar: "bg-rose-400 text-rose-950", badge: "bg-rose-500/20 text-rose-200 ring-rose-400", gear: null, gearLine: "No decision is made." };
+  }
+}
+
+/** The decision, drawn as the page's second hero: the side, the gear, the plain-English why and the contract the engine would pick. */
+function DecisionHero({ snap }: { snap: DeskSnapshot }) {
+  const d = snap.decision;
+  const look = decisionLook(d.action);
+  const dec = snap.readings.find((r) => r.isDecision) ?? null;
+  const inProgress = dec !== null && dec.status === "ok" && (dec.inProgress || dec.wwv?.inProgress === true);
+  return (
+    <section className={`rounded-xl border-2 bg-zinc-900 p-4 shadow-lg ring-4 sm:p-6 ${look.frame}`} aria-labelledby="decision-h" data-testid="decision-card" data-action={d.action}>
+      <div className={`-mx-4 -mt-4 mb-4 rounded-t-[10px] px-4 py-1.5 text-sm font-extrabold uppercase tracking-widest sm:-mx-6 sm:-mt-6 sm:px-6 ${look.bar}`}>
+        <h2 id="decision-h">Decision ({dec?.name ?? snap.timeframe} timeframe)</h2>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <span className={`rounded-xl px-5 py-1 text-5xl font-black tracking-wide ring-4 sm:text-7xl ${look.badge}`} data-testid="decision-badge">{look.big}</span>
+        <div>
+          <div className="text-lg font-bold text-zinc-50" data-testid="decision-headline">{decisionHeadline(d.action)}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-200" data-testid="decision-gear">
+            {look.gear ? <><span>Gear:</span> <GearBadge label={look.gear} /></> : <span>Gear: unavailable.</span>} <span>{look.gearLine}</span>
+          </div>
+        </div>
+      </div>
+      <p className="mt-4 text-base font-medium text-zinc-100" data-testid="decision-why">
+        {dec ? readingWhy(dec) : `No trustworthy reading for the ${snap.timeframe} timeframe. Nothing is assumed.`}
+      </p>
+      <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-300" data-testid="decision-asof">
+        <span>as of {dateTimeText(dec?.asOf ?? null)}</span>
+        {inProgress ? <span className="rounded bg-amber-500/20 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-200 ring-1 ring-amber-400" data-testid="decision-in-progress">session in progress: can change until the close</span> : null}
+      </p>
+      <div className="mt-4 rounded-lg border border-zinc-700 bg-zinc-950/60 p-3">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Contract the engine would pick (preview, nothing is saved)</h3>
+        <EnginePick pick={snap.enginePick} rules={snap.rules} />
+      </div>
+      <p className="mt-3 text-xs text-zinc-400" data-testid="decision-reason">{d.reason}</p>
+    </section>
+  );
+}
+
 function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
   const unavailable = snap.decision.action === "DATA_UNAVAILABLE" || snap.decision.action === "UNKNOWN";
   return (
     <>
       {snap.position.status === "held" ? <PositionHero props={props} pos={snap.position} /> : null}
+      <DecisionHero snap={snap} />
       {snap.auto.banner ? (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" role="status" data-testid="neutral-banner">
           {snap.auto.banner}
@@ -565,17 +645,6 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
             <p className="mt-2 text-xs text-zinc-500">Net volume is the chart definition: the period&apos;s total daily volume, signed by the latest close versus the previous period&apos;s last close. A reading counts only when candle colour and net volume match.</p>
           </>
         )}
-      </section>
-      <section className={card} aria-labelledby="decision-h">
-        <h2 id="decision-h" className={h2}>Decision ({snap.readings.find((r) => r.isDecision)?.name ?? snap.timeframe} timeframe)</h2>
-        <div className="flex flex-wrap items-center gap-3">
-          <Badge tone={snap.decision.action === "CALL" ? "green" : snap.decision.action === "PUT" ? "red" : snap.decision.action === "STAND_ASIDE" ? "amber" : "rose"}>{decisionHeadline(snap.decision.action)}</Badge>
-        </div>
-        <p className="mt-2 text-sm text-zinc-300" data-testid="decision-reason">{snap.decision.reason}</p>
-      </section>
-      <section className={card} aria-labelledby="pick-h">
-        <h2 id="pick-h" className={h2}>Contract the engine would pick (preview, nothing is saved)</h2>
-        <EnginePick pick={snap.enginePick} rules={snap.rules} />
       </section>
       {snap.position.status !== "held" ? (
         <section className={card} aria-labelledby="pos-h">

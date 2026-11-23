@@ -65,3 +65,33 @@ export function clockText(iso: string | null): string {
   const two = (n: number): string => String(n).padStart(2, "0");
   return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
 }
+
+/** The sign of a net volume in words, so the meaning never rests on colour alone. */
+export function netVolumeWord(n: number | null): "positive" | "negative" | "zero" | "missing" {
+  return n === null ? "missing" : n > 0 ? "positive" : n < 0 ? "negative" : "zero";
+}
+
+export type WhyInput = {
+  name: string;
+  status: "ok" | "unavailable";
+  label: string;
+  candle: "green" | "red" | "flat" | null;
+  open: number | null;
+  close: number | null;
+  netVolume: number | null;
+  match: "agree" | "disagree" | null;
+  reason: string | null;
+  wwv: { direction: "up" | "down"; waveVolume: number } | null;
+};
+
+/** One plain-English sentence for why a reading says what it says (candle colour against net volume, or against the WWV wave). */
+export function readingWhy(r: WhyInput): string {
+  if (r.status !== "ok") return `No trustworthy ${r.name} reading${r.reason ? `: ${r.reason}` : ""}. Nothing is assumed.`;
+  const verdict = `${r.match === "agree" ? "they agree" : "they do not agree"}, so the reading is ${r.label}.`;
+  if (r.wwv) {
+    return `The latest daily candle is ${r.candle} (${price(r.open)} to ${price(r.close)}) and the current wave is ${r.wwv.direction.toUpperCase()} (${volumeText(r.wwv.waveVolume)} shares so far): ${verdict}`;
+  }
+  const word = netVolumeWord(r.netVolume);
+  const net = r.netVolume === null ? "missing" : `${netVolumeText(r.netVolume)} (${word})`;
+  return `The ${r.name} candle is ${r.candle} (${price(r.open)} to ${price(r.close)}) and its net volume is ${net}: ${verdict}`;
+}
