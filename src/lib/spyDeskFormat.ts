@@ -2,6 +2,18 @@
 
 export const money = (n: number): string => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 export const price = (n: number | null): string => (n === null ? "n/a" : n.toFixed(2));
+/** Dollars with the sign always shown ("+$305.00", "-$305.00"; zero is "$0.00"). */
+export function signedMoney(n: number): string {
+  const abs = Math.abs(n).toLocaleString("en-US", { style: "currency", currency: "USD" });
+  return n > 0 ? `+${abs}` : n < 0 ? `-${abs}` : abs;
+}
+
+/** A percentage with the sign always shown ("+3.39%", "-3.39%"; zero is "0.00%"). Input is already in percent. */
+export function signedPercent(n: number): string {
+  const abs = `${Math.abs(n).toFixed(2)}%`;
+  return n > 0 ? `+${abs}` : n < 0 ? `-${abs}` : abs;
+}
+
 export const percent = (n: number): string => `${(n * 100).toFixed(1)}%`;
 
 /** The raw signed net volume in full shares, so it can be compared with the chart. */
