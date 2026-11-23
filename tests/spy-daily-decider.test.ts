@@ -256,10 +256,10 @@ describe("the page with Daily as the decider", () => {
     assert.match(text(out), /session 2026-11-03, as of 2026-11-03 21:30 UTC/);
     assert.match(text(out), /Raw net volume \+100 \(positive\)/);
   });
-  it("Neutral Daily: NEUTRAL badge and 'the trader decides' even though Monthly says Drive", async () => {
+  it("Neutral Daily: NEUTRAL badge and 'no new position' even though Monthly says Drive", async () => {
     const out = html(props(await buildDeskSnapshot(makeDeps(D_NEUTRAL_M_DRIVE), DAILY, createMemoryDeskStore())));
     assert.match(out, /data-testid="decision-badge">NEUTRAL</);
-    assert.match(text(out), /The trader decides\./);
+    assert.match(text(out), /No new position on Neutral; Close still works\./);
     const monthly = out.match(/<li[^>]*data-testid="reading-M"[\s\S]*?<\/li>/)?.[0] ?? "";
     assert.match(monthly, /data-gear="Drive"/);
   });
@@ -296,8 +296,8 @@ const CALL_600 = "SPY271105C00600000";
 const PUT_850 = "SPY271105P00850000";
 
 describe("Analyze and the manual ticket follow the Daily gear", () => {
-  it("Drive only Call, Reverse only Put, Neutral both; the answer names the Daily timeframe", async () => {
-    for (const [sc, gear, call, put] of [[DRIVE, "DRIVE", true, false], [REVERSE, "REVERSE", false, true], [D_NEUTRAL_M_DRIVE, "NEUTRAL", true, true]] as const) {
+  it("Drive only Call, Reverse only Put, Neutral neither; the answer names the Daily timeframe", async () => {
+    for (const [sc, gear, call, put] of [[DRIVE, "DRIVE", true, false], [REVERSE, "REVERSE", false, true], [D_NEUTRAL_M_DRIVE, "NEUTRAL", false, false]] as const) {
       const a = await buildAnalysis(makeDeps(sc), DAILY);
       assert.ok(a.ok);
       assert.equal(a.timeframe, "1D");
@@ -326,9 +326,19 @@ describe("Analyze and the manual ticket follow the Daily gear", () => {
     assert.ok(after.ok && after.state.position?.type === "put" && after.state.position.decisionTimeframe === "1D");
   });
   it("a gear that moved since Analyze is refused GEAR_CHANGED", async () => {
-    const res = await handleTicket(post({ type: "call", symbol: CALL_600, acknowledgeDryRun: true, analyzedGear: "DRIVE" }), ctx(D_NEUTRAL_M_DRIVE));
+    const res = await handleTicket(post({ type: "put", symbol: PUT_850, acknowledgeDryRun: true, analyzedGear: "NEUTRAL" }), ctx(D_REVERSE_M_DRIVE));
     assert.equal(res.status, 409);
     assert.equal(((await res.json()) as { code: string }).code, "GEAR_CHANGED");
+  });
+  it("a Neutral Daily reading refuses a new buy on either side, NEUTRAL_NO_TRADE, nothing saved (even though Monthly says Drive)", async () => {
+    for (const type of ["call", "put"] as const) {
+      const c = ctx(D_NEUTRAL_M_DRIVE);
+      const res = await handleTicket(post({ type, symbol: type === "call" ? CALL_600 : PUT_850, acknowledgeDryRun: true, analyzedGear: "NEUTRAL" }), c);
+      assert.equal(res.status, 409);
+      assert.equal(((await res.json()) as { code: string }).code, "NEUTRAL_NO_TRADE");
+      const saved = await c.store!.read();
+      assert.ok(saved.ok && saved.state.position === null && saved.state.journal.length === 0);
+    }
   });
   it("stale Daily data refuses the ticket (Justice)", async () => {
     const c = ctx({ daily: hist("2026-11-20", GREEN_UP) });

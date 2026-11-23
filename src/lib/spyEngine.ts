@@ -296,7 +296,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
       }
       emit(
         "trader-decides",
-        `NEUTRAL: TRADER DECIDES. ${why}${first ? "" : ` (Neutral since ${since})`}. ${held ? `No automatic exit: ${held.symbol} stays as it is.` : "No position and no automatic entry."}${extra} Decide by hand (the SPY option ticket and Close button come in later PRs, disabled for live).`,
+        `NEUTRAL: TRADER DECIDES. ${why}${first ? "" : ` (Neutral since ${since})`}. ${held ? `No automatic exit: ${held.symbol} stays as it is.` : "No position and no automatic entry."}${extra} New buy blocked on Neutral (NEUTRAL_NO_TRADE); closing a held position still works. Decide by hand (the SPY option ticket and Close button come in later PRs, disabled for live).`,
         data,
       );
       return { ...result, ok: true, decision };

@@ -103,8 +103,9 @@ describe("WWV desk: the gear guard (Analyze and the server re-check)", () => {
   });
   for (const gear of GEARS) {
     for (const side of SIDES) {
-      const allowed = gear === "NEUTRAL" || (gear === "DRIVE") === (side === "call");
-      it(`${GEAR_NAMES[gear]} x ${side}: the server ${allowed ? "records the practice buy" : "refuses it (COUNTER_POLARITY) and records nothing"}`, async () => {
+      const allowed = gear !== "NEUTRAL" && (gear === "DRIVE") === (side === "call");
+      const refusal = gear === "NEUTRAL" ? "NEUTRAL_NO_TRADE" : "COUNTER_POLARITY";
+      it(`${GEAR_NAMES[gear]} x ${side}: the server ${allowed ? "records the practice buy" : "refuses it (${refusal}) and records nothing"}`, async () => {
         const store = createMemoryDeskStore();
         const res = await openManual(makeDeps(SCENARIOS[gear]), CFG, store, { type: side, symbol: SYMBOL[side], analyzedGear: gear });
         assert.equal(res.ok, allowed);
@@ -112,7 +113,7 @@ describe("WWV desk: the gear guard (Analyze and the server re-check)", () => {
         assert.ok(st.ok);
         assert.equal(st.state.position !== null, allowed);
         if (!res.ok) {
-          assert.equal(res.code, "COUNTER_POLARITY");
+          assert.equal(res.code, refusal);
           assert.match(res.error, /Daily, WWV gear/);
         } else {
           assert.equal(st.state.position?.decisionTimeframe, "D");
@@ -123,7 +124,7 @@ describe("WWV desk: the gear guard (Analyze and the server re-check)", () => {
   }
   it("a gear that changed since Analyze is refused (GEAR_CHANGED)", async () => {
     const store = createMemoryDeskStore();
-    const res = await openManual(makeDeps(WWV_NEUTRAL), CFG, store, { type: "call", symbol: SYMBOL.call, analyzedGear: "DRIVE" });
+    const res = await openManual(makeDeps(WWV_REVERSE), CFG, store, { type: "put", symbol: SYMBOL.put, analyzedGear: "NEUTRAL" });
     assert.equal(res.ok, false);
     assert.equal(!res.ok && res.code, "GEAR_CHANGED");
   });
@@ -316,12 +317,13 @@ describe("WWV desk: routes", () => {
   });
   for (const gear of GEARS) {
     for (const side of SIDES) {
-      const allowed = gear === "NEUTRAL" || (gear === "DRIVE") === (side === "call");
-      it(`ticket route, ${GEAR_NAMES[gear]} x ${side}: ${allowed ? "200" : "409 COUNTER_POLARITY"}`, async () => {
+      const allowed = gear !== "NEUTRAL" && (gear === "DRIVE") === (side === "call");
+      const refusal = gear === "NEUTRAL" ? "NEUTRAL_NO_TRADE" : "COUNTER_POLARITY";
+      it(`ticket route, ${GEAR_NAMES[gear]} x ${side}: ${allowed ? "200" : `409 ${refusal}`}`, async () => {
         const c = ctx({ makeLive: async () => ({ ok: true as const, deps: makeDeps(SCENARIOS[gear]), config: CFG }) });
         const res = await handleTicket(post("/api/spy-wwv/ticket", { type: side, symbol: SYMBOL[side], acknowledgeDryRun: true, analyzedGear: gear }), c);
         assert.equal(res.status, allowed ? 200 : 409);
-        if (!allowed) assert.equal(((await res.json()) as { code: string }).code, "COUNTER_POLARITY");
+        if (!allowed) assert.equal(((await res.json()) as { code: string }).code, refusal);
         const st = await c.store.read();
         assert.ok(st.ok);
         assert.equal(st.state.position !== null, allowed);

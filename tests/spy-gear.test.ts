@@ -20,7 +20,8 @@ const PUT_850 = "SPY271105P00850000";
 const SCENARIOS: Record<Gear, Scenario> = { DRIVE, NEUTRAL, REVERSE };
 const SIDES = ["call", "put"] as const;
 const SYMBOL = { call: CALL_600, put: PUT_850 } as const;
-const allowedBy = (gear: Gear, side: "call" | "put"): boolean => gear === "NEUTRAL" || (gear === "DRIVE") === (side === "call");
+const allowedBy = (gear: Gear, side: "call" | "put"): boolean => gear !== "NEUTRAL" && (gear === "DRIVE") === (side === "call");
+const blockedCode = (gear: Gear): string => (gear === "NEUTRAL" ? "NEUTRAL_NO_TRADE" : "COUNTER_POLARITY");
 
 /* ------------------------------------------------------------ the rule */
 
@@ -37,6 +38,7 @@ describe("gear rule (pure)", () => {
         const c = checkSide(gear, side);
         assert.equal(c.allowed, allowedBy(gear, side));
         if (c.allowed) assert.match(c.message, /is allowed/);
+        else if (gear === "NEUTRAL") assert.match(c.message, new RegExp(`${side === "call" ? "Call" : "Put"} is blocked: the gear is Neutral, so no new position can be opened`));
         else assert.match(c.message, new RegExp(`${side === "call" ? "Call" : "Put"} is blocked: the gear is ${GEAR_NAMES[gear]}, so only a ${side === "call" ? "Put" : "Call"} can be opened`));
       });
     }
@@ -144,7 +146,7 @@ describe("manual ticket: the server recomputes the gear (every gear x side)", ()
   for (const gear of GEARS) {
     for (const side of SIDES) {
       const ok = allowedBy(gear, side);
-      it(`openManual, ${GEAR_NAMES[gear]} x ${side}: ${ok ? "recorded" : "refused COUNTER_POLARITY, nothing saved, no chain read"}`, async () => {
+      it(`openManual, ${GEAR_NAMES[gear]} x ${side}: ${ok ? "recorded" : "refused ${blockedCode(gear)}, nothing saved, no chain read"}`, async () => {
         const store = createMemoryDeskStore();
         const c = calls();
         const res = await openManual(makeDeps(SCENARIOS[gear], { calls: c }), CFG, store, { type: side, symbol: SYMBOL[side] });
@@ -154,7 +156,7 @@ describe("manual ticket: the server recomputes the gear (every gear x side)", ()
           assert.ok(res.ok, res.ok ? "" : res.error);
           assert.equal(saved.state.position?.type, side);
         } else {
-          assert.ok(!res.ok && res.code === "COUNTER_POLARITY" && res.status === 409);
+          assert.ok(!res.ok && res.code === blockedCode(gear) && res.status === 409);
           assert.match(res.error, new RegExp(`is blocked: the gear is ${GEAR_NAMES[gear]}`));
           assert.match(res.error, /Nothing was recorded/);
           assert.equal(saved.state.position, null);
@@ -174,7 +176,7 @@ describe("manual ticket: the server recomputes the gear (every gear x side)", ()
           assert.equal(saved.state.position?.type, side);
         } else {
           assert.equal(res.status, 409);
-          assert.equal(body.code, "COUNTER_POLARITY");
+          assert.equal(body.code, blockedCode(gear));
           assert.match(body.error ?? "", /is blocked: the gear is/);
           assert.equal(saved.state.position, null);
         }
@@ -193,14 +195,14 @@ describe("manual ticket: the server recomputes the gear (every gear x side)", ()
     }
   });
   it("a gear that moved since Analyze is refused with GEAR_CHANGED (even on an allowed side); the matching gear passes", async () => {
-    const moved = ctx({ makeLive: live(NEUTRAL) });
-    const res = await handleTicket(post("/api/spy/ticket", { type: "call", symbol: CALL_600, acknowledgeDryRun: true, analyzedGear: "DRIVE" }), moved);
+    const moved = ctx({ makeLive: live(DRIVE) });
+    const res = await handleTicket(post("/api/spy/ticket", { type: "call", symbol: CALL_600, acknowledgeDryRun: true, analyzedGear: "NEUTRAL" }), moved);
     assert.equal(res.status, 409);
     const j = (await res.json()) as { code: string; error: string };
     assert.equal(j.code, "GEAR_CHANGED");
-    assert.match(j.error, /changed from Drive \(when you analyzed\) to Neutral/);
+    assert.match(j.error, /changed from Neutral \(when you analyzed\) to Drive/);
     assert.ok((await moved.store!.read()).ok && ((await moved.store!.read()) as { state: DeskState }).state.position === null);
-    const fine = await handleTicket(post("/api/spy/ticket", { type: "call", symbol: CALL_600, acknowledgeDryRun: true, analyzedGear: "NEUTRAL" }), ctx({ makeLive: live(NEUTRAL) }));
+    const fine = await handleTicket(post("/api/spy/ticket", { type: "call", symbol: CALL_600, acknowledgeDryRun: true, analyzedGear: "DRIVE" }), ctx({ makeLive: live(DRIVE) }));
     assert.equal(fine.status, 200);
   });
   it("stale or missing gear data is refused and nothing is recorded (Justice)", async () => {

@@ -13,7 +13,7 @@ import { handleLive, type DeskContext } from "../src/lib/spyDeskRoutes";
 import { createMemoryDeskStore } from "../src/lib/spyDeskStore";
 import { buildLiveSnapshot, mergeLive, parseLiveSnapshot } from "../src/lib/spyLive";
 import { memoAsync } from "../src/lib/spyTtlCache";
-import { DRIVE, NEUTRAL, T0, makeDeps, row, type Calls, type Scenario } from "./helpers/spyDeskFixtures";
+import { DRIVE, NEUTRAL, REVERSE, T0, makeDeps, row, type Calls, type Scenario } from "./helpers/spyDeskFixtures";
 import { createFakeClock } from "./helpers/fakeClock";
 
 const CFG = { timeframe: "M" as const, liveBudget: 1000 };
@@ -390,10 +390,10 @@ const checkedRadio = (out: string): string | null => out.match(/<input[^>]*type=
 
 describe("a refresh never resets what the user chose (view + data layer together)", () => {
   it("selected Call/Put, selected contract row and the ticked box survive several refreshes", async () => {
-    const r = dataRig();
+    const r = dataRig({ scenario: REVERSE });
     r.data.start();
     await r.clock.advance(0);
-    const analyzer = await gearOk(NEUTRAL);
+    const analyzer = await gearOk(REVERSE);
     const ticket: TicketUi = { type: "put", symbol: PUT_850, ack: true };
     const close: CloseUi = { stage: "idle", ack: false, offerUnpriced: false };
     const first = view(r.data.getState().snapshot!, analyzer, ticket, close, r.data.getState().fresh);

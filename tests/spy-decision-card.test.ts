@@ -66,15 +66,17 @@ describe("decision card (shared by both desks)", () => {
     assert.match(text(card), /Puts only\./);
     assert.match(text(card), /net volume is -[\d,]+ \(negative\): they agree, so the reading is Reverse\./);
   });
-  it("NEUTRAL: a huge grey NEUTRAL badge, gear Neutral, 'the trader decides', and why they do not agree", async () => {
+  it("NEUTRAL: a huge cognac NEUTRAL badge, gear Neutral, 'no new position', and why they do not agree", async () => {
     const out = await monthly(NEUTRAL);
     const card = section(out, "decision-card");
     assert.match(tag(out, "decision-card"), /data-action="STAND_ASIDE"/);
-    assert.match(tag(out, "decision-card"), /border-zinc-400/);
+    assert.match(tag(out, "decision-card"), /border-\[#9A4E2C\]/);
+    assert.doesNotMatch(tag(out, "decision-card"), /border-zinc-400/);
+    assert.match(card, /bg-\[#9A4E2C\] text-white/);
     assert.match(card, /data-testid="decision-badge">NEUTRAL</);
     assert.doesNotMatch(tag(out, "decision-badge"), /emerald|red-|rose|amber/);
     assert.match(card, /data-gear="Neutral"/);
-    assert.match(text(card), /The trader decides\./);
+    assert.match(text(card), /No new position on Neutral; Close still works\./);
     assert.match(text(card), /they do not agree, so the reading is Neutral\./);
     assert.doesNotMatch(card, /data-testid="engine-pick"/);
     assert.match(text(card), /NEUTRAL: TRADER DECIDES\. The engine picks nothing/);
@@ -201,13 +203,14 @@ describe("four readings as stacked cards (no table, no sideways scroll)", () => 
     assert.equal(out.match(/>decides</g)?.length, 1);
     assert.doesNotMatch(out.match(/<ul[^>]*data-testid="readings-list"[\s\S]*?<\/ul>/)?.[0] ?? "", /opacity-/);
   });
-  it("a disagreeing timeframe says 'disagree' in words (amber is only a hint), and Neutral is grey", async () => {
+  it("a disagreeing timeframe says 'disagree' in words (amber is only a hint), and Neutral is cognac", async () => {
     const out = await monthly(NEUTRAL);
     const m = out.match(/<li[^>]*data-testid="reading-M"[\s\S]*?<\/li>/)?.[0] ?? "";
     assert.match(text(m), /Match disagree/);
     assert.match(m, /text-amber-300">disagree/);
     assert.match(m, /data-gear="Neutral"/);
-    assert.match(m, /bg-zinc-600\/30/);
+    assert.match(m, /bg-\[#9A4E2C\]\/40/);
+    assert.doesNotMatch(m, /bg-zinc-600\/30/);
   });
   it("in-progress and unavailable readings keep their notes", async () => {
     const live = makeDeps({ daily: history("2026-11-23") }, { now: new Date("2026-11-23T14:45:00Z") });

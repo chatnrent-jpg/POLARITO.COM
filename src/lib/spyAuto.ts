@@ -13,7 +13,7 @@
  *   - Not a trading day, or before 16:15 ET: no action.
  *   - Data stale, crossed, missing, or the polarity unavailable: REFUSE and log. Nothing is bought or sold.
  *   - No position, Drive: open the call the contract rules pick (nearest expiry of at least 365 days, |delta| 0.80, else the
- *     cheapest at 0.60 or better, labelled). Reverse: open a put. Neutral: no action (the trader decides).
+ *     cheapest at 0.60 or better, labelled). Reverse: open a put. Neutral: no action and no new position (NEUTRAL_NO_TRADE; the trader may still close).
  *   - Auto position held, reading turns OPPOSITE: close at the re-fetched bid, then open the opposite side in the same run
  *     if the rules allow. Same side: hold. Neutral: leave it (the page shows a banner).
  *   - A MANUAL position is never touched by Auto. A manual action today makes Auto stand aside for the session.
@@ -341,7 +341,7 @@ async function runLocked(deps: DeskDeps, config: DeskConfig, ctx: { kv: SpyKv; d
     return finish("no-action", `The ${readingText}. A MANUAL position (${held.symbol}) is held; Auto only manages positions it opened, so it is left alone. No action.`, { symbol: held.symbol });
   }
   if (decision.action === "STAND_ASIDE") {
-    return finish("neutral", held ? `NEUTRAL: TRADER DECIDES. The ${readingText}. ${held.symbol} (AUTO) is left as it is; close it by hand if you want out.` : `NEUTRAL: TRADER DECIDES. The ${readingText}. No position and no automatic entry.`, { symbol: held?.symbol ?? null });
+    return finish("neutral", held ? `NEUTRAL: TRADER DECIDES. The ${readingText}. ${held.symbol} (AUTO) is left as it is; close it by hand if you want out. New buy blocked on Neutral (NEUTRAL_NO_TRADE).` : `NEUTRAL: TRADER DECIDES. The ${readingText}. No position and no automatic entry. New buy blocked on Neutral (NEUTRAL_NO_TRADE): Auto opens nothing and the manual ticket refuses.`, { symbol: held?.symbol ?? null });
   }
   const want: OptionType = decision.action === "CALL" ? "call" : "put";
   if (held && held.type === want) return finish("hold", `Holding ${held.symbol} (AUTO): the ${readingText} still says ${want.toUpperCase()}. No action.`, { symbol: held.symbol });
