@@ -10,6 +10,11 @@ export function netVolumeText(n: number | null): string {
   return `${n > 0 ? "+" : ""}${Math.round(n).toLocaleString("en-US")}`;
 }
 
+/** A plain share count (no sign), in full. */
+export function volumeText(n: number | null): string {
+  return n === null ? "n/a" : Math.round(n).toLocaleString("en-US");
+}
+
 export function netFlagText(flag: "zero" | "missing" | null): string | null {
   return flag === null ? null : `${flag.toUpperCase()} NET VOLUME: Neutral, no sign guessed`;
 }

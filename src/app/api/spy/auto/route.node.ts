@@ -1,10 +1,9 @@
 import type { NextRequest } from "next/server";
 import { handleAutoSwitch } from "@/lib/spyAutoRoutes";
-import { createLiveDeskDeps } from "@/lib/spyDeskLive";
-import { createDeskStore } from "@/lib/spyDeskStore";
-import { createSpyKv } from "@/lib/spyKv";
+import { autoContext } from "@/lib/spyDeskServer";
+import { MONTHLY_PROFILE } from "@/lib/spyProfile";
 
-/** POST /api/spy/auto: switch the practice trader on or off (default OFF). Changes the saved switch only; no order. */
+/** POST /api/spy/auto: switch this desk's practice trader on or off (default OFF). Changes the saved switch only; no order. */
 export async function POST(request: NextRequest) {
-  return handleAutoSwitch(request, { env: process.env, makeLive: () => createLiveDeskDeps(process.env), desk: createDeskStore(process.env), kv: createSpyKv(process.env) });
+  return handleAutoSwitch(request, autoContext(MONTHLY_PROFILE));
 }

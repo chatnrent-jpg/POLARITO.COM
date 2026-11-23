@@ -25,19 +25,11 @@
 import type { BrokerErrorCode, Result } from "@/lib/broker/types";
 import type { OptionType } from "@/lib/broker/options";
 import { daysBetween } from "@/lib/broker/options";
-import {
-  LONG_TIMEFRAMES,
-  LONG_TIMEFRAME_NAMES,
-  computeLongReadings,
-  isLongTimeframe,
-  readingsSummary,
-  type LongReading,
-  type LongReadings,
-  type LongTimeframe,
-} from "@/lib/longPolarity";
+import { isLongTimeframe } from "@/lib/longPolarity";
+import { TIMEFRAME_NAMES, computeDeskReadings, isDeskTimeframe, readingKeys, type DeskReading, type DeskReadings, type DeskTimeframe } from "@/lib/deskReadings";
 import { etClock } from "@/lib/marketCalendar";
 import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
-import type { Bar } from "@/lib/polarity";
+import { metaFor, type Bar, type Polarity } from "@/lib/polarity";
 import type { SideReport, Spot } from "@/lib/spyChain";
 
 export const ENGINE_SYMBOL = "SPY";
@@ -48,7 +40,7 @@ export const CONTRACT_MULTIPLIER = 100;
 export const NEUTRAL_POLICY = "manual" as const;
 
 export type EngineConfig = {
-  timeframe: LongTimeframe;
+  timeframe: DeskTimeframe;
   /** Real account size for the plain affordability line only. The dry run always tracks one imaginary contract. */
   liveBudget: number;
 };
@@ -76,7 +68,7 @@ export type DryPosition = {
   deltaTier: "primary" | "fallback";
   /** Why the 0.80 target was not met (fallback only). */
   fallbackReason: string | null;
-  decisionTimeframe: LongTimeframe;
+  decisionTimeframe: DeskTimeframe;
   /** Premium paid x 100 x quantity: the most the position can lose. */
   maxLossUsd: number;
 };
@@ -85,7 +77,7 @@ export type ReadingMemory = { polarity: number | null; since: string };
 
 export type EngineState = {
   version: 1;
-  readings: Partial<Record<LongTimeframe, ReadingMemory>>;
+  readings: Partial<Record<DeskTimeframe, ReadingMemory>>;
   position: DryPosition | null;
   /** When the decision timeframe's reading first went Neutral in the current spell (trader decides); null otherwise. */
   neutralSince: string | null;
@@ -110,7 +102,7 @@ export type EngineEvent = { at: string; kind: EventKind; message: string; data?:
 
 export type Decision = {
   action: "CALL" | "PUT" | "STAND_ASIDE" | "DATA_UNAVAILABLE";
-  timeframe: LongTimeframe;
+  timeframe: DeskTimeframe;
   reason: string;
   /** True when the reading is Neutral: the engine does nothing and the trader decides. */
   traderDecides: boolean;
@@ -121,7 +113,7 @@ export type EngineResult = {
   state: EngineState;
   events: EngineEvent[];
   decision: Decision | null;
-  readings: LongReadings | null;
+  readings: DeskReadings | null;
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -129,9 +121,9 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 /** Strict shape check for a persisted state. Never repairs a bad file by guessing. */
 export function parseEngineState(raw: unknown): { ok: true; state: EngineState } | { ok: false; error: string } {
   if (!isRecord(raw) || raw.version !== 1 || !isRecord(raw.readings)) return { ok: false, error: "state file has an unexpected shape" };
-  const readings: Partial<Record<LongTimeframe, ReadingMemory>> = {};
+  const readings: Partial<Record<DeskTimeframe, ReadingMemory>> = {};
   for (const [k, v] of Object.entries(raw.readings)) {
-    if (!isLongTimeframe(k)) return { ok: false, error: `state has an unknown timeframe "${k}"` };
+    if (!isDeskTimeframe(k)) return { ok: false, error: `state has an unknown timeframe "${k}"` };
     if (!isRecord(v) || !(v.polarity === null || v.polarity === 1 || v.polarity === 0 || v.polarity === -1) || typeof v.since !== "string") return { ok: false, error: `state reading ${k} is malformed` };
     readings[k] = { polarity: v.polarity as number | null, since: v.since };
   }
@@ -149,7 +141,7 @@ export function parseEngineState(raw: unknown): { ok: true; state: EngineState }
       typeof p.entryAsk !== "number" ||
       typeof p.entryMid !== "number" ||
       typeof p.entryDelta !== "number" ||
-      !isLongTimeframe(p.decisionTimeframe) ||
+      !isDeskTimeframe(p.decisionTimeframe) ||
       typeof p.maxLossUsd !== "number"
     ) {
       return { ok: false, error: "state position is malformed" };
@@ -164,9 +156,11 @@ export function parseEngineState(raw: unknown): { ok: true; state: EngineState }
   return { ok: true, state: { version: 1, readings, position, neutralSince } };
 }
 
-export function parseEngineConfig(env: Readonly<Record<string, string | undefined>>): { ok: true; config: EngineConfig } | { ok: false; error: string } {
-  const timeframe = (env.SPY_DECISION_TIMEFRAME ?? "M").trim().toUpperCase();
-  if (!isLongTimeframe(timeframe)) return { ok: false, error: `SPY_DECISION_TIMEFRAME must be one of M, Q, H, Y (got "${timeframe}"); there is no daily or weekly option` };
+/** `fixedTimeframe` is a desk whose decision source is not a setting (the WWV desk): SPY_DECISION_TIMEFRAME is then not read at all. */
+export function parseEngineConfig(env: Readonly<Record<string, string | undefined>>, fixedTimeframe: DeskTimeframe | null = null): { ok: true; config: EngineConfig } | { ok: false; error: string } {
+  const chosen = (env.SPY_DECISION_TIMEFRAME ?? "M").trim().toUpperCase();
+  if (fixedTimeframe === null && !isLongTimeframe(chosen)) return { ok: false, error: `SPY_DECISION_TIMEFRAME must be one of M, Q, H, Y (got "${chosen}"); there is no daily or weekly option` };
+  const timeframe = (fixedTimeframe ?? chosen) as DeskTimeframe;
   if (env.SPY_NET_VOLUME_METHOD !== undefined) return { ok: false, error: "SPY_NET_VOLUME_METHOD is no longer supported: there is exactly one net volume definition (period-to-date daily volume signed by close vs the previous period's last close)" };
   const onNeutral = (env.SPY_ON_NEUTRAL ?? NEUTRAL_POLICY).trim().toLowerCase();
   if (onNeutral !== NEUTRAL_POLICY) return { ok: false, error: `SPY_ON_NEUTRAL, if set, must be "${NEUTRAL_POLICY}": on Neutral the trader decides; there is no automatic exit or entry` };
@@ -179,12 +173,19 @@ const gear = (p: number | null): string => (p === 1 ? "Drive" : p === -1 ? "Reve
 /** The raw signed net volume, in full, so it can be compared with the chart. */
 const rawNet = (n: number | null): string => (n === null ? "n/a" : `${n > 0 ? "+" : ""}${Math.round(n).toLocaleString("en-US")}`);
 
+const plainVolume = (n: number): string => Math.round(n).toLocaleString("en-US");
+
 /** The plain-language why of a decision (shared by the engine and the desk's light refresh, so both say the same words). */
-export function describeDecision(primary: LongReading, timeframe: LongTimeframe): string {
-  return `${LONG_TIMEFRAME_NAMES[timeframe]} since ${primary.periodStart}: candle ${primary.kind}, net volume ${rawNet(primary.netVolume)}${primary.netFlag ? ` [${primary.netFlag.toUpperCase()} NET VOLUME: Neutral, no sign guessed]` : ""}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`;
+export function describeDecision(primary: DeskReading, timeframe: DeskTimeframe): string {
+  if (primary.wwv) {
+    const w = primary.wwv;
+    const prev = w.previous ? `previous ${w.previous.direction}-wave volume ${plainVolume(w.previous.volume)}` : "previous wave not shown";
+    return `${TIMEFRAME_NAMES[timeframe]} (bar ${w.barDate}${w.inProgress ? ", session still in progress" : ""}): candle ${primary.kind}, ${w.direction}-wave since ${w.waveStart} with volume ${plainVolume(w.waveVolume)} (${prev}), ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`;
+  }
+  return `${TIMEFRAME_NAMES[timeframe]} since ${primary.periodStart}: candle ${primary.kind}, net volume ${rawNet(primary.netVolume)}${primary.netFlag ? ` [${primary.netFlag.toUpperCase()} NET VOLUME: Neutral, no sign guessed]` : ""}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`;
 }
 
-function readingData(r: LongReading): Record<string, unknown> {
+function readingData(r: DeskReading): Record<string, unknown> {
   return {
     timeframe: r.timeframe,
     status: r.status,
@@ -218,7 +219,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
   const base: EngineResult = { ok: false, state, events, decision: null, readings: null };
 
   try {
-    emit("run", `Dry run (no orders can be sent). Decision timeframe ${LONG_TIMEFRAME_NAMES[config.timeframe]}, net volume = period-to-date daily volume signed by close vs the previous period's last close (the chart definition).`, { timeframe: config.timeframe, dryRun: true });
+    emit("run", `Dry run (no orders can be sent). Decision timeframe ${TIMEFRAME_NAMES[config.timeframe]}, ${config.timeframe === "D" ? "Weis Wave Volume with setting 1: a bar's direction is its close against the previous close, the wave volume restarts at each turn (the turning bar belongs to the new wave) and an equal close continues the wave." : "net volume = period-to-date daily volume signed by close vs the previous period's last close (the chart definition)."}`, { timeframe: config.timeframe, dryRun: true });
 
     const today = etClock(now).date;
     const dailyRes = await deps.loadDaily();
@@ -228,27 +229,30 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     }
     const daily = dailyRes.value;
 
-    const readings = computeLongReadings({ daily, now });
+    const keys = readingKeys(config.timeframe);
+    const readings = computeDeskReadings(daily, now, config.timeframe);
+    const at_ = (tf: DeskTimeframe): DeskReading => readings[tf] as DeskReading;
+    const summary = keys.map((tf) => `${tf}:${at_(tf).polarity === null ? "-" : metaFor(at_(tf).polarity as Polarity).gear}`).join(" ");
     const result: EngineResult = { ...base, readings };
 
-    emit("run", `Readings as of ${at}: ${readingsSummary(readings)} (D = Drive, R = Reverse, - = data unavailable).`, {
-      readings: Object.fromEntries(LONG_TIMEFRAMES.map((tf) => [tf, readingData(readings[tf])])),
+    emit("run", `Readings as of ${at}: ${summary} (D = Drive, R = Reverse, - = data unavailable).`, {
+      readings: Object.fromEntries(keys.map((tf) => [tf, readingData(at_(tf))])),
     });
 
-    for (const tf of LONG_TIMEFRAMES) {
-      const r = readings[tf];
+    for (const tf of keys) {
+      const r = at_(tf);
       const prev = state.readings[tf];
       if (prev !== undefined && prev.polarity !== r.polarity) {
-        emit("reading-change", `${LONG_TIMEFRAME_NAMES[tf]} reading changed ${gear(prev.polarity)} -> ${gear(r.polarity)} (candle ${r.kind ?? "n/a"}, net volume ${rawNet(r.netVolume)}${r.netFlag ? ` [${r.netFlag.toUpperCase()} NET VOLUME]` : ""}${r.agreement === "disagree" ? ", they disagree" : ""}, period from ${r.periodStart}).`, { from: prev.polarity, to: r.polarity, since: prev.since, ...readingData(r) });
+        emit("reading-change", `${TIMEFRAME_NAMES[tf]} reading changed ${gear(prev.polarity)} -> ${gear(r.polarity)} (candle ${r.kind ?? "n/a"}, net volume ${rawNet(r.netVolume)}${r.netFlag ? ` [${r.netFlag.toUpperCase()} NET VOLUME]` : ""}${r.agreement === "disagree" ? ", they disagree" : ""}, period from ${r.periodStart}).`, { from: prev.polarity, to: r.polarity, since: prev.since, ...readingData(r) });
       }
       if (prev === undefined || prev.polarity !== r.polarity) state.readings[tf] = { polarity: r.polarity, since: at };
     }
 
-    const primary = readings[config.timeframe];
+    const primary = at_(config.timeframe);
     if (primary.status !== "ok" || primary.polarity === null) {
       const reason = primary.reason ?? "unknown";
       const decision: Decision = { action: "DATA_UNAVAILABLE", timeframe: config.timeframe, reason, traderDecides: false };
-      emit("data-unavailable", `Data unavailable for the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading: ${reason}. No decision; nothing changes.`, { reason });
+      emit("data-unavailable", `Data unavailable for the ${TIMEFRAME_NAMES[config.timeframe]} reading: ${reason}. No decision; nothing changes.`, { reason });
       return { ...result, decision };
     }
 
@@ -265,16 +269,18 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     const wantType: OptionType | null = action === "CALL" ? "call" : action === "PUT" ? "put" : null;
 
     if (held && daysBetween(today, held.expiration) < EXPIRY_WARNING_DAYS) {
-      emit("warning", `The held contract ${held.symbol} has ${daysBetween(today, held.expiration)} days left. There is no automatic roll: it changes only when the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading flips.`);
+      emit("warning", `The held contract ${held.symbol} has ${daysBetween(today, held.expiration)} days left. There is no automatic roll: it changes only when the ${TIMEFRAME_NAMES[config.timeframe]} reading flips.`);
     }
 
     if (wantType === null) {
       const since = state.neutralSince ?? at;
       const first = state.neutralSince === null;
       state.neutralSince = since;
-      const why = primary.netFlag
-        ? `${LONG_TIMEFRAME_NAMES[config.timeframe]} net volume is ${primary.netFlag === "zero" ? "exactly zero" : "missing"} [${primary.netFlag.toUpperCase()} NET VOLUME] (candle ${primary.kind}); no sign is guessed`
-        : `${LONG_TIMEFRAME_NAMES[config.timeframe]} candle ${primary.kind} and net volume ${rawNet(primary.netVolume)} do not agree`;
+      const why = primary.wwv
+        ? `${TIMEFRAME_NAMES[config.timeframe]}: ${primary.reason ?? "candle and wave do not agree"}`
+        : primary.netFlag
+        ? `${TIMEFRAME_NAMES[config.timeframe]} net volume is ${primary.netFlag === "zero" ? "exactly zero" : "missing"} [${primary.netFlag.toUpperCase()} NET VOLUME] (candle ${primary.kind}); no sign is guessed`
+        : `${TIMEFRAME_NAMES[config.timeframe]} candle ${primary.kind} and net volume ${rawNet(primary.netVolume)} do not agree`;
       let extra = "";
       let data: Record<string, unknown> = { held: held ? held.symbol : null, neutralSince: since, automatic: false };
       if (held) {
@@ -298,7 +304,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     state.neutralSince = null;
 
     if (held && wantType === held.type) {
-      emit("hold", `Holding ${held.symbol}: the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading still says ${action}.${held.deltaTier === "fallback" ? ` It was bought with ${FALLBACK_LABEL} (delta ${held.entryDelta.toFixed(3)}); there is no automatic swap to a deeper contract.` : ""}`, { symbol: held.symbol, deltaTier: held.deltaTier });
+      emit("hold", `Holding ${held.symbol}: the ${TIMEFRAME_NAMES[config.timeframe]} reading still says ${action}.${held.deltaTier === "fallback" ? ` It was bought with ${FALLBACK_LABEL} (delta ${held.entryDelta.toFixed(3)}); there is no automatic swap to a deeper contract.` : ""}`, { symbol: held.symbol, deltaTier: held.deltaTier });
       return { ...result, ok: true, decision };
     }
 
@@ -315,7 +321,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
       const pnl = exitBid === null ? null : (exitBid - held.entryAsk) * CONTRACT_MULTIPLIER;
       emit(
         "would-sell",
-        `WOULD SELL ${held.symbol} because the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading flipped to ${gear(primary.polarity)}${exitBid === null ? " (no usable quote to price the sale)" : ` at the bid ${usd(exitBid)}; result versus the entry ask ${pnl === null ? "n/a" : usd(pnl)} per contract`}. Dry run: no order sent.`,
+        `WOULD SELL ${held.symbol} because the ${TIMEFRAME_NAMES[config.timeframe]} reading flipped to ${gear(primary.polarity)}${exitBid === null ? " (no usable quote to price the sale)" : ` at the bid ${usd(exitBid)}; result versus the entry ask ${pnl === null ? "n/a" : usd(pnl)} per contract`}. Dry run: no order sent.`,
         { symbol: held.symbol, exitBid, pnlUsd: pnl, maxLossUsd: held.maxLossUsd },
       );
       state.position = null;

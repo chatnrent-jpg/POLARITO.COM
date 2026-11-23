@@ -1,24 +1,24 @@
 /**
  * Plain-language summary of one dry-run engine evaluation (pure; no secrets). Shows the inputs next to each reading.
  */
-import { LONG_TIMEFRAMES, LONG_TIMEFRAME_NAMES, type LongReading } from "@/lib/longPolarity";
+import { TIMEFRAME_NAMES, readingKeys, type DeskReading } from "@/lib/deskReadings";
 import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, usd } from "@/lib/optionsSelect";
 import type { EngineConfig, EngineResult } from "@/lib/spyEngine";
 
 const raw = (n: number | null): string => (n === null ? "n/a" : `${n > 0 ? "+" : ""}${Math.round(n).toLocaleString("en-US")}`);
 
-function row(r: LongReading, mark: string): string {
+function row(r: DeskReading, mark: string): string {
   const candle = r.kind ? `${r.kind}${r.open !== null && r.close !== null ? ` (${r.open.toFixed(2)} -> ${r.close.toFixed(2)})` : ""}` : "n/a";
   const net = r.status !== "ok" ? "n/a" : r.netSign === null ? `${raw(r.netVolume)} (missing)` : `${raw(r.netVolume)} (${r.netSign > 0 ? "positive" : r.netSign < 0 ? "negative" : "zero"})`;
   const flag = r.netFlag ? `**${r.netFlag.toUpperCase()} NET VOLUME**` : "";
   const prev = r.previousClose === null ? "n/a" : r.previousClose.toFixed(2);
-  return `| ${LONG_TIMEFRAME_NAMES[r.timeframe]}${mark} | ${candle} | ${prev} | ${net} | ${flag} | ${r.agreement ?? "n/a"} | **${r.label}** | ${r.periodStart} | ${r.asOf} | ${r.throughDate} | ${r.sessions || "n/a"} | ${r.reason ?? ""} |`;
+  return `| ${TIMEFRAME_NAMES[r.timeframe]}${mark} | ${candle} | ${prev} | ${net} | ${flag} | ${r.agreement ?? "n/a"} | **${r.label}** | ${r.periodStart} | ${r.asOf} | ${r.throughDate} | ${r.sessions || "n/a"} | ${r.reason ?? ""} |`;
 }
 
 export function renderEngineReport(result: EngineResult, config: EngineConfig): string {
   const L: string[] = ["# SPY options dry run", "", "DRY RUN: no order is sent and none can be: this job only reads market data.", ""];
   L.push(
-    `Decision timeframe: ${LONG_TIMEFRAME_NAMES[config.timeframe]} (marked with *). Net volume = the chart definition: total daily volume of the period to date (SIP), signed by the latest close vs the previous period's last close (one definition only; the raw number is shown so it can be compared with the chart). An exactly zero or missing net volume is flagged and is Neutral. A reading counts only when candle colour and net volume match (green + positive = Drive, red + negative = Reverse, otherwise Neutral). On Neutral the engine does nothing automatic: the trader decides. Rules: expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${DELTA_THRESHOLDS.primary}, and only if none reaches it the cheapest usable contract (ask x 100) with |delta| down to a hard floor of ${DELTA_THRESHOLDS.floor}, marked "${FALLBACK_LABEL}"; calls on Drive, puts on Reverse; one position at a time; max loss = premium; roll or exit only when the decision timeframe flips.`,
+    `Decision timeframe: ${TIMEFRAME_NAMES[config.timeframe]} (marked with *). Net volume = the chart definition: total daily volume of the period to date (SIP), signed by the latest close vs the previous period's last close (one definition only; the raw number is shown so it can be compared with the chart). An exactly zero or missing net volume is flagged and is Neutral. A reading counts only when candle colour and net volume match (green + positive = Drive, red + negative = Reverse, otherwise Neutral). On Neutral the engine does nothing automatic: the trader decides. Rules: expiry at least ${MIN_DAYS_TO_EXPIRY} days out (nearest listed), |delta| >= ${DELTA_THRESHOLDS.primary}, and only if none reaches it the cheapest usable contract (ask x 100) with |delta| down to a hard floor of ${DELTA_THRESHOLDS.floor}, marked "${FALLBACK_LABEL}"; calls on Drive, puts on Reverse; one position at a time; max loss = premium; roll or exit only when the decision timeframe flips.`,
     "",
   );
   if (result.decision?.traderDecides) L.push("## NEUTRAL: TRADER DECIDES", "", "Candle colour and net volume do not agree, or the net volume is exactly zero or missing (flagged). No automatic exit and no automatic entry. Decide by hand.", "");
@@ -29,7 +29,7 @@ export function renderEngineReport(result: EngineResult, config: EngineConfig): 
       "",
       "| Timeframe | Candle (open -> close) | Previous period close | Net volume (raw) | Flag | Match | Reading | Period start | As of | Newest daily bar | Sessions | Note |",
       "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-      ...LONG_TIMEFRAMES.map((tf) => row(result.readings![tf], tf === config.timeframe ? " *" : "")),
+      ...readingKeys(config.timeframe).flatMap((tf) => (result.readings?.[tf] ? [row(result.readings[tf] as DeskReading, tf === config.timeframe ? " *" : "")] : [])),
       "",
     );
   }

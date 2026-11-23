@@ -623,7 +623,8 @@ describe("no order can be sent from the SPY desk", () => {
     assert.match(fs.readFileSync("src/app/api/spy/desk/route.node.ts", "utf8"), /await connection\(\)/);
   });
   it("the desk is off by default in the page and the three routes", () => {
-    assert.match(fs.readFileSync("src/app/spy/page.tsx", "utf8"), /deskEnabled\(process\.env\)/);
+    assert.match(fs.readFileSync("src/components/spy/SpyDeskPage.tsx", "utf8"), /deskEnabled\(process\.env\)/);
+    for (const p of ["src/app/spy/page.tsx", "src/app/spy-wwv/page.tsx"]) assert.match(fs.readFileSync(p, "utf8"), /SpyDeskPage profile=/, p);
     assert.match(fs.readFileSync("src/lib/spyDeskRoutes.ts", "utf8"), /if \(!deskEnabled\(ctx\.env\)\) return off\(\)/);
     assert.equal(SPOT, 690);
   });

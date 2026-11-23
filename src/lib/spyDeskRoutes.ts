@@ -18,6 +18,7 @@ import { buildAutoView, withLock } from "@/lib/spyAuto";
 import { buildLiveSnapshot } from "@/lib/spyLive";
 import { buildAnalysis, checkTicker } from "@/lib/spyAnalysis";
 import type { SpyKv } from "@/lib/spyKv";
+import { MONTHLY_PROFILE, type DeskProfile } from "@/lib/spyProfile";
 
 export type DeskContext = {
   env: Readonly<Record<string, string | undefined>>;
@@ -25,6 +26,8 @@ export type DeskContext = {
   store: DeskStore | null;
   /** The key-value client for the Auto switch, audit log and run lock. Manual actions take the same lock as Auto runs. */
   kv?: SpyKv | null;
+  /** Which desk this is (default: the monthly desk). The routes are the same; only the labels and the Auto schedule text differ. */
+  profile?: DeskProfile;
 };
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
@@ -53,7 +56,7 @@ export async function handleSnapshot(ctx: DeskContext): Promise<Response> {
     if (!deskEnabled(ctx.env)) return off();
     const live = await ctx.makeLive();
     if (!live.ok) return json({ ok: false, code: live.code, error: `Data unavailable: ${live.error}` }, 503);
-    return json(await buildDeskSnapshot(live.deps, live.config, ctx.store, await buildAutoView(ctx.kv ?? null)));
+    return json(await buildDeskSnapshot(live.deps, live.config, ctx.store, await buildAutoView(ctx.kv ?? null, (ctx.profile ?? MONTHLY_PROFILE).scheduleText)));
   } catch (e) {
     console.error("SPY desk snapshot failed:", e instanceof Error ? e.name : "unknown");
     return internal();
@@ -65,7 +68,7 @@ export async function handleLive(ctx: DeskContext): Promise<Response> {
     if (!deskEnabled(ctx.env)) return off();
     const live = await ctx.makeLive();
     if (!live.ok) return json({ ok: false, code: live.code, error: `Data unavailable: ${live.error}` }, 503);
-    return json(await buildLiveSnapshot(live.deps, live.config, ctx.store, await buildAutoView(ctx.kv ?? null)));
+    return json(await buildLiveSnapshot(live.deps, live.config, ctx.store, await buildAutoView(ctx.kv ?? null, (ctx.profile ?? MONTHLY_PROFILE).scheduleText)));
   } catch (e) {
     console.error("SPY desk live failed:", e instanceof Error ? e.name : "unknown");
     return internal();

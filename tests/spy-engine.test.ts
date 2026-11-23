@@ -92,7 +92,7 @@ describe("decision follows the aligned reading only", () => {
   it("candle and net volume disagree -> Neutral -> STAND ASIDE, nothing bought, chain not even read", async () => {
     const calls: Calls = { daily: 0, spot: 0, sides: [], held: 0 };
     const r = await runEngine(makeDeps(NEUTRAL, T0, { calls }), CFG, EMPTY_STATE);
-    assert.equal(r.readings?.M.polarity, 0);
+    assert.equal(r.readings?.M?.polarity, 0);
     assert.equal(r.decision?.action, "STAND_ASIDE");
     assert.equal(r.state.position, null);
     assert.deepEqual(calls.sides, []);
@@ -274,9 +274,9 @@ describe("exact zero net volume is Neutral with an explicit flag, and the raw nu
   it("zero net volume: Neutral, flagged, no entry, no sign guessed", async () => {
     const calls: Calls = { daily: 0, spot: 0, sides: [], held: 0 };
     const r = await runEngine(makeDeps(ZERO, T0, { calls }), CFG, EMPTY_STATE);
-    assert.equal(r.readings?.M.netVolume, 0);
-    assert.equal(r.readings?.M.netFlag, "zero");
-    assert.equal(r.readings?.M.polarity, 0);
+    assert.equal(r.readings?.M?.netVolume, 0);
+    assert.equal(r.readings?.M?.netFlag, "zero");
+    assert.equal(r.readings?.M?.polarity, 0);
     assert.equal(r.decision?.action, "STAND_ASIDE");
     assert.equal(r.decision?.traderDecides, true);
     assert.equal(r.state.position, null);
@@ -288,7 +288,7 @@ describe("exact zero net volume is Neutral with an explicit flag, and the raw nu
   });
   it("the raw signed net volume is in the decision text, the events and the report", async () => {
     const r = await runEngine(makeDeps(REVERSE, T0), CFG, EMPTY_STATE);
-    assert.equal(r.readings?.M.netVolume, -200);
+    assert.equal(r.readings?.M?.netVolume, -200);
     assert.match(r.decision?.reason ?? "", /net volume -200,/);
     const d = r.events.find((x) => x.kind === "decision");
     assert.equal(d?.data?.netVolume, -200);
@@ -362,7 +362,7 @@ describe("config, state file and report", () => {
     assert.ok(parsed.ok);
     assert.deepEqual(parsed.state, r.state);
     assert.equal(parseEngineState({ version: 2 }).ok, false);
-    assert.equal(parseEngineState({ version: 1, readings: { D: { polarity: 1, since: "x" } } }).ok, false);
+    assert.equal(parseEngineState({ version: 1, readings: { X: { polarity: 1, since: "x" } } }).ok, false);
     assert.equal(parseEngineState({ version: 1, readings: {}, position: { type: "call" } }).ok, false);
   });
   it("the report shows candle, net volume and reading side by side with the as-of time", async () => {

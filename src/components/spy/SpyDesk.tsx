@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import SpyDeskView, { type AutoUi, type CloseUi, type DeskLoad, type Notice, type TicketUi } from "@/components/spy/SpyDeskView";
-import { ANALYZE_PATH, DESK_PATH, LIVE_PATH, browserPollerEnv, getJson } from "@/lib/spyDeskClient";
+import { browserPollerEnv, deskPaths, getJson } from "@/lib/spyDeskClient";
+import { MONTHLY_PROFILE, apiPath, type DeskProfile } from "@/lib/spyProfile";
 import { createAnalyzer, sidePermit } from "@/lib/spyAnalyzer";
 import { createDeskData } from "@/lib/spyDeskData";
 
@@ -29,16 +30,17 @@ async function readAnswer(res: Response): Promise<ApiAnswer> {
  * an open Close box, notices) are kept in this component's own state, which no refresh touches, and a refresh never submits.
  * During a user action the refresh is held, and right after it both views are re-read from the server.
  */
-export default function SpyDesk() {
+export default function SpyDesk({ profile = MONTHLY_PROFILE }: { profile?: DeskProfile }) {
+  const paths = deskPaths(profile);
   const [data] = useState(() =>
     createDeskData({
       env: browserPollerEnv(),
-      fetchLive: (signal) => getJson(LIVE_PATH, signal),
-      fetchDesk: (signal) => getJson(DESK_PATH, signal),
+      fetchLive: (signal) => getJson(paths.live, signal),
+      fetchDesk: (signal) => getJson(paths.desk, signal),
     }),
   );
   const desk = useSyncExternalStore(data.subscribe, data.getState, data.getState);
-  const [analyzerCore] = useState(() => createAnalyzer({ env: browserPollerEnv(), fetchAnalysis: (signal) => getJson(ANALYZE_PATH, signal) }));
+  const [analyzerCore] = useState(() => createAnalyzer({ env: browserPollerEnv(), fetchAnalysis: (signal) => getJson(paths.analyze, signal) }));
   const analyzer = useSyncExternalStore(analyzerCore.subscribe, analyzerCore.getState, analyzerCore.getState);
   const liveAction = desk.snapshot?.decision.action ?? "UNKNOWN";
   const [busy, setBusy] = useState(false);
@@ -117,38 +119,39 @@ export default function SpyDesk() {
       setNotice({ kind: "error", text: `Not sent: ${check.message}` });
       return;
     }
-    await act("/api/spy/ticket", { type: ticket.type, symbol: ticket.symbol, acknowledgeDryRun: true, analyzedGear: check.gear }, (a) => {
+    await act(apiPath(profile, "ticket"), { type: ticket.type, symbol: ticket.symbol, acknowledgeDryRun: true, analyzedGear: check.gear }, (a) => {
       setNotice({ kind: a.ok ? "ok" : "error", text: a.ok ? (a.message ?? "Dry-run position recorded.") : (a.error ?? "The ticket was refused.") });
       if (a.ok) setTicket(FIRST_TICKET);
     });
-  }, [ticket, act, analyzer, liveAction, desk.fresh.state]);
+  }, [ticket, act, analyzer, liveAction, desk.fresh.state, profile]);
 
   const submitClose = useCallback(
     async (unpriced: boolean) => {
       if (!close.ack) return;
-      await act("/api/spy/close", unpriced ? { acknowledgeDryRun: true, unpriced: true } : { acknowledgeDryRun: true }, (a) => {
+      await act(apiPath(profile, "close"), unpriced ? { acknowledgeDryRun: true, unpriced: true } : { acknowledgeDryRun: true }, (a) => {
         setNotice({ kind: a.ok ? "ok" : "error", text: a.ok ? (a.message ?? "Dry-run position closed.") : (a.error ?? "Close was refused.") });
         setClose(a.ok ? IDLE_CLOSE : { stage: "confirm", ack: false, offerUnpriced: a.code === "NO_QUOTE" });
       });
     },
-    [close.ack, act],
+    [close.ack, act, profile],
   );
 
   const submitAuto = useCallback(
     async (on: boolean) => {
       if (on && !autoUi.ack) return;
-      await act("/api/spy/auto", { on, acknowledgeDryRun: true }, (a) => {
+      await act(apiPath(profile, "auto"), { on, acknowledgeDryRun: true }, (a) => {
         setNotice({ kind: a.ok ? "ok" : "error", text: a.ok ? (a.message ?? "Auto switch updated.") : (a.error ?? "The switch was refused.") });
         if (a.ok) setAutoUi(IDLE_AUTO);
       });
     },
-    [autoUi.ack, act],
+    [autoUi.ack, act, profile],
   );
 
   const load: DeskLoad = desk.snapshot ? { status: "ready", snapshot: desk.snapshot } : desk.fatal ? { status: "error", error: desk.fatal } : { status: "loading" };
 
   return (
     <SpyDeskView
+      profile={profile}
       load={load}
       busy={busy}
       notice={notice}
