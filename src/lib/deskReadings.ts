@@ -17,8 +17,9 @@ import {
   type LongReading,
   type LongTimeframe,
 } from "@/lib/longPolarity";
+import { addCalendarDays, etClock } from "@/lib/marketCalendar";
 import type { Bar } from "@/lib/polarity";
-import { computeWwvReading, type WwvDetail } from "@/lib/wwv";
+import { WWV_HISTORY_CALENDAR_DAYS, computeWwvReading, type WwvDetail } from "@/lib/wwv";
 
 export type DeskTimeframe = LongTimeframe | typeof DAILY_NV_TIMEFRAME | "D";
 
@@ -55,9 +56,29 @@ export function deskReadingKeys(timeframe: DeskTimeframe): readonly DeskTimefram
 export type DeskReading = Omit<LongReading, "timeframe"> & { timeframe: DeskTimeframe; wwv?: WwvDetail | null };
 export type DeskReadings = Readonly<Partial<Record<DeskTimeframe, DeskReading>>>;
 
+/**
+ * The WWV desk also SHOWS the four period readings (M, Q, H, Y) as context. They need a longer bar history than WWV, but the WWV
+ * reading must not change because of it (wave starts, the "first loaded bar" note and the bar checks all depend on where the
+ * history begins), so WWV always reads exactly the window it always did: the last WWV_HISTORY_CALENDAR_DAYS calendar days.
+ */
+export function wwvWindow(daily: readonly Bar[], now: Date): readonly Bar[] {
+  const from = addCalendarDays(etClock(now).date, -WWV_HISTORY_CALENDAR_DAYS);
+  return daily.filter((b) => b.date >= from);
+}
+
+/** The context readings a desk shows next to (never instead of) its decision reading: M, Q, H, Y on the WWV desk, none on the monthly desk (it already shows them as its readings). */
+export function contextReadingKeys(timeframe: DeskTimeframe): readonly LongTimeframe[] {
+  return timeframe === "D" ? LONG_TIMEFRAMES : [];
+}
+
+/** Same computation and stale-bar rules as the monthly desk (computeLongReadings). Context only: nothing decides from these. */
+export function computeContextReadings(daily: readonly Bar[], now: Date, timeframe: DeskTimeframe): DeskReadings {
+  return timeframe === "D" ? computeLongReadings({ daily: [...daily], now }) : {};
+}
+
 /** All readings of a desk as of `now`. Never throws and never guesses (an unusable reading says why). */
 export function computeDeskReadings(daily: readonly Bar[], now: Date, timeframe: DeskTimeframe): DeskReadings {
-  if (timeframe === "D") return { D: computeWwvReading({ daily, now }) };
+  if (timeframe === "D") return { D: computeWwvReading({ daily: wwvWindow(daily, now), now }) };
   const input = { daily: [...daily], now };
   return { ...computeLongReadings(input), [DAILY_NV_TIMEFRAME]: computeDailyNetVolume(input) };
 }

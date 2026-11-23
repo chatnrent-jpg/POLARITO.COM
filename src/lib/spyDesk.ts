@@ -15,7 +15,7 @@
  */
 import type { OptionType } from "@/lib/broker/options";
 import { daysBetween, parseOccSymbol } from "@/lib/broker/options";
-import { TIMEFRAME_NAMES, computeDeskReadings, deskReadingKeys, isDeskTimeframe, type DeskReading, type DeskReadings, type DeskTimeframe } from "@/lib/deskReadings";
+import { TIMEFRAME_NAMES, computeContextReadings, computeDeskReadings, contextReadingKeys, deskReadingKeys, isDeskTimeframe, type DeskReading, type DeskReadings, type DeskTimeframe } from "@/lib/deskReadings";
 import type { WwvDetail } from "@/lib/wwv";
 import { etClock } from "@/lib/marketCalendar";
 import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
@@ -484,6 +484,8 @@ export type DeskSnapshot = {
   liveBudget: number;
   spot: Spot | null;
   readings: ReadingView[];
+  /** WWV desk only: the four period readings (M, Q, H, Y) shown as CONTEXT. Never the decision source (none is a decision reading). Absent or empty elsewhere. */
+  contextReadings?: ReadingView[];
   decision: { action: Decision["action"] | "UNKNOWN"; reason: string; traderDecides: boolean };
   enginePick: EnginePickView;
   position: PositionView;
@@ -633,10 +635,15 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
       if (r.ok) cap.spot = r.value;
       return cap.spot;
     };
+    let capDaily: readonly Bar[] | null = null;
     const captured = new Map<OptionType, SideReport>();
     const spied: EngineDeps = {
       now: deps.now,
-      loadDaily: deps.loadDaily,
+      loadDaily: async () => {
+        const r = await deps.loadDaily();
+        if (r.ok) capDaily = r.value;
+        return r;
+      },
       readSpot: async () => {
         const r = await deps.readSpot();
         if (r.ok) cap.spot = r.value;
@@ -655,6 +662,10 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
     if (result.readings) {
       const rs = result.readings;
       base.readings = deskReadingKeys(config.timeframe).flatMap((tf) => (rs[tf] ? [readingView(rs[tf] as DeskReading, tf === config.timeframe)] : []));
+    }
+    if (capDaily && contextReadingKeys(config.timeframe).length > 0) {
+      const ctx = computeContextReadings(capDaily, now, config.timeframe);
+      base.contextReadings = contextReadingKeys(config.timeframe).flatMap((tf) => (ctx[tf] ? [readingView(ctx[tf] as DeskReading, false)] : []));
     }
     if (!result.decision) {
       base.decision = { action: "UNKNOWN", reason: "The engine could not evaluate (see the log below). Nothing is assumed.", traderDecides: false };
@@ -798,6 +809,7 @@ export function parseDeskSnapshot(raw: unknown): { ok: true; snapshot: DeskSnaps
   if (!isRecord(raw) || raw.ok !== true || raw.dryRun !== true) return bad("header");
   if (!isStr(raw.generatedAt) || !isDeskTimeframe(raw.timeframe) || !finite(raw.liveBudget)) return bad("meta");
   if (!Array.isArray(raw.readings) || !raw.readings.every(isReadingView)) return bad("readings");
+  if (raw.contextReadings !== undefined && (!Array.isArray(raw.contextReadings) || !raw.contextReadings.every(isReadingView))) return bad("context readings");
   if (!isDecisionView(raw.decision)) return bad("decision");
   const pick = raw.enginePick;
   if (!isRecord(pick) || !["contract", "none", "not-applicable"].includes(String(pick.status))) return bad("engine pick");

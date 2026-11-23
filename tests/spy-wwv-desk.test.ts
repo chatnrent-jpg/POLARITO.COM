@@ -438,7 +438,8 @@ describe("WWV desk: proxy gate, cron and files", () => {
 
 describe("WWV desk: data loading", () => {
   it("loads about 200 calendar days of daily bars (not a year); the monthly desk keeps its longer window", () => {
-    assert.equal(dailyStartFor(WWV_PROFILE, "2026-11-03"), "2026-04-17");
+    assert.equal(dailyStartFor(WWV_PROFILE, "2026-01-05"), "2025-06-19", "early in the year WWV still loads 200 calendar days");
+    assert.equal(dailyStartFor(WWV_PROFILE, "2026-11-03"), dailyStartFor(MONTHLY_PROFILE, "2026-11-03"), "later in the year it loads as far back as the period readings it now also shows; its decision still reads only the last 200 days (wwvWindow)");
     assert.ok(dailyStartFor(MONTHLY_PROFILE, "2026-11-03") < "2025-12-01");
   });
   it("the light caches live at module level, one per connection and setup", () => {
@@ -476,8 +477,7 @@ describe("WWV desk: the page (rendering only)", () => {
     assert.match(out, /data-testid="wwv-candle"[^>]*>[\s\S]*?green \(99\.00 to 101\.00\)/);
     assert.match(out, /daily bar 2026-11-03 \(final\)/);
     assert.match(out, /Decision \(Daily, WWV timeframe\)/);
-    assert.doesNotMatch(out, /Four readings/);
-    assert.doesNotMatch(out, /data-testid="reading-(M|Q|H|Y)"/);
+    assert.match(out, /Four readings \(period to date, SPY\)/, "the four net volume readings are shown as context");
   });
   it("Neutral shows the reason; unavailable data shows the reason and no wave numbers", async () => {
     const neutral = await buildDeskSnapshot(makeDeps(WWV_NEUTRAL), CFG, createMemoryDeskStore());

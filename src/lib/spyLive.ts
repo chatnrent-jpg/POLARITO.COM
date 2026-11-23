@@ -11,7 +11,7 @@
  *                       snapshot -> one DeskSnapshot for the view. User choices (Call/Put, contract row, ticks, dialogs)
  *                       are held by the container, never by these snapshots, so a refresh cannot reset them.
  */
-import { deskReadingKeys, isDeskTimeframe, type DeskReading, type DeskTimeframe } from "@/lib/deskReadings";
+import { computeContextReadings, contextReadingKeys, deskReadingKeys, isDeskTimeframe, type DeskReading, type DeskTimeframe } from "@/lib/deskReadings";
 import { etClock } from "@/lib/marketCalendar";
 import { AUTO_UNAVAILABLE, isAutoView, type AutoView } from "@/lib/spyAutoTypes";
 import {
@@ -45,6 +45,8 @@ export type LiveSnapshot = {
   timeframe: DeskTimeframe;
   spot: Spot | null;
   readings: ReadingView[];
+  /** WWV desk only: the four period readings (M, Q, H, Y) shown as CONTEXT. Never the decision source (none is a decision reading). Absent or empty elsewhere. */
+  contextReadings?: ReadingView[];
   decision: DeskSnapshot["decision"];
   position: PositionView;
   store: DeskSnapshot["store"];
@@ -86,6 +88,11 @@ export async function buildLiveSnapshot(deps: DeskDeps, config: DeskConfig, stor
       const decision = deskDecision(dailyRes.value, now, config.timeframe);
       const readings = decision.readings;
       out.readings = deskReadingKeys(config.timeframe).flatMap((tf) => (readings[tf] ? [readingView(readings[tf] as DeskReading, tf === config.timeframe)] : []));
+      const ctxKeys = contextReadingKeys(config.timeframe);
+      if (ctxKeys.length > 0) {
+        const ctx = computeContextReadings(dailyRes.value, now, config.timeframe);
+        out.contextReadings = ctxKeys.flatMap((tf) => (ctx[tf] ? [readingView(ctx[tf] as DeskReading, false)] : []));
+      }
       out.decision =
         decision.status === "ok"
           ? { action: decision.action, reason: describeDecision(decision.reading, config.timeframe), traderDecides: decision.action === "STAND_ASIDE" }
@@ -111,6 +118,7 @@ export function parseLiveSnapshot(raw: unknown): { ok: true; snapshot: LiveSnaps
   if (!isStr(r.generatedAt) || Number.isNaN(Date.parse(r.generatedAt)) || !isDeskTimeframe(r.timeframe)) return bad("meta");
   if (r.spot !== null && !(typeof r.spot === "object" && r.spot !== null && typeof (r.spot as { price?: unknown }).price === "number" && Number.isFinite((r.spot as { price: number }).price))) return bad("spot");
   if (!Array.isArray(r.readings) || !r.readings.every(isReadingView)) return bad("readings");
+  if (r.contextReadings !== undefined && (!Array.isArray(r.contextReadings) || !r.contextReadings.every(isReadingView))) return bad("context readings");
   if (!isDecisionView(r.decision)) return bad("decision");
   if (!isPositionView(r.position)) return bad("position");
   if (typeof r.store !== "object" || r.store === null || typeof (r.store as { available?: unknown }).available !== "boolean") return bad("store");
@@ -139,6 +147,7 @@ export function mergeLive(heavy: DeskSnapshot, live: LiveSnapshot): { snapshot: 
     generatedAt: live.generatedAt,
     spot: live.spot,
     readings: live.readings,
+    contextReadings: live.contextReadings,
     decision: live.decision,
     position: live.position,
     store: live.store,
