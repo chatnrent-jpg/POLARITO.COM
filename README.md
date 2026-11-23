@@ -42,6 +42,8 @@ Off unless the server has `POLARITO_SPY_DESK=1`. It shows the four period-to-dat
 
 The stale-bar rule is the same as for every reading: today's in-progress bar is accepted and labelled "session in progress" (it can change until 16:00 ET), an older bar is stale, a future-dated bar is rejected. Everything keyed to the decider follows it: the contract pick, the Analyze gear and its server re-check (Drive only Call, Reverse only Put, Neutral both), Auto, and the audit log text. A Daily reading can flip from one day to the next, so Auto may close and reopen on consecutive days (Auto still acts at most once per session, only from 16:15 ET on the final bar, never touches a MANUAL position and stands aside after a manual action). An open Auto position of the other side is closed and flipped by the first run whose Daily reading disagrees; a Neutral Daily reading leaves it as it is.
 
+**Pocket.** On both desks the Auto audit log, the manual ticket, the trade journal, the engine log and the rules line sit in one collapsible "Audit log, manual ticket, journal and engine log" pocket (closed by default; the summary row shows the audit and journal counts and whether a dry-run position is held). The decision, readings, position card, Close button and Auto switch stay outside it. It is a native details/summary (keyboard: Tab, Enter, Space); its open state lives in the `SpyDesk` container, so the 5 s and 45 s refreshes never reset it, and nothing closes it by itself.
+
 ### Live refresh (every 5 s) and Analyze
 
 The page keeps itself current with GET requests only; a refresh never submits anything and never resets what you chose (Call/Put, contract row, ticked boxes, an open Close box all stay).

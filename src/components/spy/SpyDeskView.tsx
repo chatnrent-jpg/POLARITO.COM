@@ -41,6 +41,9 @@ export type DeskViewProps = {
   onSubmitTicket(): void;
   onCloseChange(next: Partial<CloseUi>): void;
   onSubmitClose(unpriced: boolean): void;
+  /** The open/closed state of the "Audit log, manual ticket, journal and engine log" pocket. It lives in the container (like form state) so no refresh or re-render resets it. Absent: the pocket is closed and the browser keeps its own state. */
+  pocket?: { open: boolean };
+  onPocketChange?(open: boolean): void;
 };
 
 const card = "rounded-lg border border-zinc-800 bg-zinc-900/60 p-4";
@@ -512,7 +515,28 @@ function Journal({ entries }: { entries: DeskSnapshot["journal"] }) {
 const outcomeTone = (o: AutoLogEntry["outcome"]): "green" | "red" | "amber" | "zinc" | "rose" =>
   o === "opened" || o === "closed-and-opened" || o === "closed" ? "green" : o === "refused" || o === "error" ? "rose" : o === "neutral" || o === "no-action" || o === "off" ? "amber" : "zinc";
 
-function AutoCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
+function AutoLog({ a }: { a: DeskSnapshot["auto"] }) {
+  return (
+    <div>
+      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Auto audit log (every decision, newest first)</h3>
+      {a.logError ? <p className="text-sm text-rose-300">The audit log could not be read: {a.logError}</p> : null}
+      {a.log.length === 0 && !a.logError ? (
+        <p className="text-sm text-zinc-500" data-testid="auto-log-empty">No Auto decisions yet.</p>
+      ) : (
+        <ul className="space-y-1 text-sm" data-testid="auto-log">
+          {a.log.map((e) => (
+            <li key={e.id} className="border-t border-zinc-800 pt-1 text-zinc-300">
+              <span className="mr-1"><Badge tone={outcomeTone(e.outcome)}>{e.outcome.toUpperCase()}</Badge></span>
+              <span className="text-xs text-zinc-500">{dateTimeText(e.at)}{e.reading ? `, reading ${e.reading}` : ""}</span> {e.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AutoCard({ props, snap, hideLog = false }: { props: DeskViewProps; snap: DeskSnapshot; hideLog?: boolean }) {
   const a = snap.auto;
   return (
     <div className="space-y-3" data-testid="auto-card">
@@ -540,22 +564,7 @@ function AutoCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot })
           </button>
         </div>
       )}
-      <div>
-        <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Auto audit log (every decision, newest first)</h3>
-        {a.logError ? <p className="text-sm text-rose-300">The audit log could not be read: {a.logError}</p> : null}
-        {a.log.length === 0 && !a.logError ? (
-          <p className="text-sm text-zinc-500" data-testid="auto-log-empty">No Auto decisions yet.</p>
-        ) : (
-          <ul className="space-y-1 text-sm" data-testid="auto-log">
-            {a.log.map((e) => (
-              <li key={e.id} className="border-t border-zinc-800 pt-1 text-zinc-300">
-                <span className="mr-1"><Badge tone={outcomeTone(e.outcome)}>{e.outcome.toUpperCase()}</Badge></span>
-                <span className="text-xs text-zinc-500">{dateTimeText(e.at)}{e.reading ? `, reading ${e.reading}` : ""}</span> {e.message}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {hideLog ? null : <AutoLog a={a} />}
     </div>
   );
 }
@@ -574,6 +583,50 @@ function decisionLook(action: DeskSnapshot["decision"]["action"]): DecisionLook 
     default:
       return { big: "UNKNOWN", frame: "border-rose-400 ring-rose-400/20", bar: "bg-rose-400 text-rose-950", badge: "bg-rose-500/20 text-rose-200 ring-rose-400", gear: null, gearLine: "No decision is made." };
   }
+}
+
+const pocketHint = (snap: DeskSnapshot): string => {
+  const p = snap.position;
+  const position = p.status === "held" ? `dry-run position HELD (${p.type.toUpperCase()} ${p.strike})` : p.status === "none" ? "no dry-run position held" : "dry-run position unknown";
+  const n = (count: number, what: string) => `${count} ${what} ${count === 1 ? "entry" : "entries"}`;
+  return `${n(snap.auto.log.length, "audit")}, ${n(snap.journal.length, "journal")}, ${position}`;
+};
+
+/**
+ * One collapsible pocket (closed by default) for the secondary parts of the page: the Auto audit log, the manual ticket, the journal,
+ * the engine log and the rules line. The decision, readings, position card and Close button stay outside it. Native details/summary, so the
+ * keyboard (Tab, Enter, Space) and screen readers work without script. Its open/closed state is owned by the container (props.pocket), so a
+ * refresh or re-render never resets it; nothing here ever closes it by itself.
+ */
+function Pocket({ props, snap, children }: { props: DeskViewProps; snap: DeskSnapshot; children: ReactNode }) {
+  const controlled = props.pocket !== undefined;
+  return (
+    <details
+      className="group rounded-lg border-2 border-zinc-700 bg-zinc-900/60"
+      data-testid="desk-pocket"
+      data-open={controlled ? (props.pocket?.open ? "true" : "false") : undefined}
+      {...(controlled ? { open: props.pocket?.open === true } : {})}
+      onToggle={(e) => props.onPocketChange?.(e.currentTarget.open)}
+    >
+      <summary
+        className="flex min-h-16 cursor-pointer list-none items-center gap-3 rounded-lg p-4 text-zinc-100 hover:bg-zinc-800/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 [&::-webkit-details-marker]:hidden"
+        data-testid="desk-pocket-summary"
+      >
+        <svg className="h-6 w-6 shrink-0 text-sky-300 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" data-testid="desk-pocket-chevron">
+          <path d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="min-w-0 flex-1">
+          <span className="block text-base font-bold">Audit log, manual ticket, journal and engine log</span>
+          <span className="block text-sm text-zinc-400" data-testid="desk-pocket-hint">{pocketHint(snap)}</span>
+        </span>
+        <span className="shrink-0 rounded-md bg-zinc-800 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-200 ring-1 ring-zinc-600">
+          <span className="group-open:hidden">Show</span>
+          <span className="hidden group-open:inline">Hide</span>
+        </span>
+      </summary>
+      <div className="space-y-4 border-t border-zinc-800 p-4" data-testid="desk-pocket-body">{children}</div>
+    </details>
+  );
 }
 
 /** The decision, drawn as the page's second hero: the side, the gear, the plain-English why and the contract the engine would pick. */
@@ -668,15 +721,7 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
       ) : null}
       <section className={card} aria-labelledby="auto-h">
         <h2 id="auto-h" className={h2}>Auto (practice trader)</h2>
-        <AutoCard props={props} snap={snap} />
-      </section>
-      <section className={card} aria-labelledby="ticket-h">
-        <h2 id="ticket-h" className={h2}>Manual SPY option ticket (dry run)</h2>
-        <TicketCard props={props} snap={snap} />
-      </section>
-      <section className={card} aria-labelledby="journal-h">
-        <h2 id="journal-h" className={h2}>Trade journal (AUTO and MANUAL)</h2>
-        <Journal entries={snap.journal} />
+        <AutoCard props={props} snap={snap} hideLog />
       </section>
       {snap.notes.length > 0 ? (
         <section className={card}>
@@ -684,13 +729,26 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
           <ul className="list-disc pl-5 text-sm text-amber-200">{snap.notes.map((n) => <li key={n}>{n}</li>)}</ul>
         </section>
       ) : null}
-      <details className={card}>
-        <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-zinc-400">Engine log (this preview)</summary>
-        <ul className="mt-2 space-y-1 text-xs text-zinc-400">{snap.events.map((e, i) => <li key={`${e.at}-${i}`}><span className="text-zinc-500">[{e.kind}]</span> {e.message}</li>)}</ul>
-      </details>
-      <p className="text-xs text-zinc-500">
-        Rules: nearest listed expiry of at least {snap.rules.minDays} days; |delta| at least {snap.rules.primary.toFixed(2)}, otherwise the cheapest usable contract down to a hard floor of {snap.rules.floor.toFixed(2)} (marked {snap.rules.fallbackLabel}). Calls on Drive, puts on Reverse, the trader decides on Neutral. Dry run: this page can never send an order.
-      </p>
+      <Pocket props={props} snap={snap}>
+        <section className={card} data-testid="audit-log-section">
+          <AutoLog a={snap.auto} />
+        </section>
+        <section className={card} aria-labelledby="ticket-h">
+          <h2 id="ticket-h" className={h2}>Manual SPY option ticket (dry run)</h2>
+          <TicketCard props={props} snap={snap} />
+        </section>
+        <section className={card} aria-labelledby="journal-h">
+          <h2 id="journal-h" className={h2}>Trade journal (AUTO and MANUAL)</h2>
+          <Journal entries={snap.journal} />
+        </section>
+        <details className={card}>
+          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-zinc-400">Engine log (this preview)</summary>
+          <ul className="mt-2 space-y-1 text-xs text-zinc-400">{snap.events.map((e, i) => <li key={`${e.at}-${i}`}><span className="text-zinc-500">[{e.kind}]</span> {e.message}</li>)}</ul>
+        </details>
+        <p className="text-xs text-zinc-500" data-testid="rules-footer">
+          Rules: nearest listed expiry of at least {snap.rules.minDays} days; |delta| at least {snap.rules.primary.toFixed(2)}, otherwise the cheapest usable contract down to a hard floor of {snap.rules.floor.toFixed(2)} (marked {snap.rules.fallbackLabel}). Calls on Drive, puts on Reverse, the trader decides on Neutral. Dry run: this page can never send an order.
+        </p>
+      </Pocket>
     </>
   );
 }
