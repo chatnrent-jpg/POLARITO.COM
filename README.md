@@ -36,6 +36,12 @@ Off unless the server has `POLARITO_SPY_DESK=1`. It shows the four period-to-dat
 | Read-only Alpaca client | `src/lib/alpacaReadOnly.ts` (GET allowlist: account, option contracts, latest trade, option snapshots, bars) |
 | Dry-run record | Redis-over-HTTPS (Upstash / Vercel KV): `KV_REST_API_URL`, `KV_REST_API_TOKEN`. Without it the readings show and the manual actions say they are off. `SPY_DESK_STORE=memory` is for local development only and is refused in production. |
 
+### Daily decider (default) and the four period readings
+
+`/spy` now shows a fifth reading, **Daily**, and decides on it by default (decision card: "Decision (Daily timeframe)"). It is the same chart definition on one day: the period is the current trading day, the candle is today's open to the latest close, the previous period close is the previous trading day's close, and net volume is today's total SIP volume signed by the latest close against that close. Green candle with positive net volume is Drive, red with negative is Reverse, anything else is Neutral (the trader decides). Its key is `1D`; it is not the WWV desk's `D`, and `/spy-wwv` is unchanged. Monthly, Quarterly, 6-month and Yearly are still computed and shown ("Four readings") as context, and any of them can still be the decider with `SPY_DECISION_TIMEFRAME` (`M`, `Q`, `H`, `Y`); to make Monthly the default again change `DEFAULT_SPY_DECISION_TIMEFRAME` in `src/lib/deskReadings.ts` to `"M"`.
+
+The stale-bar rule is the same as for every reading: today's in-progress bar is accepted and labelled "session in progress" (it can change until 16:00 ET), an older bar is stale, a future-dated bar is rejected. Everything keyed to the decider follows it: the contract pick, the Analyze gear and its server re-check (Drive only Call, Reverse only Put, Neutral both), Auto, and the audit log text. A Daily reading can flip from one day to the next, so Auto may close and reopen on consecutive days (Auto still acts at most once per session, only from 16:15 ET on the final bar, never touches a MANUAL position and stands aside after a manual action). An open Auto position of the other side is closed and flipped by the first run whose Daily reading disagrees; a Neutral Daily reading leaves it as it is.
+
 ### Live refresh (every 5 s) and Analyze
 
 The page keeps itself current with GET requests only; a refresh never submits anything and never resets what you chose (Call/Put, contract row, ticked boxes, an open Close box all stay).
@@ -61,7 +67,7 @@ Switch it on or off with the Auto card on `/spy` (stored in the same KV store; n
 
 Rules: no position and Drive opens the call chosen by the contract rules, Reverse opens a put, Neutral does nothing (you decide). If Auto holds a position and the reading turns opposite it closes at the re-fetched bid and opens the other side in the same run if the rules allow. Neutral while holding leaves the position and `/spy` shows a banner. A MANUAL position is never touched by Auto, and a manual action today makes Auto stand aside for the session. Stale, crossed or missing data, or unavailable polarity: refuse and log. Every decision, including "no action" and why, is in the audit log on `/spy`. One lock around every run (manual actions use it too), settled sessions are not run twice. Details and defaults: `docs/spy-monthly-options-plan.md`.
 
-Settings: `SPY_DECISION_TIMEFRAME` (M, Q, H, Y; default M), `SPY_LIVE_BUDGET`, `SPY_STOCK_FEED`, `SPY_OPTIONS_FEED`. Data keys are `ALPACA_LIVE_KEY_ID` / `ALPACA_LIVE_SECRET_KEY` or `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` (read-only use).
+Settings: `SPY_DECISION_TIMEFRAME` (`1D` Daily, `M`, `Q`, `H`, `Y`; default `1D`; set `M` to decide on Monthly exactly as before), `SPY_LIVE_BUDGET`, `SPY_STOCK_FEED`, `SPY_OPTIONS_FEED`. Data keys are `ALPACA_LIVE_KEY_ID` / `ALPACA_LIVE_SECRET_KEY` or `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` (read-only use).
 
 Two manual GitHub workflows run the same code without the website (no schedule, GET only, keys never printed): `SPY options chain (read-only)` and `SPY options dry run (no orders)` (`scripts/spy-options-chain.ts`, `scripts/spy-options-engine.ts`).
 

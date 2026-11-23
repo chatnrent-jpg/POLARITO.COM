@@ -347,14 +347,18 @@ describe("config, state file and report", () => {
   it("config defaults and validation", () => {
     const c = parseEngineConfig({});
     assert.ok(c.ok);
-    assert.equal(c.config.timeframe, "M");
+    assert.equal(c.config.timeframe, "1D", "the default decider is the Daily net volume reading");
     assert.equal("onNeutral" in c.config, false);
     assert.equal("method" in c.config, false);
-    for (const bad of [{ SPY_DECISION_TIMEFRAME: "1D" }, { SPY_DECISION_TIMEFRAME: "W" }, { SPY_ON_NEUTRAL: "exit" }, { SPY_ON_NEUTRAL: "hold" }, { SPY_NET_VOLUME_METHOD: "signed-intraday" }, { SPY_NET_VOLUME_METHOD: "daily-chart" }, { SPY_LIVE_BUDGET: "-5" }]) {
+    for (const bad of [{ SPY_DECISION_TIMEFRAME: "D" }, { SPY_DECISION_TIMEFRAME: "W" }, { SPY_DECISION_TIMEFRAME: "1W" }, { SPY_ON_NEUTRAL: "exit" }, { SPY_ON_NEUTRAL: "hold" }, { SPY_NET_VOLUME_METHOD: "signed-intraday" }, { SPY_NET_VOLUME_METHOD: "daily-chart" }, { SPY_LIVE_BUDGET: "-5" }]) {
       assert.equal(parseEngineConfig(bad).ok, false, JSON.stringify(bad));
     }
     const e = parseEngineConfig({ SPY_ON_NEUTRAL: "MANUAL", SPY_DECISION_TIMEFRAME: "q" });
     assert.ok(e.ok && e.config.timeframe === "Q");
+    const m = parseEngineConfig({ SPY_DECISION_TIMEFRAME: "M" });
+    assert.ok(m.ok && m.config.timeframe === "M", "Monthly stays selectable");
+    const d = parseEngineConfig({ SPY_DECISION_TIMEFRAME: "1d" });
+    assert.ok(d.ok && d.config.timeframe === "1D");
   });
   it("state round trip and rejection of malformed state", async () => {
     const r = await runEngine(makeDeps(DRIVE, T0), CFG, EMPTY_STATE);

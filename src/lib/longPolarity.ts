@@ -31,6 +31,13 @@
  * whether they agree, period start, as-of time) so it can be audited. The 6-month period is Jan 1 - Jun 30 and
  * Jul 1 - Dec 31.
  *
+ * ADDED LATER (the four period readings above are unchanged): the DAILY net volume reading, key "1D" (`DAILY_NV_TIMEFRAME`),
+ * `computeDailyNetVolume`. It is the same definition with the period = the current trading day: candle = today's open to
+ * the latest close, previous period close = the previous trading day's close, net volume = today's total volume signed by
+ * the latest close versus that close, Drive/Reverse/Neutral by the same alignment rule. It is NOT part of `LONG_TIMEFRAMES`
+ * (so `computeLongReadings`, `readingsSummary` and the four-reading tests are untouched) and its key "1D" is distinct from
+ * "D", which the WWV desk uses for Weis Wave Volume.
+ *
  * Pure: no network, no clock (the caller passes `now`), no storage, no orders.
  */
 import { periodEnd, periodStart } from "@/lib/periodCandles";
@@ -40,6 +47,12 @@ import { metaFor, validateBars, type Bar, type CandleKind, type Polarity } from 
 export const LONG_TIMEFRAMES = Object.freeze(["M", "Q", "H", "Y"] as const);
 export type LongTimeframe = (typeof LONG_TIMEFRAMES)[number];
 export const DEFAULT_DECISION_TIMEFRAME: LongTimeframe = "M";
+
+/** The daily net volume reading's key. Distinct from "D" (the WWV desk's Weis Wave Volume). */
+export const DAILY_NV_TIMEFRAME = "1D" as const;
+/** Every period a net volume reading can be computed for: the four period-to-date ones plus the current trading day. */
+export type NetVolumeTimeframe = LongTimeframe | typeof DAILY_NV_TIMEFRAME;
+export const NET_VOLUME_TIMEFRAME_NAMES: Readonly<Record<NetVolumeTimeframe, string>> = Object.freeze({ M: "Monthly", Q: "Quarterly", H: "6-month", Y: "Yearly", "1D": "Daily" });
 
 export const LONG_TIMEFRAME_NAMES: Readonly<Record<LongTimeframe, string>> = Object.freeze({
   M: "Monthly",
@@ -57,10 +70,12 @@ export function coerceLongTimeframe(value: unknown): LongTimeframe {
   return isLongTimeframe(value) ? value : DEFAULT_DECISION_TIMEFRAME;
 }
 
-export function longPeriodStart(iso: string, tf: LongTimeframe): string {
+export function longPeriodStart(iso: string, tf: NetVolumeTimeframe): string {
   const y = iso.slice(0, 4);
   const m = Number(iso.slice(5, 7));
   switch (tf) {
+    case "1D":
+      return iso;
     case "M":
       return periodStart(iso, "month");
     case "Q":
@@ -72,10 +87,12 @@ export function longPeriodStart(iso: string, tf: LongTimeframe): string {
   }
 }
 
-export function longPeriodEnd(iso: string, tf: LongTimeframe): string {
+export function longPeriodEnd(iso: string, tf: NetVolumeTimeframe): string {
   const y = iso.slice(0, 4);
   const m = Number(iso.slice(5, 7));
   switch (tf) {
+    case "1D":
+      return iso;
     case "M":
       return periodEnd(iso, "month");
     case "Q":
@@ -100,7 +117,7 @@ export type LongInput = {
 export type NetFlag = "zero" | "missing";
 
 export type LongReading = {
-  timeframe: LongTimeframe;
+  timeframe: NetVolumeTimeframe;
   status: "ok" | "unavailable";
   /** null when unavailable: no guessed Drive/Reverse. */
   polarity: Polarity | null;
@@ -151,7 +168,7 @@ export function alignedPolarity(kind: CandleKind, net: number): Polarity {
   return 0;
 }
 
-function unavailable(tf: LongTimeframe, reason: string, throughDate: string, now: Date, extra: Partial<LongReading> = {}): LongReading {
+function unavailable(tf: NetVolumeTimeframe, reason: string, throughDate: string, now: Date, extra: Partial<LongReading> = {}): LongReading {
   const anchor = /^\d{4}-\d{2}-\d{2}$/.test(throughDate) ? throughDate : etClock(now).date;
   return {
     timeframe: tf,
@@ -221,6 +238,25 @@ export function computeLongReadings(input: LongInput): LongReadings {
 }
 
 /**
+ * The DAILY net volume reading (key "1D"): the same definition with the period = the current trading day. Same data checks as
+ * `computeLongReadings` (validated bars, the stale-bar rule: an in-progress bar is accepted and labelled `inProgress`, an older
+ * or future-dated bar is rejected), never throws, never guesses. Over a weekend or holiday the newest bar is the last session's
+ * final bar, so the reading is that session's.
+ */
+export function computeDailyNetVolume(input: LongInput): LongReading {
+  const { daily, now } = input;
+  const newest = daily.length ? daily[daily.length - 1].date : "";
+  try {
+    validateBars(daily);
+  } catch (e) {
+    return unavailable(DAILY_NV_TIMEFRAME, `daily bars rejected: ${e instanceof Error ? e.message : "malformed"}`, newest, now);
+  }
+  const stale = dailyStaleReason(daily, now);
+  if (stale) return unavailable(DAILY_NV_TIMEFRAME, `stale data: ${stale}`, newest, now);
+  return readOne(DAILY_NV_TIMEFRAME, input);
+}
+
+/**
  * The chart's Net Volume for one period: +total when the close is above the previous period's last close, -total when
  * below. An exactly equal close is a zero net volume and a non-finite input is a missing one; both are flagged and
  * neither gets a guessed sign.
@@ -232,7 +268,7 @@ export function chartNetVolume(previousClose: number, close: number, totalVolume
   return { net: 0, flag: "zero" };
 }
 
-function readOne(tf: LongTimeframe, input: LongInput): LongReading {
+function readOne(tf: NetVolumeTimeframe, input: LongInput): LongReading {
   const { daily, now } = input;
   const last = daily[daily.length - 1];
   const start = longPeriodStart(last.date, tf);

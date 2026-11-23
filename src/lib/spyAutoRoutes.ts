@@ -9,6 +9,7 @@
  */
 import { createHash, timingSafeEqual } from "node:crypto";
 import { sameOriginRequest } from "@/lib/sameOrigin";
+import { DEFAULT_SPY_DECISION_TIMEFRAME } from "@/lib/deskReadings";
 import { deskEnabled, type DeskConfig, type DeskDeps, type DeskStore } from "@/lib/spyDesk";
 import type { LiveDesk } from "@/lib/spyDeskLive";
 import { runAutoCycle, setAutoSwitch } from "@/lib/spyAuto";
@@ -75,7 +76,7 @@ export async function handleAutoRun(request: Request, ctx: AutoRouteContext): Pr
     const clock = ctx.now ?? (() => new Date());
     const live = await ctx.makeLive();
     const deps: DeskDeps = live.ok ? live.deps : unavailableDeps(live.error, clock);
-    const config: DeskConfig = live.ok ? live.config : { timeframe: (ctx.profile ?? MONTHLY_PROFILE).fixedTimeframe ?? "M", liveBudget: 1000 };
+    const config: DeskConfig = live.ok ? live.config : { timeframe: (ctx.profile ?? MONTHLY_PROFILE).fixedTimeframe ?? DEFAULT_SPY_DECISION_TIMEFRAME, liveBudget: 1000 };
     const res = await runAutoCycle(deps, config, { desk: ctx.desk, kv: ctx.kv }, { dryRun });
     return json({ ok: res.status < 400, dryRun: res.dryRun, outcome: res.outcome, message: res.message, logged: res.logged, repeat: res.repeat }, res.status);
   } catch (e) {

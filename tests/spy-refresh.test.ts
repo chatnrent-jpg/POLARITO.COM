@@ -36,7 +36,7 @@ describe("light view (server): never reads the option chain", () => {
     const snap = await buildLiveSnapshot(makeDeps(DRIVE, { calls: c }), CFG, createMemoryDeskStore(heldState()));
     assert.equal(snap.kind, "live");
     assert.equal(snap.decision.action, "CALL");
-    assert.equal(snap.readings.length, 4);
+    assert.equal(snap.readings.length, 5, "the Daily reading plus the four period readings");
     assert.equal(snap.position.status, "held");
     assert.deepEqual({ daily: c.daily, spot: c.spot, held: c.held, sides: c.sides }, { daily: 1, spot: 1, held: 1, sides: [] });
     if (snap.position.status === "held") {

@@ -1,6 +1,6 @@
 /**
  * The "gear" of the SPY desk and the one rule that hangs on it, shared by the browser (to show the check at once) and by
- * the server (which recomputes the gear itself and never trusts the browser): the monthly polarity reading decides which
+ * the server (which recomputes the gear itself and never trusts the browser): the decision timeframe's polarity reading (Daily by default, Monthly when selected) decides which
  * side a MANUAL ticket may open.
  *
  *   Drive    only a Call may be opened; a Put is blocked

@@ -1,8 +1,8 @@
 /**
  * SPY-only options decision engine, DRY RUN ONLY.
  *
- * It reads the four period-to-date readings (longPolarity.ts), decides CALL / PUT / STAND ASIDE from the configured
- * decision timeframe (default monthly), picks the contract (nearest listed expiry of at least 365 days, |delta| >= 0.80,
+ * It reads the daily net volume reading and the four period-to-date readings (longPolarity.ts), decides CALL / PUT / STAND ASIDE from
+ * the configured decision timeframe (default Daily "1D"; Monthly and the others stay selectable with SPY_DECISION_TIMEFRAME), picks the contract (nearest listed expiry of at least 365 days, |delta| >= 0.80,
  * optionsSelect.ts), and LOGS what it would do. It never submits, changes or cancels an order: it has no broker, no order
  * client and does not read POLARITO_LIVE_TRADING_ENABLED. Its only inputs are functions that read market data.
  *
@@ -25,8 +25,7 @@
 import type { BrokerErrorCode, Result } from "@/lib/broker/types";
 import type { OptionType } from "@/lib/broker/options";
 import { daysBetween } from "@/lib/broker/options";
-import { isLongTimeframe } from "@/lib/longPolarity";
-import { TIMEFRAME_NAMES, computeDeskReadings, isDeskTimeframe, readingKeys, type DeskReading, type DeskReadings, type DeskTimeframe } from "@/lib/deskReadings";
+import { TIMEFRAME_NAMES, DEFAULT_SPY_DECISION_TIMEFRAME, computeDeskReadings, deskReadingKeys, isDeskTimeframe, isSelectableDeskTimeframe, type DeskReading, type DeskReadings, type DeskTimeframe } from "@/lib/deskReadings";
 import { etClock } from "@/lib/marketCalendar";
 import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
 import { metaFor, type Bar, type Polarity } from "@/lib/polarity";
@@ -158,8 +157,8 @@ export function parseEngineState(raw: unknown): { ok: true; state: EngineState }
 
 /** `fixedTimeframe` is a desk whose decision source is not a setting (the WWV desk): SPY_DECISION_TIMEFRAME is then not read at all. */
 export function parseEngineConfig(env: Readonly<Record<string, string | undefined>>, fixedTimeframe: DeskTimeframe | null = null): { ok: true; config: EngineConfig } | { ok: false; error: string } {
-  const chosen = (env.SPY_DECISION_TIMEFRAME ?? "M").trim().toUpperCase();
-  if (fixedTimeframe === null && !isLongTimeframe(chosen)) return { ok: false, error: `SPY_DECISION_TIMEFRAME must be one of M, Q, H, Y (got "${chosen}"); there is no daily or weekly option` };
+  const chosen = (env.SPY_DECISION_TIMEFRAME ?? DEFAULT_SPY_DECISION_TIMEFRAME).trim().toUpperCase();
+  if (fixedTimeframe === null && !isSelectableDeskTimeframe(chosen)) return { ok: false, error: `SPY_DECISION_TIMEFRAME must be one of 1D (Daily, the default), M, Q, H, Y (got "${chosen}"); there is no weekly option` };
   const timeframe = (fixedTimeframe ?? chosen) as DeskTimeframe;
   if (env.SPY_NET_VOLUME_METHOD !== undefined) return { ok: false, error: "SPY_NET_VOLUME_METHOD is no longer supported: there is exactly one net volume definition (period-to-date daily volume signed by close vs the previous period's last close)" };
   const onNeutral = (env.SPY_ON_NEUTRAL ?? NEUTRAL_POLICY).trim().toLowerCase();
@@ -182,7 +181,7 @@ export function describeDecision(primary: DeskReading, timeframe: DeskTimeframe)
     const prev = w.previous ? `previous ${w.previous.direction}-wave volume ${plainVolume(w.previous.volume)}` : "previous wave not shown";
     return `${TIMEFRAME_NAMES[timeframe]} (bar ${w.barDate}${w.inProgress ? ", session still in progress" : ""}): candle ${primary.kind}, ${w.direction}-wave since ${w.waveStart} with volume ${plainVolume(w.waveVolume)} (${prev}), ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`;
   }
-  return `${TIMEFRAME_NAMES[timeframe]} since ${primary.periodStart}: candle ${primary.kind}, net volume ${rawNet(primary.netVolume)}${primary.netFlag ? ` [${primary.netFlag.toUpperCase()} NET VOLUME: Neutral, no sign guessed]` : ""}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}${primary.inProgress ? " (today's session is still in progress: the reading uses the partial day and can change until the close)" : ""}`;
+  return `${TIMEFRAME_NAMES[timeframe]} ${timeframe === "1D" ? `session ${primary.periodStart}` : `since ${primary.periodStart}`}: candle ${primary.kind}, net volume ${rawNet(primary.netVolume)}${primary.netFlag ? ` [${primary.netFlag.toUpperCase()} NET VOLUME: Neutral, no sign guessed]` : ""}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}${primary.inProgress ? " (today's session is still in progress: the reading uses the partial day and can change until the close)" : ""}`;
 }
 
 function readingData(r: DeskReading): Record<string, unknown> {
@@ -220,7 +219,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
   const base: EngineResult = { ok: false, state, events, decision: null, readings: null };
 
   try {
-    emit("run", `Dry run (no orders can be sent). Decision timeframe ${TIMEFRAME_NAMES[config.timeframe]}, ${config.timeframe === "D" ? "Weis Wave Volume with setting 1: a bar's direction is its close against the previous close, the wave volume restarts at each turn (the turning bar belongs to the new wave) and an equal close continues the wave." : "net volume = period-to-date daily volume signed by close vs the previous period's last close (the chart definition)."}`, { timeframe: config.timeframe, dryRun: true });
+    emit("run", `Dry run (no orders can be sent). Decision timeframe ${TIMEFRAME_NAMES[config.timeframe]}, ${config.timeframe === "D" ? "Weis Wave Volume with setting 1: a bar's direction is its close against the previous close, the wave volume restarts at each turn (the turning bar belongs to the new wave) and an equal close continues the wave." : config.timeframe === "1D" ? "net volume = today's total volume signed by the latest close vs the previous trading day's close (the chart definition on the daily timeframe)." : "net volume = period-to-date daily volume signed by close vs the previous period's last close (the chart definition)."}`, { timeframe: config.timeframe, dryRun: true });
 
     const today = etClock(now).date;
     const dailyRes = await deps.loadDaily();
@@ -230,7 +229,7 @@ export async function runEngine(deps: EngineDeps, config: EngineConfig, previous
     }
     const daily = dailyRes.value;
 
-    const keys = readingKeys(config.timeframe);
+    const keys = deskReadingKeys(config.timeframe);
     const readings = computeDeskReadings(daily, now, config.timeframe);
     const at_ = (tf: DeskTimeframe): DeskReading => readings[tf] as DeskReading;
     const summary = keys.map((tf) => `${tf}:${at_(tf).polarity === null ? "-" : metaFor(at_(tf).polarity as Polarity).gear}`).join(" ");

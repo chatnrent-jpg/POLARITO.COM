@@ -10,7 +10,7 @@ export const AUTO_LOG_MAX = 200;
 export const AUTO_LOG_SHOWN = 30;
 
 export const AUTO_SCHEDULE_TEXT =
-  "Once per weekday after the close (cron at 21:30 UTC, with a 22:30 UTC retry if the first run could not decide). Monthly polarity moves slowly, so one look per day is enough.";
+  "Once per weekday after the close (cron at 21:30 UTC, with a 22:30 UTC retry if the first run could not decide). Monthly polarity moves slowly, so one look per day is enough. With the default Daily decider the reading can change from one day to the next, so Auto may close and reopen on consecutive days; it still acts at most once per session and only from 16:15 ET, on the final daily bar.";
 
 export type AutoOutcome =
   | "off"

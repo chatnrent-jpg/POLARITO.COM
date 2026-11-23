@@ -15,7 +15,7 @@
  */
 import type { OptionType } from "@/lib/broker/options";
 import { daysBetween, parseOccSymbol } from "@/lib/broker/options";
-import { TIMEFRAME_NAMES, computeDeskReadings, isDeskTimeframe, readingKeys, type DeskReading, type DeskReadings, type DeskTimeframe } from "@/lib/deskReadings";
+import { TIMEFRAME_NAMES, computeDeskReadings, deskReadingKeys, isDeskTimeframe, type DeskReading, type DeskReadings, type DeskTimeframe } from "@/lib/deskReadings";
 import type { WwvDetail } from "@/lib/wwv";
 import { etClock } from "@/lib/marketCalendar";
 import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
@@ -654,7 +654,7 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
     base.events = result.events.slice(-EVENTS_SHOWN).map((e) => ({ at: e.at, kind: e.kind, message: e.message }));
     if (result.readings) {
       const rs = result.readings;
-      base.readings = readingKeys(config.timeframe).flatMap((tf) => (rs[tf] ? [readingView(rs[tf] as DeskReading, tf === config.timeframe)] : []));
+      base.readings = deskReadingKeys(config.timeframe).flatMap((tf) => (rs[tf] ? [readingView(rs[tf] as DeskReading, tf === config.timeframe)] : []));
     }
     if (!result.decision) {
       base.decision = { action: "UNKNOWN", reason: "The engine could not evaluate (see the log below). Nothing is assumed.", traderDecides: false };

@@ -1,7 +1,7 @@
 /**
  * Plain-language summary of one dry-run engine evaluation (pure; no secrets). Shows the inputs next to each reading.
  */
-import { TIMEFRAME_NAMES, readingKeys, type DeskReading } from "@/lib/deskReadings";
+import { TIMEFRAME_NAMES, deskReadingKeys, type DeskReading } from "@/lib/deskReadings";
 import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, usd } from "@/lib/optionsSelect";
 import type { EngineConfig, EngineResult } from "@/lib/spyEngine";
 
@@ -29,7 +29,7 @@ export function renderEngineReport(result: EngineResult, config: EngineConfig): 
       "",
       "| Timeframe | Candle (open -> close) | Previous period close | Net volume (raw) | Flag | Match | Reading | Period start | As of | Newest daily bar | Sessions | Note |",
       "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-      ...readingKeys(config.timeframe).flatMap((tf) => (result.readings?.[tf] ? [row(result.readings[tf] as DeskReading, tf === config.timeframe ? " *" : "")] : [])),
+      ...deskReadingKeys(config.timeframe).flatMap((tf) => (result.readings?.[tf] ? [row(result.readings[tf] as DeskReading, tf === config.timeframe ? " *" : "")] : [])),
       "",
     );
   }
