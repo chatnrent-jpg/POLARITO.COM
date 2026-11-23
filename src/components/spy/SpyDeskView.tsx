@@ -7,7 +7,7 @@ import type { Freshness } from "@/lib/spyDeskData";
 import { gearPermit, type AnalyzerState } from "@/lib/spyAnalyzer";
 import { GEAR_NAMES, TICKER, checkSide } from "@/lib/spyGear";
 import { MONTHLY_PROFILE, type DeskProfile } from "@/lib/spyProfile";
-import { clockText, dateTimeText, volumeText, decisionHeadline, money, netFlagText, netVolumeText, percent, price, signedDelta } from "@/lib/spyDeskFormat";
+import { clockText, dateTimeText, signedMoney, signedPercent, volumeText, decisionHeadline, money, netFlagText, netVolumeText, percent, price, signedDelta } from "@/lib/spyDeskFormat";
 
 /**
  * Pure rendering of the SPY desk. No fetching, no decisions, no storage: it draws exactly what it is given and calls the
@@ -221,55 +221,115 @@ function EnginePick({ pick, rules }: { pick: DeskSnapshot["enginePick"]; rules: 
   );
 }
 
-function PositionCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
+const gridLabel = "text-xs font-medium uppercase tracking-wide text-zinc-400";
+const gridValue = "mt-0.5 text-base font-semibold text-zinc-50";
+
+/** The Close (dry run) button and its confirm box. Its state lives in the container, so a refresh never resets an open box. */
+function CloseControls({ props }: { props: DeskViewProps }) {
+  const { close } = props;
+  if (close.stage === "idle") {
+    return (
+      <button type="button" className={`${btn} w-full rounded-lg bg-amber-500 px-5 py-3 text-base font-bold text-black hover:bg-amber-400 sm:w-auto`} disabled={props.busy} onClick={() => props.onCloseChange({ stage: "confirm", ack: false })} data-testid="close-start">
+        Close (dry run)
+      </button>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-md border border-amber-500/60 bg-zinc-950/70 p-3" data-testid="close-confirm">
+      <label className="flex items-start gap-2 text-sm text-zinc-100">
+        <input type="checkbox" checked={close.ack} onChange={(e) => props.onCloseChange({ ack: e.target.checked })} className="mt-1" data-testid="close-ack" />
+        <span>I understand this only closes the dry-run record. No order is sent to any broker.</span>
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={`${btn} bg-amber-500 text-black hover:bg-amber-400`} disabled={props.busy || !close.ack} onClick={() => props.onSubmitClose(false)} data-testid="close-submit">
+          Close at the current bid (dry run)
+        </button>
+        {close.offerUnpriced ? (
+          <button type="button" className={`${btn} bg-zinc-700 text-zinc-100 hover:bg-zinc-600`} disabled={props.busy || !close.ack} onClick={() => props.onSubmitClose(true)} data-testid="close-unpriced">
+            Close without a price (result unknown)
+          </button>
+        ) : null}
+        <button type="button" className={`${btn} text-zinc-200 hover:text-white`} disabled={props.busy} onClick={() => props.onCloseChange({ stage: "idle", ack: false, offerUnpriced: false })}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+type HeldPosition = Extract<DeskSnapshot["position"], { status: "held" }>;
+
+/** The result if closed at the bid: the largest thing on the card. Sign and word as well as colour, so it never relies on colour alone. */
+function PositionResult({ pos }: { pos: HeldPosition }) {
+  if (!pos.quote) {
+    return (
+      <div data-testid="position-pnl" data-state="unknown">
+        <div className="text-4xl font-extrabold leading-tight text-zinc-300 sm:text-5xl">Result unknown</div>
+        <div className="mt-1 text-sm text-zinc-300">No usable quote right now, so there is no result if closed at the bid.</div>
+      </div>
+    );
+  }
+  const pnl = pos.quote.pnlUsd;
+  const state = pnl > 0 ? "gain" : pnl < 0 ? "loss" : "even";
+  const tone = state === "gain" ? "text-emerald-300" : state === "loss" ? "text-red-300" : "text-zinc-100";
+  const pct = pos.costUsd > 0 ? (pnl / pos.costUsd) * 100 : null;
+  return (
+    <div data-testid="position-pnl" data-state={state}>
+      <div className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 font-extrabold leading-tight ${tone}`}>
+        <span className="text-4xl sm:text-6xl" data-testid="pnl-usd">{signedMoney(pnl)}</span>
+        <span className="text-2xl sm:text-4xl" data-testid="pnl-pct">{pct === null ? "n/a" : signedPercent(pct)}</span>
+        <span className="text-base font-bold uppercase tracking-wide sm:text-lg" data-testid="pnl-word">{state === "gain" ? "gain" : state === "loss" ? "loss" : "break-even"}</span>
+      </div>
+      <div className="mt-1 text-sm font-medium text-zinc-200">if closed at the bid ({price(pos.quote.bid)}), as % of the {money(pos.costUsd)} entry cost</div>
+    </div>
+  );
+}
+
+/** The open dry-run position, first thing on the page: bordered, accented, with the result as the largest element and Close right under it. */
+function PositionHero({ props, pos }: { props: DeskViewProps; pos: HeldPosition }) {
+  return (
+    <section className="rounded-xl border-2 border-sky-400 bg-zinc-900 p-4 shadow-lg shadow-sky-950/50 ring-4 ring-sky-400/20 sm:p-6" aria-labelledby="pos-h" data-testid="position-held">
+      <div className="-mx-4 -mt-4 mb-4 rounded-t-[10px] bg-sky-400 px-4 py-1.5 text-sm font-extrabold uppercase tracking-widest text-sky-950 sm:-mx-6 sm:-mt-6 sm:px-6">
+        <h2 id="pos-h">Open dry-run position</h2>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`rounded-lg px-4 py-1 text-2xl font-extrabold tracking-wide ring-2 ${pos.type === "call" ? "bg-emerald-500/20 text-emerald-200 ring-emerald-400" : "bg-red-500/20 text-red-200 ring-red-400"}`} data-testid="position-side">
+          {pos.type.toUpperCase()}
+        </span>
+        <Badge tone={pos.source === "auto" ? "green" : "zinc"}>{sourceMode(pos.source)}</Badge>
+        <Badge tone="amber">DRY RUN</Badge>
+        {pos.belowTargetLabel ? <Badge tone="amber">{pos.belowTargetLabel}</Badge> : null}
+      </div>
+      <div className="mt-4 rounded-lg bg-zinc-950/70 p-4">
+        <PositionResult pos={pos} />
+      </div>
+      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3" data-testid="position-grid">
+        <div className="col-span-2 sm:col-span-1"><dt className={gridLabel}>Contract</dt><dd className={`${gridValue} break-all font-mono`}>{pos.symbol}</dd></div>
+        <div><dt className={gridLabel}>Strike / expiry</dt><dd className={gridValue}>{pos.strike} / {pos.expiration}</dd></div>
+        <div><dt className={gridLabel}>Entry (ask) / delta</dt><dd className={gridValue}>{price(pos.entryAsk)} / {signedDelta(pos.entryDelta)}</dd></div>
+        <div><dt className={gridLabel}>Entry cost / max loss</dt><dd className={gridValue}>{money(pos.costUsd)}</dd></div>
+        <div>
+          <dt className={gridLabel}>Now (bid / ask)</dt>
+          <dd className={gridValue}>{pos.quote ? `${price(pos.quote.bid)} / ${price(pos.quote.ask)}` : "no usable quote right now"}</dd>
+        </div>
+        <div>
+          <dt className={gridLabel}>Quote time</dt>
+          <dd className={gridValue} data-testid="quote-time">{pos.quote ? `quote made ${dateTimeText(pos.quote.quoteAt)}` : "n/a"}</dd>
+        </div>
+      </dl>
+      <div className="mt-5" data-testid="position-close">
+        <CloseControls props={props} />
+      </div>
+    </section>
+  );
+}
+
+function PositionCard({ snap }: { snap: DeskSnapshot }) {
   const pos = snap.position;
   if (pos.status === "unknown") {
     return <p className="text-sm text-rose-300" data-testid="position-unknown">Dry-run position unknown: {pos.reason} Nothing is assumed, so Close and the ticket are off.</p>;
   }
-  if (pos.status === "none") return <p className="text-sm text-zinc-400" data-testid="position-none">No dry-run position held.</p>;
-  const { close } = props;
-  return (
-    <div className="space-y-3" data-testid="position-held">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={pos.type === "call" ? "green" : "red"}>{pos.type.toUpperCase()}</Badge>
-        <Badge tone={pos.source === "auto" ? "green" : "zinc"}>{sourceMode(pos.source)}, DRY RUN</Badge>
-        {pos.belowTargetLabel ? <Badge tone="amber">{pos.belowTargetLabel}</Badge> : null}
-      </div>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
-        <div><dt className="text-xs text-zinc-500">Contract</dt><dd className="font-mono">{pos.symbol}</dd></div>
-        <div><dt className="text-xs text-zinc-500">Strike / expiry</dt><dd>{pos.strike} / {pos.expiration}</dd></div>
-        <div><dt className="text-xs text-zinc-500">Entry (ask) / delta</dt><dd>{price(pos.entryAsk)} / {signedDelta(pos.entryDelta)}</dd></div>
-        <div><dt className="text-xs text-zinc-500">Entry cost / max loss</dt><dd>{money(pos.costUsd)}</dd></div>
-        <div><dt className="text-xs text-zinc-500">Now (bid / ask)</dt><dd>{pos.quote ? `${price(pos.quote.bid)} / ${price(pos.quote.ask)}` : "no usable quote right now"}{pos.quote ? <span className="block text-xs text-zinc-500" data-testid="quote-time">quote made {dateTimeText(pos.quote.quoteAt)}</span> : null}</dd></div>
-        <div><dt className="text-xs text-zinc-500">Result if closed at the bid</dt><dd className={pos.quote ? (pos.quote.pnlUsd >= 0 ? "text-emerald-300" : "text-red-300") : "text-zinc-500"}>{pos.quote ? money(pos.quote.pnlUsd) : "unknown"}</dd></div>
-      </dl>
-      {close.stage === "idle" ? (
-        <button type="button" className={`${btn} bg-zinc-700 text-zinc-100 hover:bg-zinc-600`} disabled={props.busy} onClick={() => props.onCloseChange({ stage: "confirm", ack: false })} data-testid="close-start">
-          Close (dry run)
-        </button>
-      ) : (
-        <div className="space-y-2 rounded-md border border-zinc-700 bg-zinc-950/60 p-3" data-testid="close-confirm">
-          <label className="flex items-start gap-2 text-sm text-zinc-200">
-            <input type="checkbox" checked={close.ack} onChange={(e) => props.onCloseChange({ ack: e.target.checked })} className="mt-1" data-testid="close-ack" />
-            <span>I understand this only closes the dry-run record. No order is sent to any broker.</span>
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className={`${btn} bg-amber-600 text-black hover:bg-amber-500`} disabled={props.busy || !close.ack} onClick={() => props.onSubmitClose(false)} data-testid="close-submit">
-              Close at the current bid (dry run)
-            </button>
-            {close.offerUnpriced ? (
-              <button type="button" className={`${btn} bg-zinc-700 text-zinc-100 hover:bg-zinc-600`} disabled={props.busy || !close.ack} onClick={() => props.onSubmitClose(true)} data-testid="close-unpriced">
-                Close without a price (result unknown)
-              </button>
-            ) : null}
-            <button type="button" className={`${btn} text-zinc-300 hover:text-white`} disabled={props.busy} onClick={() => props.onCloseChange({ stage: "idle", ack: false, offerUnpriced: false })}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <p className="text-sm text-zinc-400" data-testid="position-none">No dry-run position held.</p>;
 }
 
 function CandidateTable({ list, selected, onSelect, disabled, primary }: { list: CandidateList; selected: string | null; onSelect(symbol: string): void; disabled: boolean; primary: number }) {
@@ -477,6 +537,7 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
   const unavailable = snap.decision.action === "DATA_UNAVAILABLE" || snap.decision.action === "UNKNOWN";
   return (
     <>
+      {snap.position.status === "held" ? <PositionHero props={props} pos={snap.position} /> : null}
       {snap.auto.banner ? (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" role="status" data-testid="neutral-banner">
           {snap.auto.banner}
@@ -516,10 +577,12 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
         <h2 id="pick-h" className={h2}>Contract the engine would pick (preview, nothing is saved)</h2>
         <EnginePick pick={snap.enginePick} rules={snap.rules} />
       </section>
-      <section className={card} aria-labelledby="pos-h">
-        <h2 id="pos-h" className={h2}>Dry-run position</h2>
-        <PositionCard props={props} snap={snap} />
-      </section>
+      {snap.position.status !== "held" ? (
+        <section className={card} aria-labelledby="pos-h">
+          <h2 id="pos-h" className={h2}>Dry-run position</h2>
+          <PositionCard snap={snap} />
+        </section>
+      ) : null}
       <section className={card} aria-labelledby="auto-h">
         <h2 id="auto-h" className={h2}>Auto (practice trader)</h2>
         <AutoCard props={props} snap={snap} />

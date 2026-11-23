@@ -114,7 +114,8 @@ describe("SPY desk view (rendering only)", () => {
     const s = await snap(NEUTRAL, {}, createMemoryDeskStore(held()));
     const idle = html(props({ load: { status: "ready", snapshot: s } }));
     assert.match(idle, /data-testid="position-held"/);
-    assert.match(idle, /MANUAL, DRY RUN/);
+    assert.match(idle, />MANUAL<\/span>/);
+    assert.match(idle, />DRY RUN<\/span>/);
     assert.match(idle, /data-testid="close-start"/);
     assert.doesNotMatch(idle, /data-testid="close-submit"/);
     const confirm = html(props({ load: { status: "ready", snapshot: s }, close: { stage: "confirm", ack: false, offerUnpriced: true } }));
@@ -161,12 +162,12 @@ describe("SPY desk view (rendering only)", () => {
     await runAutoCycle(makeDeps(DRIVE), CFG, { desk, kv: r }, {});
     const s = await buildDeskSnapshot(makeDeps(DRIVE), CFG, desk, await buildAutoView(r));
     const out = html(props({ load: { status: "ready", snapshot: s } }));
-    assert.match(out, /AUTO, DRY RUN/);
+    assert.match(out, /data-testid="position-held"[\s\S]*?>AUTO<\/span>[\s\S]*?>DRY RUN<\/span>/);
     assert.match(out, /data-testid="journal"[\s\S]*>AUTO</);
     assert.match(out, /data-testid="auto-log"/);
     assert.match(out, /OPENED/);
     const manual = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL, {}, createMemoryDeskStore(held())) } }));
-    assert.match(manual, /MANUAL, DRY RUN/);
+    assert.match(manual, /data-testid="position-held"[\s\S]*?>MANUAL<\/span>[\s\S]*?>DRY RUN<\/span>/);
   });
   it("Neutral while holding shows the banner for the trader", async () => {
     const s = await snap(NEUTRAL, {}, createMemoryDeskStore(held()));
