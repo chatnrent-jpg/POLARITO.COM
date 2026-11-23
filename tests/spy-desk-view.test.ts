@@ -49,8 +49,8 @@ describe("SPY desk view (rendering only)", () => {
     assert.doesNotMatch(out, /data-testid="ticket-open"/);
     assert.doesNotMatch(out, /Four readings/);
   });
-  it("Neutral: four readings with raw net volume, match, reading; decision headline; ticket open with call/put and the chain", async () => {
-    const out = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL) }, analyzer: await gearOf(NEUTRAL) }));
+  it("Neutral: four readings with raw net volume, match, reading; decision headline; the ticket refuses both sides (no new position) and offers no chain", async () => {
+    const out = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL) }, analyzer: await gearOf(NEUTRAL), ticket: { ...TICKET, type: "call" } }));
     for (const tf of ["M", "Q", "H", "Y"]) assert.match(out, new RegExp(`data-testid="reading-${tf}"`));
     assert.match(out, /Raw net volume/);
     assert.match(out, /-400/);
@@ -59,20 +59,27 @@ describe("SPY desk view (rendering only)", () => {
     assert.match(out, /data-testid="ticket-open"/);
     assert.match(out, /data-testid="ticket-type-call"/);
     assert.match(out, /data-testid="ticket-type-put"/);
-    assert.match(out, /SPY271105P00850000|Choose SPY271105P00850000/);
-    assert.match(out, /Pick a contract to continue/);
-    assert.doesNotMatch(out, /data-testid="ticket-submit"/);
+    assert.match(out, /data-testid="side-blocked"/);
+    assert.doesNotMatch(out, /data-testid="side-ok"/);
+    assert.match(out, /Call is blocked: the gear is Neutral, so no new position can be opened/);
+    const put = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL) }, analyzer: await gearOf(NEUTRAL), ticket: { ...TICKET, type: "put" } }));
+    assert.match(put, /Put is blocked: the gear is Neutral, so no new position can be opened/);
+    assert.doesNotMatch(put, /SPY271105P00850000/);
+    assert.doesNotMatch(put, /data-testid="ticket-submit"/);
   });
   it("a chosen contract shows the dry-run summary, the below-0.80 marking, and the submit button only after the acknowledgement is ticked", async () => {
-    const s = await snap(NEUTRAL);
+    const s = await snap(REVERSE);
     const sel = { ...TICKET, symbol: "SPY271105P00850000" };
-    const analyzer = await gearOf(NEUTRAL);
+    const analyzer = await gearOf(REVERSE);
     const off = html(props({ load: { status: "ready", snapshot: s }, ticket: sel, analyzer }));
     assert.match(off, /DRY RUN: would buy 1 PUT SPY271105P00850000/);
     assert.match(off, /BELOW 0\.80 \(chosen by hand, floor 0\.60\)/);
     assert.ok(isDisabled(tag(off, "ticket-submit")));
     const on = html(props({ load: { status: "ready", snapshot: s }, ticket: { ...sel, ack: true }, analyzer }));
     assert.ok(tag(on, "ticket-submit") !== "" && !isDisabled(tag(on, "ticket-submit")));
+    const neutral = html(props({ load: { status: "ready", snapshot: await snap(NEUTRAL) }, ticket: { ...sel, ack: true }, analyzer: await gearOf(NEUTRAL) }));
+    assert.doesNotMatch(neutral, /data-testid="ticket-summary"/, "on Neutral a chosen contract is never summarised or submittable");
+    assert.doesNotMatch(neutral, /data-testid="ticket-submit"/);
   });
   it("Drive: the engine pick is drawn, and the manual ticket card is open once Analyze has run", async () => {
     const out = html(props({ load: { status: "ready", snapshot: await snap(DRIVE) }, analyzer: await gearOf(DRIVE) }));

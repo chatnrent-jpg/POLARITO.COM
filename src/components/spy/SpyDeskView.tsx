@@ -53,18 +53,19 @@ const card = "rounded-lg border border-zinc-800 bg-zinc-900/60 p-4";
 const h2 = "mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400";
 const btn = "rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40";
 
-function Badge({ tone, children }: { tone: "green" | "red" | "amber" | "zinc" | "rose"; children: ReactNode }) {
+function Badge({ tone, children }: { tone: "green" | "red" | "amber" | "zinc" | "rose" | "cognac"; children: ReactNode }) {
   const tones = {
     green: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40",
     red: "bg-red-500/15 text-red-300 ring-red-500/40",
     amber: "bg-amber-500/15 text-amber-300 ring-amber-500/40",
     zinc: "bg-zinc-700/30 text-zinc-300 ring-zinc-600/50",
     rose: "bg-rose-500/15 text-rose-300 ring-rose-500/40",
+    cognac: "bg-[#9A4E2C]/30 text-[#F2CDB4] ring-[#C0693F]/70",
   } as const;
   return <span className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ring-1 ${tones[tone]}`}>{children}</span>;
 }
 
-const readingTone = (label: string): "green" | "red" | "zinc" | "rose" => (label === "Drive" ? "green" : label === "Reverse" ? "red" : label === "Neutral" ? "zinc" : "rose");
+const readingTone = (label: string): "green" | "red" | "cognac" | "rose" => (label === "Drive" ? "green" : label === "Reverse" ? "red" : label === "Neutral" ? "cognac" : "rose");
 const candleClass = (c: ReadingView["candle"]): string => (c === "green" ? "text-emerald-300" : c === "red" ? "text-red-300" : "text-zinc-300");
 
 /** The resulting gear as a bold badge: the word is always there, the colour only backs it up. */
@@ -72,7 +73,7 @@ function GearBadge({ label, size = "md" }: { label: string; size?: "md" | "lg" }
   const tones = {
     green: "bg-emerald-500/20 text-emerald-200 ring-emerald-400",
     red: "bg-red-500/20 text-red-200 ring-red-400",
-    zinc: "bg-zinc-600/30 text-zinc-100 ring-zinc-400",
+    cognac: "bg-[#9A4E2C]/40 text-[#F6D9C5] ring-[#C0693F]",
     rose: "bg-rose-500/20 text-rose-200 ring-rose-400",
   } as const;
   return (
@@ -416,7 +417,7 @@ function GearCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot })
       {a ? (
         <div className="text-sm" data-testid="gear-card" data-gear={a.gear}>
           <div>
-            Gear: <strong data-testid="gear-name">{GEAR_NAMES[a.gear]}</strong> <Badge tone={a.gear === "DRIVE" ? "green" : a.gear === "REVERSE" ? "red" : "amber"}>{a.gear === "DRIVE" ? "CALL only" : a.gear === "REVERSE" ? "PUT only" : "trader decides"}</Badge>
+            Gear: <strong data-testid="gear-name">{GEAR_NAMES[a.gear]}</strong> <Badge tone={a.gear === "DRIVE" ? "green" : a.gear === "REVERSE" ? "red" : "cognac"}>{a.gear === "DRIVE" ? "CALL only" : a.gear === "REVERSE" ? "PUT only" : "no new position"}</Badge>
           </div>
           <div className="text-zinc-300" data-testid="gear-netvol">
             {a.reading.wwv
@@ -467,7 +468,7 @@ function TicketCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot 
     <div className="space-y-3" data-testid="ticket-open">
       <GearCard props={props} snap={snap} />
       <p className="text-sm text-amber-200" data-testid="ticket-intro">
-        Select Call or Put. It will be checked against the active gear immediately. Then choose one contract from the rules-filtered chain. This records a MANUAL dry-run position only, labelled MANUAL.
+        Select Call or Put. It will be checked against the active gear immediately. Then choose one contract from the rules-filtered chain. This records a MANUAL dry-run position only, labelled MANUAL. On a Neutral gear both sides are refused (no new position).
       </p>
       <div className="flex gap-2" role="group" aria-label="Call or put">
         {(["call", "put"] as const).map((ty) => (
@@ -515,8 +516,8 @@ function Journal({ entries }: { entries: DeskSnapshot["journal"] }) {
   );
 }
 
-const outcomeTone = (o: AutoLogEntry["outcome"]): "green" | "red" | "amber" | "zinc" | "rose" =>
-  o === "opened" || o === "closed-and-opened" || o === "closed" ? "green" : o === "refused" || o === "error" ? "rose" : o === "neutral" || o === "no-action" || o === "off" ? "amber" : "zinc";
+const outcomeTone = (o: AutoLogEntry["outcome"]): "green" | "red" | "amber" | "zinc" | "rose" | "cognac" =>
+  o === "opened" || o === "closed-and-opened" || o === "closed" ? "green" : o === "refused" || o === "error" ? "rose" : o === "neutral" ? "cognac" : o === "no-action" || o === "off" ? "amber" : "zinc";
 
 function AutoLog({ a }: { a: DeskSnapshot["auto"] }) {
   return (
@@ -570,7 +571,7 @@ function AutoCard({ props, snap, hideLog = false }: { props: DeskViewProps; snap
         </div>
       </div>
       <p className="text-sm text-zinc-300">
-        When ON, a scheduled run ({a.schedule}) opens a call on Drive or a put on Reverse when no position is held, and when the reading turns opposite to a position Auto opened it closes at the bid and opens the other side. Neutral: no action, you decide. It never touches a MANUAL position. Practice record only; no order is ever sent.
+        When ON, a scheduled run ({a.schedule}) opens a call on Drive or a put on Reverse when no position is held, and when the reading turns opposite to a position Auto opened it closes at the bid and opens the other side. Neutral: no action and no new position (a manual buy is refused too); you may still close. It never touches a MANUAL position. Practice record only; no order is ever sent.
       </p>
       {!a.available ? (
         <p className="text-sm text-amber-300" data-testid="auto-unavailable">Auto cannot be switched: {a.reason}</p>
@@ -602,7 +603,7 @@ function decisionLook(action: DeskSnapshot["decision"]["action"]): DecisionLook 
     case "PUT":
       return { big: "PUT", frame: "border-red-400 ring-red-400/20", bar: "bg-red-400 text-red-950", badge: "bg-red-500/20 text-red-200 ring-red-400", gear: "Reverse", gearLine: "Puts only." };
     case "STAND_ASIDE":
-      return { big: "NEUTRAL", frame: "border-zinc-400 ring-zinc-400/20", bar: "bg-zinc-300 text-zinc-900", badge: "bg-zinc-600/30 text-zinc-100 ring-zinc-400", gear: "Neutral", gearLine: "The trader decides." };
+      return { big: "NEUTRAL", frame: "border-[#9A4E2C] ring-[#9A4E2C]/30", bar: "bg-[#9A4E2C] text-white", badge: "bg-[#9A4E2C]/40 text-[#F6D9C5] ring-[#C0693F]", gear: "Neutral", gearLine: "No new position on Neutral; Close still works." };
     case "DATA_UNAVAILABLE":
       return { big: "NO DATA", frame: "border-rose-400 ring-rose-400/20", bar: "bg-rose-400 text-rose-950", badge: "bg-rose-500/20 text-rose-200 ring-rose-400", gear: null, gearLine: "No decision is made." };
     default:
@@ -812,7 +813,7 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
           <ul className="mt-2 space-y-1 text-xs text-zinc-400">{snap.events.map((e, i) => <li key={`${e.at}-${i}`}><span className="text-zinc-500">[{e.kind}]</span> {e.message}</li>)}</ul>
         </details>
         <p className="text-xs text-zinc-500" data-testid="rules-footer">
-          Rules: nearest listed expiry of at least {snap.rules.minDays} days; |delta| at least {snap.rules.primary.toFixed(2)}, otherwise the cheapest usable contract down to a hard floor of {snap.rules.floor.toFixed(2)} (marked {snap.rules.fallbackLabel}). Calls on Drive, puts on Reverse, the trader decides on Neutral. Dry run: this page can never send an order.
+          Rules: nearest listed expiry of at least {snap.rules.minDays} days; |delta| at least {snap.rules.primary.toFixed(2)}, otherwise the cheapest usable contract down to a hard floor of {snap.rules.floor.toFixed(2)} (marked {snap.rules.fallbackLabel}). Calls on Drive, puts on Reverse, no new position on Neutral (a held position can still be closed). Dry run: this page can never send an order.
         </p>
       </Pocket>
     </>

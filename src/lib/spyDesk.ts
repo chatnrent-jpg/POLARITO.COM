@@ -99,6 +99,7 @@ export type DeskErrorCode =
   | "NOT_ELIGIBLE"
   | "NO_QUOTE"
   | "COUNTER_POLARITY"
+  | "NEUTRAL_NO_TRADE"
   | "GEAR_CHANGED";
 
 export type ActionResult =
@@ -242,8 +243,9 @@ export function deskDecision(daily: readonly Bar[], now: Date, timeframe: DeskTi
 export type TicketGate = { open: boolean; reason: string | null };
 
 /**
- * The manual ticket is open at ANY reading (Drive, Reverse or Neutral) as long as the data is good, no dry-run position is
- * held, and a store works. The trader may go with or against the reading; the record says which.
+ * The manual ticket is shown at any reading as long as the data is good, no dry-run position is held, and a store works. The
+ * trader may go with or against a Drive/Reverse reading (the record says which); on Neutral the side check blocks both sides
+ * (NEUTRAL_NO_TRADE) so no new position can be opened. Close is never gated.
  */
 export function ticketGate(decision: Pick<Decision, "action" | "reason"> | null, positionStatus: "none" | "held" | "unknown", storeAvailable: boolean): TicketGate {
   if (!storeAvailable) return { open: false, reason: "No desk store is available, so a dry-run position cannot be saved. The ticket stays off." };
@@ -307,6 +309,7 @@ export async function openManual(deps: DeskDeps, config: DeskConfig, store: Desk
     const gear = gearFromAction(decision.action);
     if (gear === null) return refuse("DATA_UNAVAILABLE", "Data unavailable: the reading gave no gear. Nothing was recorded.", 409);
     const sideCheck = checkSide(gear, req.type);
+    if (!sideCheck.allowed && gear === "NEUTRAL") return refuse("NEUTRAL_NO_TRADE", `${sideCheck.message} The server checked the ${TIMEFRAME_NAMES[config.timeframe]} gear itself. Nothing was recorded.`, 409);
     if (!sideCheck.allowed) return refuse("COUNTER_POLARITY", `${sideCheck.message} The server checked the ${TIMEFRAME_NAMES[config.timeframe]} gear itself. Nothing was recorded.`, 409);
     if (req.analyzedGear !== undefined && req.analyzedGear !== gear) {
       return refuse("GEAR_CHANGED", `The gear changed from ${GEAR_NAMES[req.analyzedGear]} (when you analyzed) to ${GEAR_NAMES[gear]}. Analyze again and check the side. Nothing was recorded.`, 409);
@@ -681,7 +684,7 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
     if (action === "DATA_UNAVAILABLE" || action === null) {
       base.enginePick = { status: "not-applicable", reason: "Data unavailable: no decision, so no contract is chosen." };
     } else if (wantType === null) {
-      base.enginePick = { status: "not-applicable", reason: "NEUTRAL: TRADER DECIDES. The engine picks nothing on a Neutral reading; use the manual ticket below (a call or a put, your choice)." };
+      base.enginePick = { status: "not-applicable", reason: "NEUTRAL: TRADER DECIDES. The engine picks nothing on a Neutral reading and no new position can be opened (NEUTRAL_NO_TRADE): the manual ticket below refuses a buy while Neutral. Close of a held position still works." };
     } else {
       let side = captured.get(wantType) ?? null;
       if (!side) {

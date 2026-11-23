@@ -159,9 +159,9 @@ describe("ticket gate", () => {
 });
 
 describe("manual ticket (openManual): dry-run position only", () => {
-  it("Neutral + a contract from the rules-filtered chain: records a MANUAL dry-run position, read back from the store", async () => {
+  it("Reverse + a contract from the rules-filtered chain: records a MANUAL dry-run position, read back from the store", async () => {
     const store = createMemoryDeskStore();
-    const res = await openManual(makeDeps(NEUTRAL), CFG, store, { type: "put", symbol: PUT_850 });
+    const res = await openManual(makeDeps(REVERSE), CFG, store, { type: "put", symbol: PUT_850 });
     assert.ok(res.ok, res.ok ? "" : res.error);
     const saved = await store.read();
     assert.ok(saved.ok && saved.state.position);
@@ -181,19 +181,17 @@ describe("manual ticket (openManual): dry-run position only", () => {
   });
   it("a call works the same, and a >= 0.80 contract is primary", async () => {
     const store = createMemoryDeskStore();
-    const res = await openManual(makeDeps(NEUTRAL), CFG, store, { type: "call", symbol: CALL_550 });
+    const res = await openManual(makeDeps(DRIVE), CFG, store, { type: "call", symbol: CALL_550 });
     assert.ok(res.ok);
     const s = await store.read();
     assert.ok(s.ok && s.state.position?.type === "call");
     assert.equal(s.state.position?.deltaTier, "primary");
     assert.equal(s.state.position?.fallbackReason, null);
   });
-  it("opens on the gear's own side (Drive call, Reverse put) and on either side at Neutral; always MANUAL", async () => {
+  it("opens on the gear's own side (Drive call, Reverse put); always MANUAL (Neutral opens nothing: see the NEUTRAL_NO_TRADE tests)", async () => {
     const cases = [
       [DRIVE, "call", CALL_600, /Drive reading, same side, trader decided/],
       [REVERSE, "put", PUT_850, /Reverse reading, same side, trader decided/],
-      [NEUTRAL, "call", CALL_600, /Neutral reading, trader decided/],
-      [NEUTRAL, "put", PUT_850, /Neutral reading, trader decided/],
     ] as const;
     for (const [sc, type, symbol, note] of cases) {
       const store = createMemoryDeskStore();
@@ -216,26 +214,26 @@ describe("manual ticket (openManual): dry-run position only", () => {
   it("refuses on data unavailable (bars failing, stale bars) and never reads the chain", async () => {
     const c = calls();
     const s1 = createMemoryDeskStore();
-    const r1 = await openManual(makeDeps(NEUTRAL, { dailyFails: true, calls: c }), CFG, s1, { type: "put", symbol: PUT_850 });
+    const r1 = await openManual(makeDeps(REVERSE, { dailyFails: true, calls: c }), CFG, s1, { type: "put", symbol: PUT_850 });
     assert.ok(!r1.ok && r1.code === "DATA_UNAVAILABLE");
     assert.deepEqual(c.sides, []);
-    const r2 = await openManual(makeDeps(NEUTRAL, { now: new Date("2026-11-12T21:30:00Z"), calls: c }), CFG, s1, { type: "put", symbol: PUT_850 });
+    const r2 = await openManual(makeDeps(REVERSE, { now: new Date("2026-11-12T21:30:00Z"), calls: c }), CFG, s1, { type: "put", symbol: PUT_850 });
     assert.ok(!r2.ok && r2.code === "DATA_UNAVAILABLE");
     assert.deepEqual(c.sides, []);
   });
   it("refuses when the SPY price cannot be read", async () => {
-    const res = await openManual(makeDeps(NEUTRAL, { spotFails: true }), CFG, createMemoryDeskStore(), { type: "put", symbol: PUT_850 });
+    const res = await openManual(makeDeps(REVERSE, { spotFails: true }), CFG, createMemoryDeskStore(), { type: "put", symbol: PUT_850 });
     assert.ok(!res.ok && res.code === "NO_SPOT");
   });
   it("one position at a time", async () => {
     const store = createMemoryDeskStore(heldState());
-    const res = await openManual(makeDeps(NEUTRAL), CFG, store, { type: "put", symbol: PUT_800 });
+    const res = await openManual(makeDeps(REVERSE), CFG, store, { type: "put", symbol: PUT_800 });
     assert.ok(!res.ok && res.code === "POSITION_OPEN");
     const s = await store.read();
     assert.ok(s.ok && s.state.position?.symbol === PUT_850 && s.state.journal.length === 0);
   });
   it("refuses a contract outside the rules: under the 0.60 floor, a later expiry, an unknown symbol", async () => {
-    const deps = makeDeps(NEUTRAL);
+    const deps = makeDeps(REVERSE);
     for (const symbol of ["SPY271105P00690000", "SPY271119P00850000", "SPY280121P00850000", "SPY271105P00851000", "SPY270617P00850000"]) {
       const store = createMemoryDeskStore();
       const res = await openManual(deps, CFG, store, { type: "put", symbol });
@@ -246,7 +244,7 @@ describe("manual ticket (openManual): dry-run position only", () => {
     }
   });
   it("re-checks every rule on the server even if the chain read hands back a bad row", async () => {
-    const base = makeDeps(NEUTRAL);
+    const base = makeDeps(REVERSE);
     const bad = { ...row("put", NEAREST, 690), spreadPct: 0.01 }; // delta about -0.40, far under the floor
     const deps = { ...base, readSide: async () => ({ ...side("put"), eligible: [bad] }) };
     const store = createMemoryDeskStore();
@@ -255,19 +253,19 @@ describe("manual ticket (openManual): dry-run position only", () => {
     assert.match(res.ok ? "" : res.error, /below 0\.6/);
   });
   it("chain unreadable: refuses", async () => {
-    const res = await openManual(makeDeps(NEUTRAL, { putStrikes: [], sideError: "chain down" }), CFG, createMemoryDeskStore(), { type: "put", symbol: PUT_850 });
+    const res = await openManual(makeDeps(REVERSE, { putStrikes: [], sideError: "chain down" }), CFG, createMemoryDeskStore(), { type: "put", symbol: PUT_850 });
     assert.ok(!res.ok && res.code === "CHAIN");
   });
   it("no store: refuses with an honest message; store read/write failures leave nothing changed", async () => {
-    const r0 = await openManual(makeDeps(NEUTRAL), CFG, null, { type: "put", symbol: PUT_850 });
+    const r0 = await openManual(makeDeps(REVERSE), CFG, null, { type: "put", symbol: PUT_850 });
     assert.ok(!r0.ok && r0.code === "NO_STORE" && r0.status === 503);
     const s1 = createMemoryDeskStore();
     s1.failReads = true;
-    const r1 = await openManual(makeDeps(NEUTRAL), CFG, s1, { type: "put", symbol: PUT_850 });
+    const r1 = await openManual(makeDeps(REVERSE), CFG, s1, { type: "put", symbol: PUT_850 });
     assert.ok(!r1.ok && r1.code === "STORE");
     const s2 = createMemoryDeskStore();
     s2.failWrites = true;
-    const r2 = await openManual(makeDeps(NEUTRAL), CFG, s2, { type: "put", symbol: PUT_850 });
+    const r2 = await openManual(makeDeps(REVERSE), CFG, s2, { type: "put", symbol: PUT_850 });
     assert.ok(!r2.ok && r2.code === "STORE");
     s2.failWrites = false;
     const after = await s2.read();
@@ -276,7 +274,7 @@ describe("manual ticket (openManual): dry-run position only", () => {
   it("a store that acknowledges but does not keep the write is reported, never as success", async () => {
     const s = createMemoryDeskStore();
     s.dropWrites = true;
-    const res = await openManual(makeDeps(NEUTRAL), CFG, s, { type: "put", symbol: PUT_850 });
+    const res = await openManual(makeDeps(REVERSE), CFG, s, { type: "put", symbol: PUT_850 });
     assert.ok(!res.ok && res.code === "STORE");
     assert.match(res.ok ? "" : res.error, /did not keep the change/);
   });
@@ -539,7 +537,7 @@ describe("HTTP handlers", () => {
     assert.match(body.error, /^Data unavailable/);
   });
   it("ticket: cross-site 403, bad JSON 400, bad body 400, success 200 and the position is saved", async () => {
-    const c = ctx();
+    const c = ctx({ makeLive: live(REVERSE) });
     assert.equal((await handleTicket(post("/api/spy/ticket", ticketBody, { origin: "https://evil.example", host: "www.polarito.com" }), c)).status, 403);
     assert.equal((await handleTicket(post("/api/spy/ticket", ticketBody, {}), c)).status, 403);
     assert.equal((await handleTicket(post("/api/spy/ticket", "{nope"), c)).status, 400);

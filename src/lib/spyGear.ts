@@ -5,10 +5,10 @@
  *
  *   Drive    only a Call may be opened; a Put is blocked
  *   Reverse  only a Put may be opened; a Call is blocked
- *   Neutral  trader decides: both are allowed
+ *   Neutral  no new position at all: both sides are blocked (the market goes nowhere on Neutral)
  *
  * Pure: no I/O, no clock, no imports from the desk logic (the desk imports this file). Applies to opening only: Close is
- * never gated by the gear.
+ * never gated by the gear, so a held position can always be closed, on Neutral too.
  */
 import type { OptionType } from "@/lib/broker/options";
 
@@ -30,7 +30,7 @@ const SIDE_NAME: Record<OptionType, string> = { call: "Call", put: "Put" };
 
 export function checkSide(gear: Gear, type: OptionType): SideCheck {
   const side = SIDE_NAME[type];
-  if (gear === "NEUTRAL") return { allowed: true, message: `${side} is allowed: the gear is Neutral, so the trader decides.` };
+  if (gear === "NEUTRAL") return { allowed: false, message: `${side} is blocked: the gear is Neutral, so no new position can be opened (the market goes nowhere on Neutral). Closing a held position still works. This holds until the gear changes.` };
   const only: OptionType = gear === "DRIVE" ? "call" : "put";
   if (type === only) return { allowed: true, message: `${side} is allowed: it is the ${GEAR_NAMES[gear]} side.` };
   return {
