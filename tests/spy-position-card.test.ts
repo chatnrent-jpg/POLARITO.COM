@@ -54,7 +54,7 @@ describe("open position card (shared by both desks)", () => {
     const at = (needle: string) => out.indexOf(needle);
     const hero = at('data-testid="position-held"');
     assert.ok(hero > 0);
-    for (const later of ['data-testid="neutral-banner"', 'id="readings-h"', 'id="decision-h"', 'id="pick-h"', 'id="auto-h"', 'id="ticket-h"', 'id="journal-h"']) {
+    for (const later of ['data-testid="neutral-banner"', 'id="readings-h"', 'data-testid="decision-card"', 'id="auto-h"', 'id="ticket-h"', 'id="journal-h"']) {
       assert.ok(at(later) > hero, `${later} comes after the position card`);
     }
     assert.ok(at('data-testid="desk-body"') < hero, "inside the page body");
@@ -91,7 +91,7 @@ describe("open position card (shared by both desks)", () => {
     assert.match(out, /if closed at the bid \(86\.90\), as % of the \$8,995\.00 entry cost/);
     assert.match(out, /text-red-300/);
     assert.match(tag(out, "pnl-usd"), /sm:text-6xl/);
-    const card = out.slice(out.indexOf('data-testid="position-held"'), out.indexOf('id="readings-h"'));
+    const card = out.slice(out.indexOf('data-testid="position-held"'), out.indexOf('data-testid="decision-card"'));
     for (const m of card.matchAll(/class="([^"]*)"/g)) {
       const sizes = [...m[1].matchAll(/(?:^|\s)(?:sm:)?text-(5xl|6xl|7xl)/g)];
       if (sizes.length > 0) assert.match(m[1], /sm:text-6xl|text-4xl sm:text-5xl/, "only the result (and its unknown state) is that big");
@@ -158,7 +158,7 @@ describe("open position card (shared by both desks)", () => {
   it("accessible: meaning never rests on colour alone, and the card is a labelled region", async () => {
     const out = html(props(await held()));
     assert.match(out, /<section[^>]*aria-labelledby="pos-h"[^>]*data-testid="position-held"/);
-    const t = text(out.slice(out.indexOf('data-testid="position-held"'), out.indexOf('id="readings-h"')));
+    const t = text(out.slice(out.indexOf('data-testid="position-held"'), out.indexOf('data-testid="decision-card"')));
     assert.match(t, /CALL/);
     assert.match(t, /-\$305\.00/);
     assert.match(t, /-3\.39%/);
