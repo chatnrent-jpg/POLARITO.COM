@@ -536,13 +536,35 @@ function AutoLog({ a }: { a: DeskSnapshot["auto"] }) {
   );
 }
 
+/** The Auto switch as a picture: OFF and ON both readable, the current side filled (strong green for ON, quiet grey for OFF). Read-only; the controls below change it. */
+function AutoSwitchGraphic({ on }: { on: boolean }) {
+  return (
+    <span className="inline-flex h-14 w-36 shrink-0 select-none overflow-hidden rounded-full border-2 border-zinc-600 text-base font-extrabold tracking-wide" role="img" aria-label={`Auto switch: ${on ? "ON" : "OFF"}`} data-testid="auto-switch-graphic" data-on={on ? "true" : "false"}>
+      <span className={`flex w-1/2 items-center justify-center ${on ? "text-zinc-500" : "bg-zinc-600 text-zinc-100"}`}>OFF</span>
+      <span className={`flex w-1/2 items-center justify-center ${on ? "bg-emerald-500 text-emerald-950" : "text-zinc-500"}`}>ON</span>
+    </span>
+  );
+}
+
 function AutoCard({ props, snap, hideLog = false }: { props: DeskViewProps; snap: DeskSnapshot; hideLog?: boolean }) {
   const a = snap.auto;
+  const big = "min-h-12 w-full px-6 py-3 text-base font-bold sm:w-auto";
   return (
-    <div className="space-y-3" data-testid="auto-card">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={a.on ? "green" : "zinc"}>{a.on ? "AUTO ON" : "AUTO OFF"}</Badge>
-        <span className="text-xs text-zinc-500">{a.reason}{a.at ? ` Last changed ${dateTimeText(a.at)}.` : ""}</span>
+    <div className="space-y-3" data-testid="auto-card" data-auto={a.on ? "on" : "off"}>
+      <div
+        role="group"
+        aria-labelledby="auto-state"
+        className={`flex flex-wrap items-center gap-x-5 gap-y-3 rounded-xl border-2 p-3 ${a.on ? "border-emerald-400 bg-emerald-500/10" : "border-zinc-700 bg-zinc-950/50"}`}
+        data-testid="auto-switch"
+      >
+        <AutoSwitchGraphic on={a.on} />
+        <div className="min-w-0 space-y-1">
+          <div id="auto-state" role="status" className={`text-2xl font-extrabold ${a.on ? "text-emerald-300" : "text-zinc-300"}`} data-testid="auto-state">{a.on ? "Auto is ON" : "Auto is OFF"}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={a.on ? "green" : "zinc"}>{a.on ? "AUTO ON" : "AUTO OFF"}</Badge>
+            <span className="text-xs text-zinc-400">{a.reason}{a.at ? ` Last changed ${dateTimeText(a.at)}.` : ""}</span>
+          </div>
+        </div>
       </div>
       <p className="text-sm text-zinc-300">
         When ON, a scheduled run ({a.schedule}) opens a call on Drive or a put on Reverse when no position is held, and when the reading turns opposite to a position Auto opened it closes at the bid and opens the other side. Neutral: no action, you decide. It never touches a MANUAL position. Practice record only; no order is ever sent.
@@ -550,16 +572,16 @@ function AutoCard({ props, snap, hideLog = false }: { props: DeskViewProps; snap
       {!a.available ? (
         <p className="text-sm text-amber-300" data-testid="auto-unavailable">Auto cannot be switched: {a.reason}</p>
       ) : a.on ? (
-        <button type="button" className={`${btn} bg-zinc-700 text-zinc-100 hover:bg-zinc-600`} disabled={props.busy} onClick={() => props.onSubmitAuto(false)} data-testid="auto-off">
+        <button type="button" className={`${btn} ${big} border-2 border-zinc-500 bg-zinc-800 text-zinc-50 hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400`} disabled={props.busy} onClick={() => props.onSubmitAuto(false)} data-testid="auto-off">
           Turn Auto OFF
         </button>
       ) : (
         <div className="space-y-2 rounded-md border border-zinc-700 bg-zinc-950/60 p-3">
-          <label className="flex items-start gap-2 text-sm text-zinc-200">
-            <input type="checkbox" checked={props.autoUi.ack} onChange={(e) => props.onAutoChange({ ack: e.target.checked })} className="mt-1" data-testid="auto-ack" />
+          <label className="flex min-h-11 items-start gap-3 text-sm text-zinc-200">
+            <input type="checkbox" checked={props.autoUi.ack} onChange={(e) => props.onAutoChange({ ack: e.target.checked })} className="mt-1 h-5 w-5 shrink-0" data-testid="auto-ack" />
             <span>I understand Auto only records practice trades by itself. No order is sent to any broker.</span>
           </label>
-          <button type="button" className={`${btn} bg-amber-600 text-black hover:bg-amber-500`} disabled={props.busy || !props.autoUi.ack} onClick={() => props.onSubmitAuto(true)} data-testid="auto-on">
+          <button type="button" className={`${btn} ${big} bg-emerald-500 text-emerald-950 hover:bg-emerald-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400`} disabled={props.busy || !props.autoUi.ack} onClick={() => props.onSubmitAuto(true)} data-testid="auto-on">
             Turn Auto ON
           </button>
         </div>
@@ -670,6 +692,10 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
   return (
     <>
       {snap.position.status === "held" ? <PositionHero props={props} pos={snap.position} /> : null}
+      <section className={card} aria-labelledby="auto-h">
+        <h2 id="auto-h" className={h2}>Auto (practice trader)</h2>
+        <AutoCard props={props} snap={snap} hideLog />
+      </section>
       <DecisionHero snap={snap} />
       {snap.auto.banner ? (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" role="status" data-testid="neutral-banner">
@@ -719,10 +745,6 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
           <PositionCard snap={snap} />
         </section>
       ) : null}
-      <section className={card} aria-labelledby="auto-h">
-        <h2 id="auto-h" className={h2}>Auto (practice trader)</h2>
-        <AutoCard props={props} snap={snap} hideLog />
-      </section>
       {snap.notes.length > 0 ? (
         <section className={card}>
           <h2 className={h2}>Notes</h2>

@@ -96,7 +96,8 @@ describe("decision card (shared by both desks)", () => {
     const at = (out: string, needle: string) => out.indexOf(needle);
     const body = at(none, 'data-testid="desk-body"');
     assert.ok(at(none, 'data-testid="decision-card"') > body);
-    for (const later of ['id="readings-h"', 'id="auto-h"', 'id="ticket-h"', 'id="journal-h"', 'id="pos-h"']) {
+    assert.ok(at(none, 'id="auto-h"') > body && at(none, 'id="auto-h"') < at(none, 'data-testid="decision-card"'), "the Auto card now sits directly above the decision card");
+    for (const later of ['id="readings-h"', 'id="ticket-h"', 'id="journal-h"', 'id="pos-h"']) {
       assert.ok(at(none, later) > at(none, 'data-testid="decision-card"'), `${later} after the decision card`);
     }
     assert.equal(none.match(/id="decision-h"/g)?.length, 1);
