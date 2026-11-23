@@ -103,6 +103,7 @@ function ReadingsTable({ readings }: { readings: ReadingView[] }) {
                 <Badge tone={readingTone(r.label)}>{r.label}</Badge>
                 {r.status === "unavailable" && r.reason ? <div className="mt-1 max-w-xs text-xs text-rose-300">{r.reason}</div> : null}
                 <div className="mt-1 text-xs text-zinc-500">since {r.periodStart ?? "n/a"}, as of {dateTimeText(r.asOf)}</div>
+                {r.status === "ok" && r.inProgress ? <div className="mt-1 text-xs text-amber-300" data-testid={`in-progress-${r.timeframe}`}>session in progress: includes today&apos;s partial day, can change until the close</div> : null}
               </td>
             </tr>
           ))}
@@ -327,7 +328,7 @@ function GearCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot })
           <div className="text-zinc-300" data-testid="gear-netvol">
             {a.reading.wwv
               ? `${a.timeframeName}: ${a.reading.wwv.direction}-wave volume ${volumeText(a.reading.wwv.waveVolume)} shares since ${a.reading.wwv.waveStart}, candle ${a.reading.candle ?? "n/a"}, daily bar ${a.reading.wwv.barDate}${a.reading.wwv.inProgress ? " (in progress)" : ""}, ${a.bars} daily bars`
-              : `${a.timeframeName} net volume ${netVolumeText(a.reading.netVolume)} shares (raw), ${a.bars} daily bars`}
+              : `${a.timeframeName} net volume ${netVolumeText(a.reading.netVolume)} shares (raw)${a.reading.inProgress ? ", session in progress" : ""}, ${a.bars} daily bars`}
           </div>
           <div className="text-xs text-zinc-500" data-testid="gear-asof">
             as of {dateTimeText(a.reading.asOf)}, analyzed {clockText(a.generatedAt)}

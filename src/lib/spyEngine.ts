@@ -182,7 +182,7 @@ export function describeDecision(primary: DeskReading, timeframe: DeskTimeframe)
     const prev = w.previous ? `previous ${w.previous.direction}-wave volume ${plainVolume(w.previous.volume)}` : "previous wave not shown";
     return `${TIMEFRAME_NAMES[timeframe]} (bar ${w.barDate}${w.inProgress ? ", session still in progress" : ""}): candle ${primary.kind}, ${w.direction}-wave since ${w.waveStart} with volume ${plainVolume(w.waveVolume)} (${prev}), ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`;
   }
-  return `${TIMEFRAME_NAMES[timeframe]} since ${primary.periodStart}: candle ${primary.kind}, net volume ${rawNet(primary.netVolume)}${primary.netFlag ? ` [${primary.netFlag.toUpperCase()} NET VOLUME: Neutral, no sign guessed]` : ""}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}`;
+  return `${TIMEFRAME_NAMES[timeframe]} since ${primary.periodStart}: candle ${primary.kind}, net volume ${rawNet(primary.netVolume)}${primary.netFlag ? ` [${primary.netFlag.toUpperCase()} NET VOLUME: Neutral, no sign guessed]` : ""}, ${primary.agreement === "agree" ? "they agree" : "they do not agree"}, so the reading is ${gear(primary.polarity)}${primary.inProgress ? " (today's session is still in progress: the reading uses the partial day and can change until the close)" : ""}`;
 }
 
 function readingData(r: DeskReading): Record<string, unknown> {
@@ -199,6 +199,7 @@ function readingData(r: DeskReading): Record<string, unknown> {
     agreement: r.agreement,
     periodStart: r.periodStart,
     throughDate: r.throughDate,
+    inProgress: r.inProgress,
     asOf: r.asOf,
     sessions: r.sessions,
     netVolume: r.netVolume,
