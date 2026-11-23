@@ -44,6 +44,8 @@ The stale-bar rule is the same as for every reading: today's in-progress bar is 
 
 **Pocket.** On both desks the Auto audit log, the manual ticket, the trade journal, the engine log and the rules line sit in one collapsible "Audit log, manual ticket, journal and engine log" pocket (closed by default; the summary row shows the audit and journal counts and whether a dry-run position is held). The decision, readings, position card, Close button and Auto switch stay outside it. It is a native details/summary (keyboard: Tab, Enter, Space); its open state lives in the `SpyDesk` container, so the 5 s and 45 s refreshes never reset it, and nothing closes it by itself.
 
+**Auto card position and switch.** On both desks the Auto (practice trader) card sits directly above the decision card (below the open-position card when one is held). Its control is a labelled switch: OFF and ON both readable, the current side filled (strong green for ON, quiet grey for OFF), "Auto is ON" / "Auto is OFF" in plain words next to it, large buttons and checkbox. The confirm step is unchanged (tick the acknowledgement, then Turn Auto ON; Turn Auto OFF) and its state stays in the `SpyDesk` container. The audit log stays in the pocket.
+
 ### Live refresh (every 5 s) and Analyze
 
 The page keeps itself current with GET requests only; a refresh never submits anything and never resets what you chose (Call/Put, contract row, ticked boxes, an open Close box all stay).
