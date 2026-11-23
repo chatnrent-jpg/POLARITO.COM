@@ -16,8 +16,9 @@
  *   latest candle RED   (close < open) and current wave DOWN -> -1 Reverse
  *   anything else (colour and wave disagree, or a flat candle) -> 0 Neutral (the trader decides)
  *
- * WHICH BAR: the newest daily bar must be the session expected right now (marketCalendar.expectedLatestSession), exactly as
- * the monthly desk requires. During the session that bar is still IN PROGRESS (its close is the last price, so the reading
+ * WHICH BAR: exactly as the monthly desk (longPolarity.dailyStaleReason): the newest daily bar must be today's session or the
+ * last completed one, never older (stale) and never later than the latest session that can exist now (future-dated). During
+ * the session (9:30 to 16:00 ET, including 9:30 to 9:50 when the provider already shows today's partial bar) that bar is IN PROGRESS (its close is the last price, so the reading
  * can flip until 16:00 ET and the page says so); after the close it is final. The scheduled auto run only acts from 16:15 ET,
  * so it always reads a final bar.
  *
@@ -28,7 +29,7 @@
  * at the first bar of the history) it is shown as unavailable with the reason and the reading is NOT blocked by it.
  */
 import { dailyStaleReason, type LongReading } from "@/lib/longPolarity";
-import { etClock, isTradingDay, tradingDaysBetween } from "@/lib/marketCalendar";
+import { etClock, sessionInProgress, tradingDaysBetween } from "@/lib/marketCalendar";
 import { metaFor, validateBars, type Bar, type CandleKind, type Polarity } from "@/lib/polarity";
 
 /** How far back (calendar days) the daily bars are loaded: about 140 sessions, ample for several waves. */
@@ -95,8 +96,6 @@ export type WwvDetail = {
 
 export type WwvReading = Omit<LongReading, "timeframe"> & { timeframe: "D"; wwv: WwvDetail | null };
 
-export const WWV_SESSION_CLOSE_MINUTES = 16 * 60;
-
 export type WwvInput = { daily: readonly Bar[]; now: Date };
 
 function unavailable(reason: string, throughDate: string, now: Date): WwvReading {
@@ -110,6 +109,7 @@ function unavailable(reason: string, throughDate: string, now: Date): WwvReading
     periodStart: anchor,
     periodEnd: anchor,
     throughDate,
+    inProgress: false,
     asOf: now.toISOString(),
     sessions: 0,
     netVolume: null,
@@ -185,8 +185,7 @@ export function computeWwvReading(input: WwvInput): WwvReading {
     else previous = { direction: prevWave.direction, volume: prevWave.volume, bars: prevWave.bars, start: prevWave.startDate, end: prevWave.endDate };
   }
 
-  const { date: today, minutes } = etClock(now);
-  const inProgress = last.date === today && isTradingDay(today) && minutes < WWV_SESSION_CLOSE_MINUTES;
+  const inProgress = sessionInProgress(last.date, now);
   const dirText = cur.direction === "up" ? "up" : "down";
   const signed = cur.direction === "up" ? cur.volume : -cur.volume;
   return {
@@ -203,6 +202,7 @@ export function computeWwvReading(input: WwvInput): WwvReading {
     periodStart: cur.startDate,
     periodEnd: last.date,
     throughDate: last.date,
+    inProgress,
     asOf: now.toISOString(),
     sessions: cur.bars,
     netVolume: signed,

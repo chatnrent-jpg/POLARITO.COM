@@ -111,15 +111,37 @@ export function etClock(now: Date): { date: string; minutes: number } {
   return { date: `${get("year")}-${get("month")}-${get("day")}`, minutes: Number(get("hour")) * 60 + Number(get("minute")) };
 }
 
+export const MARKET_OPEN_MINUTES = 9 * 60 + 30;
+export const MARKET_CLOSE_MINUTES = 16 * 60;
+
 /** Minutes after midnight ET at which today's daily bar must exist (20 minutes after the 9:30 open). */
 export const DAILY_BAR_DUE_MINUTES = 9 * 60 + 50;
 
 /**
- * The session date of the daily bar that must be the newest one right now:
+ * The OLDEST session date the newest daily bar may have right now (anything older is stale):
  * today on a trading day from 9:50 ET on (during the session and after the close), otherwise the previous trading day.
+ * Between the 9:30 open and 9:50 the provider may already show today's in-progress bar or may not yet, so either is fine
+ * (see latestPossibleSession); the 20 minutes only give it time to appear.
  */
 export function expectedLatestSession(now: Date): string {
   const { date, minutes } = etClock(now);
   if (isTradingDay(date) && minutes >= DAILY_BAR_DUE_MINUTES) return date;
   return previousTradingDay(date);
+}
+
+/**
+ * The NEWEST session date a daily bar can have right now (anything later is future-dated and rejected):
+ * today once the 9:30 ET open has passed on a trading day (that bar is the session in progress, then final after 16:00),
+ * otherwise the previous trading day (before the open, weekends and holidays have no bar of their own).
+ */
+export function latestPossibleSession(now: Date): string {
+  const { date, minutes } = etClock(now);
+  if (isTradingDay(date) && minutes >= MARKET_OPEN_MINUTES) return date;
+  return previousTradingDay(date);
+}
+
+/** True while `barDate` is today's session and it is still open (9:30 to 16:00 ET): the bar's close is the last price and can still change. */
+export function sessionInProgress(barDate: string, now: Date): boolean {
+  const { date, minutes } = etClock(now);
+  return barDate === date && isTradingDay(date) && minutes >= MARKET_OPEN_MINUTES && minutes < MARKET_CLOSE_MINUTES;
 }

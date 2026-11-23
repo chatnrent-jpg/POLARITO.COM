@@ -423,6 +423,8 @@ export type ReadingView = {
   match: "agree" | "disagree" | null;
   periodStart: string | null;
   asOf: string | null;
+  /** The newest daily bar is today's and the session is still open: the reading uses the partial day and can change until 16:00 ET. */
+  inProgress: boolean;
   reason: string | null;
   /** Daily WWV only: wave direction and volume, the previous wave, the bar used. Null for the period readings. */
   wwv: WwvDetail | null;
@@ -511,6 +513,7 @@ export function readingView(r: DeskReading, isDecision: boolean): ReadingView {
     match: r.agreement,
     periodStart: r.periodStart,
     asOf: r.asOf,
+    inProgress: r.inProgress,
     reason: r.reason,
     wwv: r.wwv ?? null,
   };
@@ -759,6 +762,7 @@ export function isReadingView(v: unknown): boolean {
     (v.timeframe !== "D" || v.status !== "ok" || isWwvDetail(v.wwv)) &&
     isStr(v.name) &&
     typeof v.isDecision === "boolean" &&
+    typeof v.inProgress === "boolean" &&
     (v.status === "ok" || v.status === "unavailable") &&
     isStr(v.label) &&
     orNull((x) => x === "green" || x === "red" || x === "flat", v.candle) &&

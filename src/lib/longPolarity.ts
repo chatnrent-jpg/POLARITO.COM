@@ -34,7 +34,7 @@
  * Pure: no network, no clock (the caller passes `now`), no storage, no orders.
  */
 import { periodEnd, periodStart } from "@/lib/periodCandles";
-import { expectedLatestSession, etClock, previousTradingDay, tradingDaysBetween } from "@/lib/marketCalendar";
+import { expectedLatestSession, etClock, latestPossibleSession, previousTradingDay, sessionInProgress, tradingDaysBetween } from "@/lib/marketCalendar";
 import { metaFor, validateBars, type Bar, type CandleKind, type Polarity } from "@/lib/polarity";
 
 export const LONG_TIMEFRAMES = Object.freeze(["M", "Q", "H", "Y"] as const);
@@ -111,6 +111,8 @@ export type LongReading = {
   periodEnd: string;
   /** Date of the newest daily bar included. */
   throughDate: string;
+  /** True when that newest bar is today's session and it is still open: the reading uses the partial day and can change until the close. */
+  inProgress: boolean;
   /** The `now` the reading was evaluated at (ISO). */
   asOf: string;
   sessions: number;
@@ -160,6 +162,7 @@ function unavailable(tf: LongTimeframe, reason: string, throughDate: string, now
     periodStart: longPeriodStart(anchor, tf),
     periodEnd: longPeriodEnd(anchor, tf),
     throughDate,
+    inProgress: false,
     asOf: now.toISOString(),
     sessions: 0,
     netVolume: null,
@@ -181,12 +184,18 @@ function allUnavailable(reason: string, throughDate: string, now: Date): LongRea
   return out;
 }
 
-/** Freshness of the daily series: the newest bar must be the one expected for the current session. Null when fine. */
+/**
+ * Freshness of the daily series. Null when fine. Only an OLDER bar than the session needed is stale; a bar that is the
+ * current session's (including today's in-progress bar, even before the 9:50 ET due time) is accepted; a bar dated after the
+ * latest session that can exist right now (tomorrow, a weekend or holiday, today before the open) is future-dated and rejected.
+ */
 export function dailyStaleReason(daily: readonly Bar[], now: Date): string | null {
   if (daily.length === 0) return "no daily bars";
   const expected = expectedLatestSession(now);
+  const latest = latestPossibleSession(now);
   const newest = daily[daily.length - 1].date;
-  if (newest !== expected) return `the newest daily bar is ${newest} but the current session needs ${expected}`;
+  if (newest < expected) return `the newest daily bar is ${newest} but the current session needs ${expected}`;
+  if (newest > latest) return `the newest daily bar is ${newest}, which is dated after the latest session that can exist now (${latest}); future-dated data is rejected`;
   return null;
 }
 
@@ -261,6 +270,7 @@ function readOne(tf: LongTimeframe, input: LongInput): LongReading {
     periodStart: start,
     periodEnd: end,
     throughDate: last.date,
+    inProgress: sessionInProgress(last.date, now),
     asOf: now.toISOString(),
     sessions: days.length,
     netVolume: net,
