@@ -44,6 +44,9 @@ export type DeskViewProps = {
   /** The open/closed state of the "Audit log, manual ticket, journal and engine log" pocket. It lives in the container (like form state) so no refresh or re-render resets it. Absent: the pocket is closed and the browser keeps its own state. */
   pocket?: { open: boolean };
   onPocketChange?(open: boolean): void;
+  /** The open/closed state of the "Four readings (period to date)" pocket. Same rule as the pocket above: it lives in the container, so no refresh resets it. Absent: closed, and the browser keeps its own state. */
+  readingsPocket?: { open: boolean };
+  onReadingsPocketChange?(open: boolean): void;
 };
 
 const card = "rounded-lg border border-zinc-800 bg-zinc-900/60 p-4";
@@ -651,6 +654,45 @@ function Pocket({ props, snap, children }: { props: DeskViewProps; snap: DeskSna
   );
 }
 
+/** "Monthly Reverse, Quarterly Reverse, 6-month Reverse, Yearly Drive": the four gears in one line, so a closed pocket still says what is inside. */
+const readingsHint = (readings: ReadingView[]): string => (readings.length === 0 ? "no reading available" : readings.map((r) => `${r.name} ${r.label}`).join(", "));
+
+/**
+ * The second pocket (closed by default): the four period-to-date readings and their net-volume definition. It is its own pocket, never nested
+ * in the audit pocket, and the decision and the decider's own reading stay outside it. Native details/summary, so Tab, Enter and Space work
+ * without script. Its open/closed state is owned by the container (props.readingsPocket); nothing here ever closes it by itself.
+ */
+function ReadingsPocket({ props, readings, children }: { props: DeskViewProps; readings: ReadingView[]; children: ReactNode }) {
+  const controlled = props.readingsPocket !== undefined;
+  return (
+    <details
+      className="group rounded-lg border-2 border-zinc-700 bg-zinc-900/60"
+      data-testid="readings-pocket"
+      data-open={controlled ? (props.readingsPocket?.open ? "true" : "false") : undefined}
+      {...(controlled ? { open: props.readingsPocket?.open === true } : {})}
+      onToggle={(e) => props.onReadingsPocketChange?.(e.currentTarget.open)}
+    >
+      <summary
+        className="flex min-h-16 cursor-pointer list-none items-center gap-3 rounded-lg p-4 text-zinc-100 hover:bg-zinc-800/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 [&::-webkit-details-marker]:hidden"
+        data-testid="readings-pocket-summary"
+      >
+        <svg className="h-6 w-6 shrink-0 text-sky-300 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" data-testid="readings-pocket-chevron">
+          <path d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="min-w-0 flex-1">
+          <span className="block text-base font-bold">Four readings (period to date)</span>
+          <span className="block text-sm text-zinc-400" data-testid="readings-pocket-hint">{readingsHint(readings)}</span>
+        </span>
+        <span className="shrink-0 rounded-md bg-zinc-800 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-200 ring-1 ring-zinc-600">
+          <span className="group-open:hidden">Show</span>
+          <span className="hidden group-open:inline">Hide</span>
+        </span>
+      </summary>
+      <div className="space-y-4 border-t border-zinc-800 p-4" data-testid="readings-pocket-body">{children}</div>
+    </details>
+  );
+}
+
 /** The decision, drawn as the page's second hero: the side, the gear, the plain-English why and the contract the engine would pick. */
 function DecisionHero({ snap }: { snap: DeskSnapshot }) {
   const d = snap.decision;
@@ -717,27 +759,29 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
           <p className="mt-2 text-xs text-zinc-400">Daily net volume is the same chart definition on one day: the candle is today&apos;s open to the latest close, net volume is today&apos;s total volume signed by the latest close against the previous trading day&apos;s close, and the reading counts only when candle colour and net volume agree. During the session it uses the partial day (labelled session in progress); after the close it is final.</p>
         </section>
       ) : null}
-      <section className={card} aria-labelledby="readings-h">
-        {snap.timeframe === "D" ? (
-          <>
-            <h2 id="readings-h" className={h2}>Daily Weis Wave Volume (WWV, setting 1, SPY)</h2>
-            <WwvTable readings={snap.readings} />
-            <p className="mt-2 text-xs text-zinc-500">A wave is a run of daily bars closing the same way against the previous close (an equal close continues the wave); its volume restarts at each turn and the turning bar belongs to the new wave. A reading counts only when the latest candle colour and the current wave agree: green candle with an up wave is Drive, red candle with a down wave is Reverse, otherwise Neutral.</p>
-          </>
-        ) : (
-          <>
+      {snap.timeframe === "D" ? (
+        <section className={card} aria-labelledby="readings-h">
+          <h2 id="readings-h" className={h2}>Daily Weis Wave Volume (WWV, setting 1, SPY)</h2>
+          <WwvTable readings={snap.readings} />
+          <p className="mt-2 text-xs text-zinc-500">A wave is a run of daily bars closing the same way against the previous close (an equal close continues the wave); its volume restarts at each turn and the turning bar belongs to the new wave. A reading counts only when the latest candle colour and the current wave agree: green candle with an up wave is Drive, red candle with a down wave is Reverse, otherwise Neutral.</p>
+        </section>
+      ) : (
+        <ReadingsPocket props={props} readings={snap.readings.filter((r) => r.timeframe !== "1D")}>
+          <section className={card} aria-labelledby="readings-h">
             <h2 id="readings-h" className={h2}>Four readings (period to date, SPY)</h2>
             <ReadingsTable readings={snap.readings.filter((r) => r.timeframe !== "1D")} />
             <p className="mt-2 text-xs text-zinc-500">Net volume is the chart definition: the period&apos;s total daily volume, signed by the latest close versus the previous period&apos;s last close. A reading counts only when candle colour and net volume match.</p>
-          </>
-        )}
-      </section>
+          </section>
+        </ReadingsPocket>
+      )}
       {snap.timeframe === "D" && snap.contextReadings && snap.contextReadings.length > 0 ? (
-        <section className={card} aria-labelledby="context-readings-h" data-testid="context-readings">
-          <h2 id="context-readings-h" className={h2}>Four readings (period to date, SPY)</h2>
-          <ReadingsTable readings={snap.contextReadings} />
-          <p className="mt-2 text-xs text-zinc-500">Net volume is the chart definition: the period&apos;s total daily volume, signed by the latest close versus the previous period&apos;s last close. A reading counts only when candle colour and net volume match. Context only: on this desk the decision is the daily Weis Wave Volume above; these readings do not decide, choose the contract, drive Auto or gate the ticket.</p>
-        </section>
+        <ReadingsPocket props={props} readings={snap.contextReadings}>
+          <section className={card} aria-labelledby="context-readings-h" data-testid="context-readings">
+            <h2 id="context-readings-h" className={h2}>Four readings (period to date, SPY)</h2>
+            <ReadingsTable readings={snap.contextReadings} />
+            <p className="mt-2 text-xs text-zinc-500">Net volume is the chart definition: the period&apos;s total daily volume, signed by the latest close versus the previous period&apos;s last close. A reading counts only when candle colour and net volume match. Context only: on this desk the decision is the daily Weis Wave Volume above; these readings do not decide, choose the contract, drive Auto or gate the ticket.</p>
+          </section>
+        </ReadingsPocket>
       ) : null}
       {snap.position.status !== "held" ? (
         <section className={card} aria-labelledby="pos-h">
