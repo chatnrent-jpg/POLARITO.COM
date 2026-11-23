@@ -6,7 +6,8 @@ import type { AutoLogEntry } from "@/lib/spyAutoTypes";
 import type { Freshness } from "@/lib/spyDeskData";
 import { gearPermit, type AnalyzerState } from "@/lib/spyAnalyzer";
 import { GEAR_NAMES, TICKER, checkSide } from "@/lib/spyGear";
-import { clockText, dateTimeText, decisionHeadline, money, netFlagText, netVolumeText, percent, price, signedDelta } from "@/lib/spyDeskFormat";
+import { MONTHLY_PROFILE, type DeskProfile } from "@/lib/spyProfile";
+import { clockText, dateTimeText, volumeText, decisionHeadline, money, netFlagText, netVolumeText, percent, price, signedDelta } from "@/lib/spyDeskFormat";
 
 /**
  * Pure rendering of the SPY desk. No fetching, no decisions, no storage: it draws exactly what it is given and calls the
@@ -20,6 +21,8 @@ export type AutoUi = { ack: boolean };
 export type Notice = { kind: "ok" | "error"; text: string };
 
 export type DeskViewProps = {
+  /** Which desk is drawn (title, timeframe label). Default: the monthly desk. */
+  profile?: DeskProfile;
   load: DeskLoad;
   busy: boolean;
   notice: Notice | null;
@@ -103,6 +106,73 @@ function ReadingsTable({ readings }: { readings: ReadingView[] }) {
               </td>
             </tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const waveTone = (d: "up" | "down"): string => (d === "up" ? "text-emerald-300" : "text-red-300");
+
+/** The daily WWV reading: wave direction, wave volume so far, previous wave volume, candle colour and the bar it is based on. */
+function WwvTable({ readings }: { readings: ReadingView[] }) {
+  const r = readings.find((x) => x.timeframe === "D");
+  if (!r) return <p className="text-sm text-rose-300">Data unavailable: no reading could be computed. Nothing is assumed.</p>;
+  const w = r.status === "ok" ? r.wwv : null;
+  return (
+    <div className="overflow-x-auto" data-testid="wwv-table">
+      <table className="w-full min-w-[760px] text-left text-sm">
+        <thead className="text-xs uppercase text-zinc-500">
+          <tr>
+            <th className="py-1 pr-3">Current wave</th>
+            <th className="py-1 pr-3 text-right">Wave volume so far</th>
+            <th className="py-1 pr-3 text-right">Previous wave volume</th>
+            <th className="py-1 pr-3">Latest daily candle</th>
+            <th className="py-1 pr-3">Match</th>
+            <th className="py-1">Reading</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-t border-zinc-800 align-top bg-zinc-800/40" data-testid="reading-D">
+            <td className="py-2 pr-3" data-testid="wwv-direction">
+              {w ? (
+                <>
+                  <span className={`font-semibold ${waveTone(w.direction)}`}>{w.direction === "up" ? "UP wave" : "DOWN wave"}</span>
+                  <div className="text-xs text-zinc-500">{w.waveBars} {w.waveBars === 1 ? "bar" : "bars"}, since {w.waveStart}</div>
+                </>
+              ) : (
+                <span className="text-zinc-500">n/a</span>
+              )}
+            </td>
+            <td className="py-2 pr-3 text-right font-mono" data-testid="wwv-volume">{w ? volumeText(w.waveVolume) : "n/a"}</td>
+            <td className="py-2 pr-3 text-right font-mono" data-testid="wwv-previous">
+              {w?.previous ? (
+                <>
+                  <span className={waveTone(w.previous.direction)}>{volumeText(w.previous.volume)}</span>
+                  <div className="font-sans text-xs text-zinc-500">{w.previous.direction} wave, {w.previous.start} to {w.previous.end}</div>
+                </>
+              ) : (
+                <span className="font-sans text-xs text-zinc-500">{w ? (w.previousNote ?? "n/a") : "n/a"}</span>
+              )}
+            </td>
+            <td className="py-2 pr-3" data-testid="wwv-candle">
+              {r.status === "ok" ? (
+                <span className={r.candle === "green" ? "text-emerald-300" : r.candle === "red" ? "text-red-300" : "text-zinc-300"}>
+                  {r.candle} ({price(r.open)} to {price(r.close)})
+                </span>
+              ) : (
+                <span className="text-zinc-500">n/a</span>
+              )}
+            </td>
+            <td className="py-2 pr-3">{r.match === "agree" ? "agree" : r.match === "disagree" ? <span className="text-amber-300">disagree</span> : "n/a"}</td>
+            <td className="py-2">
+              <Badge tone={readingTone(r.label)}>{r.label}</Badge>
+              {r.reason ? <div className={`mt-1 max-w-xs text-xs ${r.status === "ok" ? "text-amber-300" : "text-rose-300"}`}>{r.reason}</div> : null}
+              <div className="mt-1 text-xs text-zinc-500" data-testid="wwv-asof">
+                {w ? `daily bar ${w.barDate}${w.inProgress ? " (session in progress, can still change)" : " (final)"}, ` : ""}as of {dateTimeText(r.asOf)}
+              </div>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -255,7 +325,9 @@ function GearCard({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot })
             Gear: <strong data-testid="gear-name">{GEAR_NAMES[a.gear]}</strong> <Badge tone={a.gear === "DRIVE" ? "green" : a.gear === "REVERSE" ? "red" : "amber"}>{a.gear === "DRIVE" ? "CALL only" : a.gear === "REVERSE" ? "PUT only" : "trader decides"}</Badge>
           </div>
           <div className="text-zinc-300" data-testid="gear-netvol">
-            {a.timeframeName} net volume {netVolumeText(a.reading.netVolume)} shares (raw), {a.bars} daily bars
+            {a.reading.wwv
+              ? `${a.timeframeName}: ${a.reading.wwv.direction}-wave volume ${volumeText(a.reading.wwv.waveVolume)} shares since ${a.reading.wwv.waveStart}, candle ${a.reading.candle ?? "n/a"}, daily bar ${a.reading.wwv.barDate}${a.reading.wwv.inProgress ? " (in progress)" : ""}, ${a.bars} daily bars`
+              : `${a.timeframeName} net volume ${netVolumeText(a.reading.netVolume)} shares (raw), ${a.bars} daily bars`}
           </div>
           <div className="text-xs text-zinc-500" data-testid="gear-asof">
             as of {dateTimeText(a.reading.asOf)}, analyzed {clockText(a.generatedAt)}
@@ -418,9 +490,19 @@ function Ready({ props, snap }: { props: DeskViewProps; snap: DeskSnapshot }) {
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" data-testid="store-warning">{snap.store.error}</div>
       ) : null}
       <section className={card} aria-labelledby="readings-h">
-        <h2 id="readings-h" className={h2}>Four readings (period to date, SPY)</h2>
-        <ReadingsTable readings={snap.readings} />
-        <p className="mt-2 text-xs text-zinc-500">Net volume is the chart definition: the period&apos;s total daily volume, signed by the latest close versus the previous period&apos;s last close. A reading counts only when candle colour and net volume match.</p>
+        {snap.timeframe === "D" ? (
+          <>
+            <h2 id="readings-h" className={h2}>Daily Weis Wave Volume (WWV, setting 1, SPY)</h2>
+            <WwvTable readings={snap.readings} />
+            <p className="mt-2 text-xs text-zinc-500">A wave is a run of daily bars closing the same way against the previous close (an equal close continues the wave); its volume restarts at each turn and the turning bar belongs to the new wave. A reading counts only when the latest candle colour and the current wave agree: green candle with an up wave is Drive, red candle with a down wave is Reverse, otherwise Neutral.</p>
+          </>
+        ) : (
+          <>
+            <h2 id="readings-h" className={h2}>Four readings (period to date, SPY)</h2>
+            <ReadingsTable readings={snap.readings} />
+            <p className="mt-2 text-xs text-zinc-500">Net volume is the chart definition: the period&apos;s total daily volume, signed by the latest close versus the previous period&apos;s last close. A reading counts only when candle colour and net volume match.</p>
+          </>
+        )}
       </section>
       <section className={card} aria-labelledby="decision-h">
         <h2 id="decision-h" className={h2}>Decision ({snap.readings.find((r) => r.isDecision)?.name ?? snap.timeframe} timeframe)</h2>
@@ -499,12 +581,16 @@ function FreshnessBar({ fresh, hasData }: { fresh: Freshness; hasData: boolean }
 
 export default function SpyDeskView(props: DeskViewProps) {
   const { load } = props;
+  const profile = props.profile ?? MONTHLY_PROFILE;
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 p-4 sm:p-6 text-zinc-100" data-testid="spy-desk">
+    <div className="mx-auto w-full max-w-5xl space-y-4 p-4 sm:p-6 text-zinc-100" data-testid="spy-desk" data-profile={profile.id}>
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">SPY desk</h1>
-          <p className="text-sm text-zinc-400">Long-timeframe SPY options. Read-only market data; Auto and manual actions change the dry-run record only.</p>
+          <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold" data-testid="desk-title">
+            {profile.title}
+            {profile.timeframeLabel ? <Badge tone="zinc">{profile.timeframeLabel}</Badge> : null}
+          </h1>
+          <p className="text-sm text-zinc-400">{profile.fixedTimeframe === "D" ? "SPY options decided by the daily Weis Wave Volume. Its own practice record, journal, Auto switch and log. " : "Long-timeframe SPY options. "}Read-only market data; Auto and manual actions change the dry-run record only.</p>
         </div>
         <div className="flex items-center gap-3">
           <Badge tone="amber">DRY RUN: no orders can be sent</Badge>

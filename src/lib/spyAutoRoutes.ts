@@ -13,6 +13,7 @@ import { deskEnabled, type DeskConfig, type DeskDeps, type DeskStore } from "@/l
 import type { LiveDesk } from "@/lib/spyDeskLive";
 import { runAutoCycle, setAutoSwitch } from "@/lib/spyAuto";
 import type { SpyKv } from "@/lib/spyKv";
+import { MONTHLY_PROFILE, type DeskProfile } from "@/lib/spyProfile";
 
 export const CRON_SECRET_ENV = "CRON_SECRET";
 export const CRON_SECRET_MIN_LENGTH = 32;
@@ -23,6 +24,8 @@ export type AutoRouteContext = {
   desk: DeskStore | null;
   kv: SpyKv | null;
   now?: () => Date;
+  /** Which desk this is (default: the monthly desk); sets the decision timeframe used when data keys are missing. */
+  profile?: DeskProfile;
 };
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
@@ -72,7 +75,7 @@ export async function handleAutoRun(request: Request, ctx: AutoRouteContext): Pr
     const clock = ctx.now ?? (() => new Date());
     const live = await ctx.makeLive();
     const deps: DeskDeps = live.ok ? live.deps : unavailableDeps(live.error, clock);
-    const config: DeskConfig = live.ok ? live.config : { timeframe: "M", liveBudget: 1000 };
+    const config: DeskConfig = live.ok ? live.config : { timeframe: (ctx.profile ?? MONTHLY_PROFILE).fixedTimeframe ?? "M", liveBudget: 1000 };
     const res = await runAutoCycle(deps, config, { desk: ctx.desk, kv: ctx.kv }, { dryRun });
     return json({ ok: res.status < 400, dryRun: res.dryRun, outcome: res.outcome, message: res.message, logged: res.logged, repeat: res.repeat }, res.status);
   } catch (e) {

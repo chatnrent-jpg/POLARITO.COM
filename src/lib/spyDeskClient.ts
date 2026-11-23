@@ -2,11 +2,17 @@
  * Browser-side plumbing for the SPY desk's refresh: GET-only fetch helpers and the real clock/visibility the poller uses.
  * No decisions and no rendering here. Every network call is inside try/catch and ends as a value, never a throw.
  */
+import { MONTHLY_PROFILE, apiPath, type DeskProfile } from "@/lib/spyProfile";
 import type { PollResult, PollerEnv } from "@/lib/spyPoller";
 
-export const LIVE_PATH = "/api/spy/live";
-export const DESK_PATH = "/api/spy/desk";
-export const ANALYZE_PATH = "/api/spy/analyze?ticker=SPY";
+/** The three GET paths of one desk. The two desks never share a route. */
+export function deskPaths(profile: DeskProfile): { live: string; desk: string; analyze: string } {
+  return { live: apiPath(profile, "live"), desk: apiPath(profile, "desk"), analyze: `${apiPath(profile, "analyze")}?ticker=SPY` };
+}
+
+export const LIVE_PATH = deskPaths(MONTHLY_PROFILE).live;
+export const DESK_PATH = deskPaths(MONTHLY_PROFILE).desk;
+export const ANALYZE_PATH = deskPaths(MONTHLY_PROFILE).analyze;
 
 type FetchLike = (url: string, init: { method: "GET"; cache: "no-store"; signal: AbortSignal; headers: Record<string, string> }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 

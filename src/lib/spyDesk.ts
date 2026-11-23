@@ -15,15 +15,8 @@
  */
 import type { OptionType } from "@/lib/broker/options";
 import { daysBetween, parseOccSymbol } from "@/lib/broker/options";
-import {
-  LONG_TIMEFRAMES,
-  LONG_TIMEFRAME_NAMES,
-  computeLongReadings,
-  isLongTimeframe,
-  type LongReading,
-  type LongReadings,
-  type LongTimeframe,
-} from "@/lib/longPolarity";
+import { TIMEFRAME_NAMES, computeDeskReadings, isDeskTimeframe, readingKeys, type DeskReading, type DeskReadings, type DeskTimeframe } from "@/lib/deskReadings";
+import type { WwvDetail } from "@/lib/wwv";
 import { etClock } from "@/lib/marketCalendar";
 import { DELTA_THRESHOLDS, FALLBACK_LABEL, MIN_DAYS_TO_EXPIRY, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
 import type { Bar } from "@/lib/polarity";
@@ -159,7 +152,7 @@ function parsePosition(p: unknown): DeskPosition | null {
     !finite(p.entryDelta) ||
     (p.deltaTier !== "primary" && p.deltaTier !== "fallback") ||
     !(p.fallbackReason === null || typeof p.fallbackReason === "string") ||
-    !isLongTimeframe(p.decisionTimeframe) ||
+    !isDeskTimeframe(p.decisionTimeframe) ||
     !finite(p.maxLossUsd) ||
     (p.source !== "manual" && p.source !== "auto")
   ) {
@@ -234,13 +227,14 @@ export function parseCloseRequest(body: unknown): { ok: true; value: CloseReques
 /* -------------------------------------------------------------- decision */
 
 export type DeskDecision =
-  | { status: "ok"; action: "CALL" | "PUT" | "STAND_ASIDE"; reading: LongReading; readings: LongReadings }
-  | { status: "unavailable"; reason: string; readings: LongReadings };
+  | { status: "ok"; action: "CALL" | "PUT" | "STAND_ASIDE"; reading: DeskReading; readings: DeskReadings }
+  | { status: "unavailable"; reason: string; readings: DeskReadings };
 
 /** The same decision the engine makes (Drive CALL, Reverse PUT, Neutral STAND ASIDE), without reading any option data. */
-export function deskDecision(daily: readonly Bar[], now: Date, timeframe: LongTimeframe): DeskDecision {
-  const readings = computeLongReadings({ daily: [...daily], now });
+export function deskDecision(daily: readonly Bar[], now: Date, timeframe: DeskTimeframe): DeskDecision {
+  const readings = computeDeskReadings(daily, now, timeframe);
   const reading = readings[timeframe];
+  if (!reading) return { status: "unavailable", reason: "no reading for this timeframe", readings };
   if (reading.status !== "ok" || reading.polarity === null) return { status: "unavailable", reason: reading.reason ?? "unknown", readings };
   return { status: "ok", action: reading.polarity === 1 ? "CALL" : reading.polarity === -1 ? "PUT" : "STAND_ASIDE", reading, readings };
 }
@@ -308,12 +302,12 @@ export async function openManual(deps: DeskDeps, config: DeskConfig, store: Desk
     const dailyRes = await deps.loadDaily();
     if (!dailyRes.ok) return refuse("DATA_UNAVAILABLE", `Data unavailable: daily bars could not be read (${dailyRes.error}). Nothing was recorded.`, 409);
     const decision = deskDecision(dailyRes.value, now, config.timeframe);
-    if (decision.status === "unavailable") return refuse("DATA_UNAVAILABLE", `Data unavailable for the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading: ${decision.reason}. Nothing was recorded.`, 409);
+    if (decision.status === "unavailable") return refuse("DATA_UNAVAILABLE", `Data unavailable for the ${TIMEFRAME_NAMES[config.timeframe]} reading: ${decision.reason}. Nothing was recorded.`, 409);
 
     const gear = gearFromAction(decision.action);
     if (gear === null) return refuse("DATA_UNAVAILABLE", "Data unavailable: the reading gave no gear. Nothing was recorded.", 409);
     const sideCheck = checkSide(gear, req.type);
-    if (!sideCheck.allowed) return refuse("COUNTER_POLARITY", `${sideCheck.message} The server checked the ${LONG_TIMEFRAME_NAMES[config.timeframe]} gear itself. Nothing was recorded.`, 409);
+    if (!sideCheck.allowed) return refuse("COUNTER_POLARITY", `${sideCheck.message} The server checked the ${TIMEFRAME_NAMES[config.timeframe]} gear itself. Nothing was recorded.`, 409);
     if (req.analyzedGear !== undefined && req.analyzedGear !== gear) {
       return refuse("GEAR_CHANGED", `The gear changed from ${GEAR_NAMES[req.analyzedGear]} (when you analyzed) to ${GEAR_NAMES[gear]}. Analyze again and check the side. Nothing was recorded.`, 409);
     }
@@ -413,7 +407,7 @@ export async function closeManual(deps: DeskDeps, store: DeskStore | null, req: 
 /* -------------------------------------------------------------- snapshot */
 
 export type ReadingView = {
-  timeframe: LongTimeframe;
+  timeframe: DeskTimeframe;
   name: string;
   isDecision: boolean;
   status: "ok" | "unavailable";
@@ -430,6 +424,8 @@ export type ReadingView = {
   periodStart: string | null;
   asOf: string | null;
   reason: string | null;
+  /** Daily WWV only: wave direction and volume, the previous wave, the bar used. Null for the period readings. */
+  wwv: WwvDetail | null;
 };
 
 export type ContractView = {
@@ -482,7 +478,7 @@ export type DeskSnapshot = {
   ok: true;
   dryRun: true;
   generatedAt: string;
-  timeframe: LongTimeframe;
+  timeframe: DeskTimeframe;
   liveBudget: number;
   spot: Spot | null;
   readings: ReadingView[];
@@ -499,10 +495,10 @@ export type DeskSnapshot = {
   rules: { minDays: number; primary: number; floor: number; fallbackLabel: string };
 };
 
-export function readingView(r: LongReading, isDecision: boolean): ReadingView {
+export function readingView(r: DeskReading, isDecision: boolean): ReadingView {
   return {
     timeframe: r.timeframe,
-    name: LONG_TIMEFRAME_NAMES[r.timeframe],
+    name: TIMEFRAME_NAMES[r.timeframe],
     isDecision,
     status: r.status,
     label: r.label,
@@ -516,6 +512,7 @@ export function readingView(r: LongReading, isDecision: boolean): ReadingView {
     periodStart: r.periodStart,
     asOf: r.asOf,
     reason: r.reason,
+    wwv: r.wwv ?? null,
   };
 }
 
@@ -652,7 +649,10 @@ export async function buildDeskSnapshot(deps: DeskDeps, config: DeskConfig, stor
     const engineConfig: EngineConfig = { timeframe: config.timeframe, liveBudget: config.liveBudget };
     const result = await runEngine(spied, engineConfig, { ...EMPTY_STATE, position: state?.position ?? null });
     base.events = result.events.slice(-EVENTS_SHOWN).map((e) => ({ at: e.at, kind: e.kind, message: e.message }));
-    if (result.readings) base.readings = LONG_TIMEFRAMES.map((tf) => readingView(result.readings![tf], tf === config.timeframe));
+    if (result.readings) {
+      const rs = result.readings;
+      base.readings = readingKeys(config.timeframe).flatMap((tf) => (rs[tf] ? [readingView(rs[tf] as DeskReading, tf === config.timeframe)] : []));
+    }
     if (!result.decision) {
       base.decision = { action: "UNKNOWN", reason: "The engine could not evaluate (see the log below). Nothing is assumed.", traderDecides: false };
     } else {
@@ -741,10 +741,22 @@ function isCandidateList(v: unknown): boolean {
   return isRecord(v) && isOptionType(v.type) && finite(v.total) && Array.isArray(v.shown) && v.shown.every(isContractView) && orNull(isStr, v.expiration) && orNull(isStr, v.error);
 }
 
+const isWaveDirection = (v: unknown): boolean => v === "up" || v === "down";
+
+/** Daily WWV detail block: strict, because the page draws the wave numbers from it. */
+export function isWwvDetail(v: unknown): boolean {
+  if (!isRecord(v)) return false;
+  const p = v.previous;
+  const previousOk = p === null || (isRecord(p) && isWaveDirection(p.direction) && finite(p.volume) && finite(p.bars) && isStr(p.start) && isStr(p.end));
+  return isWaveDirection(v.direction) && finite(v.waveVolume) && v.waveVolume >= 0 && finite(v.waveBars) && isStr(v.waveStart) && previousOk && orNull(isStr, v.previousNote) && isStr(v.barDate) && typeof v.inProgress === "boolean";
+}
+
 export function isReadingView(v: unknown): boolean {
   return (
     isRecord(v) &&
-    isLongTimeframe(v.timeframe) &&
+    isDeskTimeframe(v.timeframe) &&
+    (v.wwv === undefined || v.wwv === null || isWwvDetail(v.wwv)) &&
+    (v.timeframe !== "D" || v.status !== "ok" || isWwvDetail(v.wwv)) &&
     isStr(v.name) &&
     typeof v.isDecision === "boolean" &&
     (v.status === "ok" || v.status === "unavailable") &&
@@ -780,7 +792,7 @@ export function isPositionView(pos: unknown): boolean {
 export function parseDeskSnapshot(raw: unknown): { ok: true; snapshot: DeskSnapshot } | { ok: false; error: string } {
   const bad = (what: string) => ({ ok: false as const, error: `The server sent data in an unexpected shape (${what}). Nothing is shown rather than guessing.` });
   if (!isRecord(raw) || raw.ok !== true || raw.dryRun !== true) return bad("header");
-  if (!isStr(raw.generatedAt) || !isLongTimeframe(raw.timeframe) || !finite(raw.liveBudget)) return bad("meta");
+  if (!isStr(raw.generatedAt) || !isDeskTimeframe(raw.timeframe) || !finite(raw.liveBudget)) return bad("meta");
   if (!Array.isArray(raw.readings) || !raw.readings.every(isReadingView)) return bad("readings");
   if (!isDecisionView(raw.decision)) return bad("decision");
   const pick = raw.enginePick;

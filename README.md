@@ -23,7 +23,7 @@ The app is closed until someone signs in. Credentials live in **server env only*
 | `POLARITO_AUTH_PASSWORD` | Password (choose a strong one yourself) |
 | `POLARITO_AUTH_SECRET` | Cookie signing secret (`openssl rand -hex 32`, at least 16 chars) |
 
-Fail-closed: if any of the three are missing, sign-in is refused and everything stays locked. `src/proxy.ts` gates every page and API route (the one exception is `/api/spy/auto-run`, which refuses everything without the `CRON_SECRET` bearer). **Sign out** is the button at the top right of `/spy`; it clears the httpOnly `polarito_session` cookie.
+Fail-closed: if any of the three are missing, sign-in is refused and everything stays locked. `src/proxy.ts` gates every page and API route (the only exceptions are the two exact scheduler paths `/api/spy/auto-run` and `/api/spy-wwv/auto-run`, which refuse everything without the `CRON_SECRET` bearer). **Sign out** is the button at the top right of `/spy`; it clears the httpOnly `polarito_session` cookie.
 
 ## SPY desk (`/spy`)
 
@@ -64,6 +64,30 @@ Rules: no position and Drive opens the call chosen by the contract rules, Revers
 Settings: `SPY_DECISION_TIMEFRAME` (M, Q, H, Y; default M), `SPY_LIVE_BUDGET`, `SPY_STOCK_FEED`, `SPY_OPTIONS_FEED`. Data keys are `ALPACA_LIVE_KEY_ID` / `ALPACA_LIVE_SECRET_KEY` or `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` (read-only use).
 
 Two manual GitHub workflows run the same code without the website (no schedule, GET only, keys never printed): `SPY options chain (read-only)` and `SPY options dry run (no orders)` (`scripts/spy-options-chain.ts`, `scripts/spy-options-engine.ts`).
+
+## SPY DESK WWV (`/spy-wwv`)
+
+A second, separate desk beside `/spy`. Same page, same rules, same practice-only guard rails; the only difference is the **decision source**: the **daily timeframe Weis Wave Volume (WWV), setting fixed at 1**, instead of the period readings. Page title and labels say **SPY DESK WWV** and show the timeframe (**Daily, WWV**). Same session login and the same `POLARITO_SPY_DESK=1` flag. Nothing new to set in Vercel.
+
+| What | Detail |
+| --- | --- |
+| Page and routes | `src/app/spy-wwv/page.tsx`, `src/app/api/spy-wwv/{desk,live,analyze,ticket,close,auto,auto-run}` (the same route code as `/spy`, selected by a desk profile) |
+| Decision source | `src/lib/wwv.ts` (pure, tested in `tests/wwv.test.ts`) |
+| Desk profile | `src/lib/spyProfile.ts`: labels, API base, key prefix, the decision timeframe. Both desks run the same engine, desk, auto and route modules; the profile is the only thing that differs. |
+| Cron | `vercel.json`: `/api/spy-wwv/auto-run` at 21:30 UTC on weekdays with a 22:30 UTC retry (same pattern as `/api/spy/auto-run`; always after 16:15 ET). Bearer `CRON_SECRET` (the same secret), exact-path bypass in `src/proxy.ts`. Four crons in total, so the Vercel plan must allow that many. |
+
+**Fully isolated from `/spy`:** own practice position and journal (`polarito:spy-wwv:desk:v1`), own Auto switch (**default OFF**), own audit log and own run lock (`polarito:spy-wwv:auto-*:v1`). Every key goes through `scopeKey`, so the two desks can never read, write or lock each other's state; tests prove no key is shared and that a WWV run writes nothing under the monthly prefix.
+
+### How the daily WWV reading is defined
+
+- **Bars:** daily SPY SIP bars (about 200 calendar days). Direction of a bar: **close above the previous close = up, below = down, equal = it continues the wave that is running** (an equal close never starts or ends a wave). The gap between the previous close and the open does not matter. The first loaded bar has no direction.
+- **Waves:** a wave is a run of same-direction bars. Wave volume is the sum of the bars' volume in the wave and **restarts at each turn; the turning bar belongs to the NEW wave** (standard Weis). Example: closes 10, 11, 12, 11, 10 with volumes 1, 2, 3, 4, 5 give an up wave of 5 (bars 2 and 3) and a down wave of 9 (bars 4 and 5).
+- **Reading:** counts only when the **latest daily candle colour** (close vs open) and the **current wave direction** agree: green candle + up wave = **Drive** (call only), red candle + down wave = **Reverse** (put only); anything else, including a flat candle, is **Neutral** (the trader decides manually).
+- **Shown on the page:** current wave direction, wave volume so far, previous wave volume, candle colour, the bar date and the as-of time. The previous wave is context only; if it cannot be trusted it says why and does not block the reading.
+- **Which bar:** the newest bar must be the session expected right now (the same stale test as `/spy`). During the session that bar is still **in progress** (its close is the last price, the reading can flip until 16:00 ET and the page says so). After the close it is final. The auto run only acts from 16:15 ET, so it always reads a final bar.
+- **Never a guess:** malformed bars, a stale or missing newest bar, a missing session inside the current wave (or the bar before it), a zero or missing volume inside the current wave, or no wave at all (every close equal) make the reading **Data unavailable** with the reason; nothing is traded or recorded on it.
+
+Everything else is identical to `/spy`: SPY options only, nearest listed expiry of at least 365 days, delta 0.80 or better else the cheapest usable |delta| of at least 0.60 flagged FALLBACK DELTA, calls on Drive and puts on Reverse, practice only (entry at the ask, close at the bid, 1 contract), manual open and close, the Analyze guard with the server re-check, the 5 s refresh with the same cadences, auto open/close with idempotency, KV lock and audit log. No order code (`tests/no-order-code.test.ts` still passes).
 
 ## No order code, live switches kept off
 

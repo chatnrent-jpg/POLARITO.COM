@@ -5,7 +5,7 @@
  * The same reading the engine and the ticket route use (deskDecision), so the three can never disagree about the gear.
  * Justice: missing, stale or malformed data is an error, never a guess; the browser checks the shape again before using it.
  */
-import { LONG_TIMEFRAME_NAMES, isLongTimeframe, type LongTimeframe } from "@/lib/longPolarity";
+import { TIMEFRAME_NAMES, isDeskTimeframe, type DeskTimeframe } from "@/lib/deskReadings";
 import { deskDecision, isReadingView, readingView, type DeskConfig, type DeskDeps, type ReadingView } from "@/lib/spyDesk";
 import { GEARS, TICKER, allowedSides, gearFromAction, isGear, type Gear } from "@/lib/spyGear";
 
@@ -15,7 +15,7 @@ export type Analysis = {
   kind: "analysis";
   ticker: typeof TICKER;
   generatedAt: string;
-  timeframe: LongTimeframe;
+  timeframe: DeskTimeframe;
   timeframeName: string;
   gear: Gear;
   allowed: { call: boolean; put: boolean };
@@ -39,7 +39,7 @@ export async function buildAnalysis(deps: DeskDeps, config: DeskConfig): Promise
     if (!dailyRes.ok) return { ok: false, code: "DATA_UNAVAILABLE", error: `Data unavailable: daily bars could not be read (${dailyRes.error}). No gear is shown.`, status: 503 };
     const decision = deskDecision(dailyRes.value, now, config.timeframe);
     if (decision.status === "unavailable") {
-      return { ok: false, code: "DATA_UNAVAILABLE", error: `Data unavailable for the ${LONG_TIMEFRAME_NAMES[config.timeframe]} reading: ${decision.reason}. No gear is shown.`, status: 503 };
+      return { ok: false, code: "DATA_UNAVAILABLE", error: `Data unavailable for the ${TIMEFRAME_NAMES[config.timeframe]} reading: ${decision.reason}. No gear is shown.`, status: 503 };
     }
     const gear = gearFromAction(decision.action);
     if (gear === null) return { ok: false, code: "DATA_UNAVAILABLE", error: "Data unavailable: the reading gave no gear. No gear is shown.", status: 503 };
@@ -50,7 +50,7 @@ export async function buildAnalysis(deps: DeskDeps, config: DeskConfig): Promise
       ticker: TICKER,
       generatedAt: now.toISOString(),
       timeframe: config.timeframe,
-      timeframeName: LONG_TIMEFRAME_NAMES[config.timeframe],
+      timeframeName: TIMEFRAME_NAMES[config.timeframe],
       gear,
       allowed: allowedSides(gear),
       reading: readingView(decision.reading, true),
@@ -69,7 +69,7 @@ export function parseAnalysis(raw: unknown): { ok: true; analysis: Analysis } | 
   if (r.ok !== true || r.dryRun !== true || r.kind !== "analysis") return bad("header");
   if (r.ticker !== TICKER) return bad("ticker");
   if (typeof r.generatedAt !== "string" || Number.isNaN(Date.parse(r.generatedAt))) return bad("time");
-  if (!isLongTimeframe(r.timeframe) || typeof r.timeframeName !== "string") return bad("timeframe");
+  if (!isDeskTimeframe(r.timeframe) || typeof r.timeframeName !== "string") return bad("timeframe");
   if (!isGear(r.gear) || !GEARS.includes(r.gear)) return bad("gear");
   const allowed = r.allowed as { call?: unknown; put?: unknown } | null;
   const expected = allowedSides(r.gear);

@@ -11,7 +11,7 @@
  *                       snapshot -> one DeskSnapshot for the view. User choices (Call/Put, contract row, ticks, dialogs)
  *                       are held by the container, never by these snapshots, so a refresh cannot reset them.
  */
-import { LONG_TIMEFRAMES, isLongTimeframe, type LongTimeframe } from "@/lib/longPolarity";
+import { isDeskTimeframe, readingKeys, type DeskReading, type DeskTimeframe } from "@/lib/deskReadings";
 import { etClock } from "@/lib/marketCalendar";
 import { AUTO_UNAVAILABLE, isAutoView, type AutoView } from "@/lib/spyAutoTypes";
 import {
@@ -42,7 +42,7 @@ export type LiveSnapshot = {
   dryRun: true;
   kind: "live";
   generatedAt: string;
-  timeframe: LongTimeframe;
+  timeframe: DeskTimeframe;
   spot: Spot | null;
   readings: ReadingView[];
   decision: DeskSnapshot["decision"];
@@ -85,7 +85,7 @@ export async function buildLiveSnapshot(deps: DeskDeps, config: DeskConfig, stor
     } else {
       const decision = deskDecision(dailyRes.value, now, config.timeframe);
       const readings = decision.readings;
-      out.readings = LONG_TIMEFRAMES.map((tf) => readingView(readings[tf], tf === config.timeframe));
+      out.readings = readingKeys(config.timeframe).flatMap((tf) => (readings[tf] ? [readingView(readings[tf] as DeskReading, tf === config.timeframe)] : []));
       out.decision =
         decision.status === "ok"
           ? { action: decision.action, reason: describeDecision(decision.reading, config.timeframe), traderDecides: decision.action === "STAND_ASIDE" }
@@ -108,7 +108,7 @@ export function parseLiveSnapshot(raw: unknown): { ok: true; snapshot: LiveSnaps
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return bad("not an object");
   const r = raw as Record<string, unknown>;
   if (r.ok !== true || r.dryRun !== true || r.kind !== "live") return bad("header");
-  if (!isStr(r.generatedAt) || Number.isNaN(Date.parse(r.generatedAt)) || !isLongTimeframe(r.timeframe)) return bad("meta");
+  if (!isStr(r.generatedAt) || Number.isNaN(Date.parse(r.generatedAt)) || !isDeskTimeframe(r.timeframe)) return bad("meta");
   if (r.spot !== null && !(typeof r.spot === "object" && r.spot !== null && typeof (r.spot as { price?: unknown }).price === "number" && Number.isFinite((r.spot as { price: number }).price))) return bad("spot");
   if (!Array.isArray(r.readings) || !r.readings.every(isReadingView)) return bad("readings");
   if (!isDecisionView(r.decision)) return bad("decision");

@@ -12,10 +12,11 @@ describe("the site is the SPY desk", () => {
   });
 
   it("/spy keeps a Sign out button in both the switched-off and the live-desk state", () => {
-    const page = read("src/app/spy/page.tsx");
+    const page = read("src/components/spy/SpyDeskPage.tsx");
     assert.match(page, /import LogoutButton from "@\/components\/LogoutButton"/);
-    const main = page.slice(page.indexOf("export default function SpyPage"));
-    assert.ok(main.indexOf("<LogoutButton />") > 0 && main.indexOf("<LogoutButton />") < main.indexOf("<Desk />"));
+    const main = page.slice(page.indexOf("export default function SpyDeskPage"));
+    assert.ok(main.indexOf("<LogoutButton />") > 0 && main.indexOf("<LogoutButton />") < main.indexOf("<Desk profile={profile} />"));
+    for (const p of ["src/app/spy/page.tsx", "src/app/spy-wwv/page.tsx"]) assert.match(read(p), /<SpyDeskPage profile=/, p);
   });
 
   it("the Sign out button posts only the logout server action", () => {

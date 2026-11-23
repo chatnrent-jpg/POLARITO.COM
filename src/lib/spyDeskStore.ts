@@ -9,6 +9,7 @@
  * production, because a per-instance copy would show a position that other requests cannot see (a false state).
  */
 import { autoStoreCredentials } from "@/lib/liveAutoStore";
+import { MONTHLY_PROFILE, scopeKey, type DeskProfile } from "@/lib/spyProfile";
 import { EMPTY_DESK, parseDeskState, type DeskState, type DeskStore } from "@/lib/spyDesk";
 
 export const DESK_STORE_KEY = "polarito:spy:desk:v1";
@@ -17,7 +18,8 @@ const TIMEOUT_MS = 4_000;
 type Env = Readonly<Record<string, string | undefined>>;
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
-export function createKvDeskStore(env: Env, fetchImpl: FetchLike = (u, i) => fetch(u, i)): DeskStore | null {
+export function createKvDeskStore(env: Env, fetchImpl: FetchLike = (u, i) => fetch(u, i), profile: DeskProfile = MONTHLY_PROFILE): DeskStore | null {
+  const storeKey = scopeKey(profile, DESK_STORE_KEY);
   const creds = autoStoreCredentials(env);
   if (!creds) return null;
   const { url, token } = creds;
@@ -50,7 +52,7 @@ export function createKvDeskStore(env: Env, fetchImpl: FetchLike = (u, i) => fet
 
   return {
     async read() {
-      const r = await command(["GET", DESK_STORE_KEY]);
+      const r = await command(["GET", storeKey]);
       if (!r.ok) return r;
       if (r.result === null) return { ok: true, state: EMPTY_DESK };
       if (typeof r.result !== "string") return { ok: false, error: "The saved desk state is malformed." };
@@ -64,7 +66,7 @@ export function createKvDeskStore(env: Env, fetchImpl: FetchLike = (u, i) => fet
       return parsed.ok ? { ok: true, state: parsed.state } : { ok: false, error: parsed.error };
     },
     async write(state: DeskState) {
-      const r = await command(["SET", DESK_STORE_KEY, JSON.stringify(state)]);
+      const r = await command(["SET", storeKey, JSON.stringify(state)]);
       if (!r.ok) return r;
       return r.result === "OK" ? { ok: true } : { ok: false, error: "The desk store did not confirm the write." };
     },
@@ -95,14 +97,15 @@ export function createMemoryDeskStore(initial: DeskState = EMPTY_DESK): DeskStor
 
 const MEMORY_KEY = Symbol.for("polarito.spyDesk.memoryStore");
 
-/** The store this server should use, or null when none is configured (the page then says so and the manual actions stay off). */
-export function createDeskStore(env: Env): DeskStore | null {
-  const kv = createKvDeskStore(env);
+/** The store this desk should use (its own record under its own key), or null when none is configured (the page then says so and the manual actions stay off). */
+export function createDeskStore(env: Env, profile: DeskProfile = MONTHLY_PROFILE): DeskStore | null {
+  const kv = createKvDeskStore(env, undefined, profile);
   if (kv) return kv;
   if (env.SPY_DESK_STORE === "memory" && env.NODE_ENV !== "production") {
     const g = globalThis as unknown as Record<symbol, DeskStore | undefined>;
-    g[MEMORY_KEY] ??= createMemoryDeskStore();
-    return g[MEMORY_KEY] ?? null;
+    const k = profile.id === "monthly" ? MEMORY_KEY : Symbol.for(`polarito.spyDesk.memoryStore.${profile.id}`);
+    g[k] ??= createMemoryDeskStore();
+    return g[k] ?? null;
   }
   return null;
 }

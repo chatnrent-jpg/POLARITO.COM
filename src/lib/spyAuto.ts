@@ -21,7 +21,7 @@
  *   - One lock around every run; a settled session is not run twice; a second auto-open on the same session is refused.
  */
 import { etClock, isTradingDay } from "@/lib/marketCalendar";
-import { LONG_TIMEFRAME_NAMES } from "@/lib/longPolarity";
+import { TIMEFRAME_NAMES } from "@/lib/deskReadings";
 import { DELTA_THRESHOLDS, FALLBACK_LABEL, assertContractRules, usd, type ChainRow } from "@/lib/optionsSelect";
 import type { OptionType } from "@/lib/broker/options";
 import {
@@ -151,8 +151,8 @@ export async function withLock<T>(kv: SpyKv, fn: (token: string) => Promise<T>):
 /* ------------------------------------------------------------- the view */
 
 /** What /spy shows about Auto. Reads only. Never throws; anything doubtful is OFF with the reason. */
-export async function buildAutoView(kv: SpyKv | null): Promise<AutoView> {
-  if (!kv) return AUTO_UNAVAILABLE;
+export async function buildAutoView(kv: SpyKv | null, schedule: string = AUTO_SCHEDULE_TEXT): Promise<AutoView> {
+  if (!kv) return { ...AUTO_UNAVAILABLE, schedule };
   const sw = await readSwitch(kv);
   const log = await readLog(kv);
   return {
@@ -160,7 +160,7 @@ export async function buildAutoView(kv: SpyKv | null): Promise<AutoView> {
     on: sw.ok ? sw.on : false,
     reason: sw.ok ? (sw.on ? "Auto is ON." : "Auto is OFF.") : `${sw.error} Auto is OFF until the store answers.`,
     at: sw.ok ? sw.at : null,
-    schedule: AUTO_SCHEDULE_TEXT,
+    schedule,
     log: log.ok ? log.log.slice(-AUTO_LOG_SHOWN).reverse() : [],
     logError: log.ok ? null : log.error,
     banner: null,
@@ -289,7 +289,7 @@ async function runLocked(deps: DeskDeps, config: DeskConfig, ctx: { kv: SpyKv; d
   const now = deps.now();
   const at = now.toISOString();
   const { date: session, minutes } = etClock(now);
-  const tfName = LONG_TIMEFRAME_NAMES[config.timeframe];
+  const tfName = TIMEFRAME_NAMES[config.timeframe];
   const prefix = dry ? "DRY RUN, nothing saved: " : "";
 
   const logRead = await readLog(kv);

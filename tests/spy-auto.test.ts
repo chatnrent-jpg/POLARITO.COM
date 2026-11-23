@@ -666,9 +666,10 @@ describe("Auto: safety rails in the source", () => {
   });
   it("vercel.json schedules weekdays only, always after 16:15 ET in both winter and summer time, on the guarded path", () => {
     const cfg = JSON.parse(fs.readFileSync("vercel.json", "utf8")) as { crons: Array<{ path: string; schedule: string }> };
-    assert.equal(cfg.crons.length, 2);
+    assert.equal(cfg.crons.length, 4, "two per desk: the monthly desk and the WWV desk");
+    for (const base of ["/api/spy/auto-run", "/api/spy-wwv/auto-run"]) assert.deepEqual(cfg.crons.filter((c) => c.path === base || c.path === `${base}?retry=1`).length, 2, base);
     for (const c of cfg.crons) {
-      assert.match(c.path, /^\/api\/spy\/auto-run(\?retry=1)?$/);
+      assert.match(c.path, /^\/api\/spy(-wwv)?\/auto-run(\?retry=1)?$/);
       const [min, hour, dom, mon, dow] = c.schedule.split(" ");
       assert.deepEqual([dom, mon, dow], ["*", "*", "1-5"]);
       for (const day of ["2026-01-14", "2026-07-15"]) {

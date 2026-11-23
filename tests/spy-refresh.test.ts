@@ -485,15 +485,17 @@ describe("rails: GET-only refresh, no order code", () => {
     assert.match(fs.readFileSync("src/lib/spyDeskRoutes.ts", "utf8"), /export async function handleLive[\s\S]*?if \(!deskEnabled\(ctx\.env\)\) return off\(\)/);
     assert.match(fs.readFileSync("src/lib/spyDeskRoutes.ts", "utf8"), /export async function handleAnalyze[\s\S]*?if \(!deskEnabled\(ctx\.env\)\) return off\(\)/);
     const proxy = fs.readFileSync("src/proxy.ts", "utf8");
-    assert.match(proxy, /SCHEDULER_PATH = "\/api\/spy\/auto-run"/);
-    assert.doesNotMatch(proxy, /api\/spy\/(live|analyze)/, "both stay behind the session gate");
+    assert.match(proxy, /SCHEDULER_PATHS: readonly string\[\] = \["\/api\/spy\/auto-run", "\/api\/spy-wwv\/auto-run"\]/);
+    assert.doesNotMatch(proxy.replace(/SCHEDULER_PATHS: readonly string\[\] = .*\n/, ""), /api\/spy/, "everything else stays behind the session gate");
   });
   it("the container sends the refresh through the GET helper only; its POSTs are the three user actions", () => {
     const src = fs.readFileSync("src/components/spy/SpyDesk.tsx", "utf8");
-    assert.match(src, /getJson\(LIVE_PATH/);
-    assert.match(src, /getJson\(DESK_PATH/);
-    assert.match(src, /getJson\(ANALYZE_PATH/);
+    assert.match(src, /getJson\(paths\.live/);
+    assert.match(src, /getJson\(paths\.desk/);
+    assert.match(src, /getJson\(paths\.analyze/);
     assert.equal([...src.matchAll(/method: "POST"/g)].length, 1);
-    for (const m of src.matchAll(/act\(\s*"([^"]+)"/g)) assert.match(m[1], /^\/api\/spy\/(ticket|close|auto)$/);
+    const acts = [...src.matchAll(/act\(\s*apiPath\(profile, "([^"]+)"\)/g)].map((m) => m[1]);
+    assert.deepEqual(acts.sort(), ["auto", "close", "ticket"]);
+    assert.equal([...src.matchAll(/\bact\(\s*[^a)\s]/g)].length, 0, "every act() goes through the desk's own apiPath");
   });
 });

@@ -9,6 +9,7 @@
  * because a per-instance copy would show a state other requests cannot see (a false state).
  */
 import { autoStoreCredentials } from "@/lib/liveAutoStore";
+import { MONTHLY_PROFILE, scopeKey, type DeskProfile } from "@/lib/spyProfile";
 
 const TIMEOUT_MS = 4_000;
 
@@ -132,15 +133,30 @@ export function createMemorySpyKv(clock: () => number = () => Date.now()): Memor
 }
 
 const MEMORY_KEY = Symbol.for("polarito.spyAuto.memoryKv");
+const memoryKeyFor = (profile: DeskProfile): symbol => (profile.id === "monthly" ? MEMORY_KEY : Symbol.for(`polarito.spyAuto.memoryKv.${profile.id}`));
 
-/** The key-value client this server should use, or null when none is configured (Auto then stays OFF and says so). */
-export function createSpyKv(env: Env): SpyKv | null {
+/**
+ * The same client, but every key goes through the profile's own prefix, so one desk's Auto switch, audit log and run lock can
+ * never be read, written or locked by the other. The auto-cycle code keeps using the shared key names and does not know.
+ */
+export function scopeKv(kv: SpyKv, profile: DeskProfile): SpyKv {
+  return {
+    get: (key) => kv.get(scopeKey(profile, key)),
+    set: (key, value) => kv.set(scopeKey(profile, key), value),
+    setNx: (key, value, ttlSeconds) => kv.setNx(scopeKey(profile, key), value, ttlSeconds),
+    del: (key) => kv.del(scopeKey(profile, key)),
+  };
+}
+
+/** The key-value client this desk should use, or null when none is configured (Auto then stays OFF and says so). */
+export function createSpyKv(env: Env, profile: DeskProfile = MONTHLY_PROFILE): SpyKv | null {
   const kv = createKvSpyKv(env);
-  if (kv) return kv;
+  if (kv) return scopeKv(kv, profile);
   if (env.SPY_DESK_STORE === "memory" && env.NODE_ENV !== "production") {
     const g = globalThis as unknown as Record<symbol, SpyKv | undefined>;
-    g[MEMORY_KEY] ??= createMemorySpyKv();
-    return g[MEMORY_KEY] ?? null;
+    const k = memoryKeyFor(profile);
+    g[k] ??= createMemorySpyKv();
+    return g[k] ? scopeKv(g[k] as SpyKv, profile) : null;
   }
   return null;
 }

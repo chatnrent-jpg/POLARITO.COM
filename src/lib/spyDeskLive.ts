@@ -11,6 +11,8 @@ import { connectAlpaca, type Connection } from "@/lib/spyConnect";
 import { memoAsync } from "@/lib/spyTtlCache";
 import type { DeskConfig, DeskDeps } from "@/lib/spyDesk";
 import { ENGINE_SYMBOL, parseEngineConfig } from "@/lib/spyEngine";
+import { MONTHLY_PROFILE, type DeskProfile } from "@/lib/spyProfile";
+import { WWV_HISTORY_CALENDAR_DAYS } from "@/lib/wwv";
 
 type Env = Readonly<Record<string, string | undefined>>;
 export type LiveDesk = { ok: true; deps: DeskDeps; config: DeskConfig } | { ok: false; code: "CONFIG" | "NO_KEYS"; error: string };
@@ -41,10 +43,41 @@ function sharedConnection(env: Env): Promise<Connection> {
 export type LiveDeskOptions = {
   /** The 5 s refresh: short caches, and the option chain is unreachable (readSide throws), so it cannot be hit by mistake. */
   light?: boolean;
+  /** Which desk (decision source) the data is for. Default: the monthly desk. */
+  profile?: DeskProfile;
 };
 
+type Cached = { loadDaily: DeskDeps["loadDaily"]; readSpot: DeskDeps["readSpot"]; readHeld: DeskDeps["readHeld"] };
+
+/**
+ * The light refresh caches live in module scope, so they are shared by every request this server instance answers (a cache
+ * built per request would never be hit). One entry per connection and data setup, so a key rotation or feed change cannot
+ * serve data read under another setup. Only good answers are kept, for seconds; nothing is written anywhere.
+ */
+const lightCaches = new WeakMap<Connection, Map<string, Cached>>();
+
+export function lightCacheFor(conn: Connection, key: string, make: () => Cached): Cached {
+  let byKey = lightCaches.get(conn);
+  if (!byKey) {
+    byKey = new Map();
+    lightCaches.set(conn, byKey);
+  }
+  let hit = byKey.get(key);
+  if (!hit) {
+    hit = make();
+    byKey.set(key, hit);
+  }
+  return hit;
+}
+
+/** First calendar day of the daily bars to load: enough sessions for the period readings (year-to-date plus the one before), or for WWV. */
+export function dailyStartFor(profile: DeskProfile, today: string): string {
+  return profile.fixedTimeframe === "D" ? addCalendarDays(today, -WWV_HISTORY_CALENDAR_DAYS) : addCalendarDays(longPeriodStart(today, "Y"), -45);
+}
+
 export async function createLiveDeskDeps(env: Env, now: () => Date = () => new Date(), opts: LiveDeskOptions = {}): Promise<LiveDesk> {
-  const cfg = parseEngineConfig(env);
+  const profile = opts.profile ?? MONTHLY_PROFILE;
+  const cfg = parseEngineConfig(env, profile.fixedTimeframe);
   if (!cfg.ok) return { ok: false, code: "CONFIG", error: cfg.error };
   const stockFeed = (env.SPY_STOCK_FEED ?? "sip").trim();
   const optionsFeed = (env.SPY_OPTIONS_FEED ?? "indicative").trim();
@@ -59,7 +92,7 @@ export async function createLiveDeskDeps(env: Env, now: () => Date = () => new D
   }
   const { client, contractsHost } = conn;
   const model = { rate: DEFAULT_RISK_FREE_RATE, dividendYield: DEFAULT_DIVIDEND_YIELD };
-  const dailyStart = addCalendarDays(longPeriodStart(etClock(now()).date, "Y"), -45);
+  const dailyStart = dailyStartFor(profile, etClock(now()).date);
   const feeds = stockFeed === "sip" ? ["sip", "iex"] : ["iex"];
 
   const full: DeskDeps = {
@@ -76,16 +109,22 @@ export async function createLiveDeskDeps(env: Env, now: () => Date = () => new D
       return row.ok ? row.row : null;
     },
   };
-  const deps: DeskDeps = opts.light
-    ? {
-        now,
-        loadDaily: memoAsync(full.loadDaily, { ttlMs: LIGHT_BARS_TTL_MS, keyOf: () => "daily", cacheable: (r) => r.ok }),
-        readSpot: memoAsync(full.readSpot, { ttlMs: LIGHT_QUOTE_TTL_MS, keyOf: () => "spot", cacheable: (r) => r.ok }),
-        readSide: async () => {
-          throw new Error("The option chain is not read by the light refresh.");
-        },
-        readHeld: memoAsync(full.readHeld, { ttlMs: LIGHT_QUOTE_TTL_MS, keyOf: (p) => p.symbol, cacheable: (r) => r !== null }),
-      }
-    : full;
+  let deps: DeskDeps = full;
+  if (opts.light) {
+    const cached = lightCacheFor(conn, `${stockFeed}|${optionsFeed}|${dailyStart}`, () => ({
+      loadDaily: memoAsync(full.loadDaily, { ttlMs: LIGHT_BARS_TTL_MS, keyOf: () => `daily|${profile.id}`, cacheable: (r) => r.ok }),
+      readSpot: memoAsync(full.readSpot, { ttlMs: LIGHT_QUOTE_TTL_MS, keyOf: () => "spot", cacheable: (r) => r.ok }),
+      readHeld: memoAsync(full.readHeld, { ttlMs: LIGHT_QUOTE_TTL_MS, keyOf: (p) => p.symbol, cacheable: (r) => r !== null }),
+    }));
+    deps = {
+      now,
+      loadDaily: cached.loadDaily,
+      readSpot: cached.readSpot,
+      readSide: async () => {
+        throw new Error("The option chain is not read by the light refresh.");
+      },
+      readHeld: cached.readHeld,
+    };
+  }
   return { ok: true, deps, config: { timeframe: cfg.config.timeframe, liveBudget: cfg.config.liveBudget } };
 }
