@@ -49,6 +49,7 @@ export default function SpyDesk({ profile = MONTHLY_PROFILE }: { profile?: DeskP
   const [close, setClose] = useState<CloseUi>(IDLE_CLOSE);
   const [autoUi, setAutoUi] = useState<AutoUi>(IDLE_AUTO);
   const [pocketOpen, setPocketOpen] = useState(false);
+  const [readingsPocketOpen, setReadingsPocketOpen] = useState(false);
   const alive = useRef(true);
 
   // A Close box left open for a position that is gone (Auto closed it, or a new one opened) must not carry over to the next one.
@@ -171,6 +172,8 @@ export default function SpyDesk({ profile = MONTHLY_PROFILE }: { profile?: DeskP
       onSubmitAuto={(on) => void submitAuto(on)}
       pocket={{ open: pocketOpen }}
       onPocketChange={setPocketOpen}
+      readingsPocket={{ open: readingsPocketOpen }}
+      onReadingsPocketChange={setReadingsPocketOpen}
     />
   );
 }
